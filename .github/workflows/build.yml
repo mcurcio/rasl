@@ -58,7 +58,7 @@ jobs:
             cache: 'npm'
             cache-dependency-path: '**/package-lock.json'
         - run: npm ci
-        - run: npm build
+        - run: npm run build
         - run: npm test
 
     publish:
@@ -91,7 +91,7 @@ jobs:
           run: echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}" >> $GITHUB_OUTPUT
           id: extract_branch
         - run: npm ci
-        - run: npm build
+        - run: npm run build
         - name: Deploy to npm
           env:
             NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
