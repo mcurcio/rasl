@@ -5,7 +5,7 @@ jobs:
     lint:
         permissions:
             contents: read
-        runs-on: [linux]
+        runs-on: [ubuntu-latest]
         steps:
             - uses: actions/checkout@v4
               with:
@@ -37,7 +37,7 @@ jobs:
     test:
         permissions:
             contents: read
-        runs-on: [linux]
+        runs-on: [ubuntu-latest]
         steps:
         - uses: actions/checkout@v4
           with:
@@ -64,7 +64,7 @@ jobs:
     publish:
         permissions:
           contents: write
-        runs-on: [linux]
+        runs-on: [ubuntu-latest]
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/beta' || github.ref == 'refs/heads/alpha')
         needs: [lint, test]
         steps:
