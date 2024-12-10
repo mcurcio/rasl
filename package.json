@@ -1,0 +1,28 @@
+{
+  "name": "rasl",
+  "version": "0.1.0-alpha.1",
+  "description": "Real-Time Animation Show Library",
+  "main": "index.js",
+  "repository": "https://github.com/mcurcio/rasl.git",
+  "author": "Matt Curcio <mcurcio@users.noreply.github.com>",
+  "license": "MIT",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc --build --verbose",
+    "test": "jest"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "eslint": "^9.16.0",
+    "jest": "^29.7.0",
+    "lerna": "^8.1.9",
+    "prettier": "^3.4.2",
+    "ts-node": "^10.9.2",
+    "tsc": "^2.0.4",
+    "typescript": "^5.7.2"
+  }
+}

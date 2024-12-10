@@ -1,0 +1,14 @@
+{
+	"version": "independent",
+	"npmClient": "yarn",
+	"command": {
+	  "publish": {
+		"conventionalCommits": true,
+		"create-release": "github",
+		"message": "build(release): Publish new package versions [skip ci]"
+	  }
+	},
+	"packages": [
+	  "packages/*"
+	]
+  }
