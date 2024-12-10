@@ -13,94 +13,88 @@ jobs:
             - uses: actions/setup-node@v4
               with:
                 node-version-file: .nvmrc
+                cache: 'npm'
+                cache-dependency-path: '**/package-lock.json'
             - run: npm config set '//registry.npmjs.org/:_authToken' "${{ secrets.NPM_TOKEN }}"
             - uses: kenchan0130/actions-system-info@master
               id: system-info
             - name: Dump System Info
               env:
                 SYSINFO: ${{ toJson(steps.system-info) }}
-                run: echo "$SYSINFO"
-            - run: npm install -g yarn
-            - uses: actions/setup-node@v4
-              with:
-                node-version-file: .nvmrc
-                cache: 'yarn'
-                cache-dependency-path: '**/yarn.lock'
-            - run: yarn install --frozen-lockfile
+              run: echo "$SYSINFO"
+            - run: npm ci
             - name: Validate current commit (last commit) with commitlint
               if: github.event_name == 'pull_request'
               run: npx commitlint --from HEAD~1 --to HEAD --verbose
             - name: Validate PR commits with commitlint
               if: github.event_name == 'pull_request'
               run: npx commitlint --from ${{ github.event.pull_request.head.sha }}~${{ github.event.pull_request.commits }} --to ${{ github.event.pull_request.head.sha }} --verbose
-            - run: yarn prettier:ci
+            - run: npx prettier --check .
               if: github.event_name == 'pull_request'
-            - run: yarn lint:ci
+            - run: npx eslint .
               if: github.event_name == 'pull_request'
 
-        test:
-            permissions:
-                contents: read
-            runs-on: [linux]
-            steps:
-            - uses: actions/checkout@v4
-              with:
-                fetch-depth: 0
-            - uses: actions/setup-node@v4
-              with:
-                node-version-file: .nvmrc
-            - run: npm config set '//registry.npmjs.org/:_authToken' "${{ secrets.NPM_TOKEN }}"
-            - uses: kenchan0130/actions-system-info@master
-              id: system-info
-            - name: Dump System Info
-              env:
-                SYSINFO: ${{ toJson(steps.system-info) }}
-                run: echo "$SYSINFO"
-            - run: npm install -g yarn
-            - uses: actions/setup-node@v4
-              with:
-                node-version-file: .nvmrc
-                cache: 'yarn'
-                cache-dependency-path: '**/yarn.lock'
-            - run: yarn install --frozen-lockfile
-            - run: yarn build
-            - run: yarn test:ci
+    test:
+        permissions:
+            contents: read
+        runs-on: [linux]
+        steps:
+        - uses: actions/checkout@v4
+          with:
+            fetch-depth: 0
+        - uses: actions/setup-node@v4
+          with:
+            node-version-file: .nvmrc
+        - run: npm config set '//registry.npmjs.org/:_authToken' "${{ secrets.NPM_TOKEN }}"
+        - uses: kenchan0130/actions-system-info@master
+          id: system-info
+        - name: Dump System Info
+          env:
+            SYSINFO: ${{ toJson(steps.system-info) }}
+          run: echo "$SYSINFO"
+        - uses: actions/setup-node@v4
+          with:
+            node-version-file: .nvmrc
+            cache: 'npm'
+            cache-dependency-path: '**/package-lock.json'
+        - run: npm ci
+        - run: npm build
+        - run: npm test
 
-        publish:
-            permissions:
-            contents: write
-            runs-on: [linux]
-            if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/beta' || github.ref == 'refs/heads/alpha')
-            needs: [lint, test]
-            steps:
-            - uses: actions/checkout@v4
-              with:
-                fetch-depth: 0
-            - uses: actions/setup-node@v4
-              with:
-                node-version-file: .nvmrc
-            - run: npm config set '//registry.npmjs.org/:_authToken' "${{ secrets.NPM_TOKEN }}"
-            - uses: kenchan0130/actions-system-info@master
-              id: system-info
-            - name: Dump System Info
-              env:
-                SYSINFO: ${{ toJson(steps.system-info) }}
-                run: echo "$SYSINFO"
-            - run: npm install -g yarn
-            - uses: actions/setup-node@v4
-              with:
-                node-version-file: .nvmrc
-                cache: 'yarn'
-                cache-dependency-path: '**/yarn.lock'
-            - name: Extract branch name
-              shell: bash
-              run: echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}" >> $GITHUB_OUTPUT
-              id: extract_branch
-            - run: yarn install --frozen-lockfile
-            - run: yarn build
-            - name: Deploy to npm
-              env:
-                NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-                VERSION_STRATEGY: "${{ steps.extract_branch.outputs.branch == 'main' && '--conventional-graduate' || '--conventional-prerelease' }}"
-                run: |
-                yarn lerna publish --yes --preid=${{ steps.extract_branch.outputs.branch }} $VERSION_STRATEGY
+    publish:
+        permissions:
+          contents: write
+        runs-on: [linux]
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/beta' || github.ref == 'refs/heads/alpha')
+        needs: [lint, test]
+        steps:
+        - uses: actions/checkout@v4
+          with:
+            fetch-depth: 0
+        - uses: actions/setup-node@v4
+          with:
+            node-version-file: .nvmrc
+        - run: npm config set '//registry.npmjs.org/:_authToken' "${{ secrets.NPM_TOKEN }}"
+        - uses: kenchan0130/actions-system-info@master
+          id: system-info
+        - name: Dump System Info
+          env:
+            SYSINFO: ${{ toJson(steps.system-info) }}
+          run: echo "$SYSINFO"
+        - uses: actions/setup-node@v4
+          with:
+            node-version-file: .nvmrc
+            cache: 'npm'
+            cache-dependency-path: '**/package-lock.json'
+        - name: Extract branch name
+          shell: bash
+          run: echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}" >> $GITHUB_OUTPUT
+          id: extract_branch
+        - run: npm ci
+        - run: npm build
+        - name: Deploy to npm
+          env:
+            NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+            VERSION_STRATEGY: "${{ steps.extract_branch.outputs.branch == 'main' && '--conventional-graduate' || '--conventional-prerelease' }}"
+          run: |
+            npx lerna publish --yes --preid=${{ steps.extract_branch.outputs.branch }} $VERSION_STRATEGY
