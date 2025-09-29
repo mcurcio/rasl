@@ -1,0 +1,21 @@
+{
+	"name": "@rasl/example",
+	"version": "0.1.0",
+	"type": "module",
+	"exports": {
+		"./*": "./build/*.js"
+	},
+	"scripts": {
+		"start": "tsx src/index"
+	},
+	"devDependencies": {
+		"tsx": "^4.19.2"
+	},
+	"dependencies": {
+		"@rasl/core": "^0.1.0"
+	},
+	"keywords": [],
+	"author": "@mcurcio",
+	"license": "MIT",
+	"description": ""
+}
