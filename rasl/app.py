@@ -1,7 +1,8 @@
 """
 Main RASL application orchestrator.
 
-Coordinates script loading, engine execution, web server, and monitoring.
+Coordinates script loading, engine execution, web server, and monitoring
+through dedicated manager components.
 """
 
 import asyncio
@@ -12,32 +13,32 @@ from typing import Optional
 
 from rasl.config import Config
 from rasl.core.monitor import NodeMonitor
-from rasl.script.loader import ScriptLoader
-from rasl.script.watcher import ScriptWatcher
-from .server.app import create_web_app
+from rasl.script.manager import ScriptManager
+from rasl.server.manager import WebServerManager
 
 logger = logging.getLogger(__name__)
 
 
 class RASLApp:
     """
-    Main application class that orchestrates all RASL components.
+    Main application orchestrator that coordinates RASL components.
     
-    Responsibilities:
-    - Load and validate user scripts
-    - Start and manage the execution engine
-    - Run the web server for UI and API
-    - Handle hot-reload of script changes
-    - Coordinate shutdown and cleanup
+    Uses dedicated managers for clean separation of concerns:
+    - ScriptManager: Handles script loading and hot-reload
+    - WebServerManager: Manages web server lifecycle
+    - Engine: Executes the animation graph
+    - Monitor: Tracks performance and health
     """
     
     def __init__(self, config: Config):
         self.config = config
-        self.engine: Optional[Engine] = None
+        self.engine: Optional['Engine'] = None
         self.monitor = NodeMonitor()
-        self.script_loader = ScriptLoader()
-        self.script_watcher: Optional[ScriptWatcher] = None
-        self.web_app = None
+        
+        # Dedicated managers for clean separation
+        self.script_manager = ScriptManager(config)
+        self.web_server_manager = WebServerManager(config)
+        
         self._shutdown_event = asyncio.Event()
         
     async def run(self):
@@ -49,87 +50,74 @@ class RASLApp:
         # Setup signal handlers for graceful shutdown
         self._setup_signal_handlers()
         
-        # Load initial script
-        await self._load_script()
-        
-        # Start script watcher if enabled
-        if self.config.watch_enabled:
-            await self._start_script_watcher()
-        
-        # Start web server
-        await self._start_web_server()
-        
-        # Start execution engine
-        await self._start_engine()
-        
-        # Wait for shutdown signal
-        await self._shutdown_event.wait()
-        
-        # Cleanup
-        await self._cleanup()
-        
-    async def _load_script(self):
-        """Load and validate the user script."""
-        logger.info(f"Loading script: {self.config.script_path}")
-        
         try:
-            graph_spec = await self.script_loader.load_script(self.config.script_path)
-            logger.info(f"Script loaded successfully: {len(graph_spec.nodes)} nodes, {len(graph_spec.sinks)} sinks")
+            # Load script and create engine
+            await self.script_manager.load_initial_script()
+            self._create_engine()
             
-            # Stop existing engine if running
-            if self.engine:
-                await self.engine.stop()
-            
-            # Create new engine from the discovered graph
-            from .core.scheduler import FixedRateScheduler, MonotonicClock
-            from .core.engine import Engine
-            from .core.executor import Executor
-            from .core.validator import Validator
-            
-            # Create scheduler with configured frame rate
-            clock = MonotonicClock()
-            scheduler = FixedRateScheduler(clock, self.config.default_frame_rate)
-            
-            # Create executor and register all discovered nodes
-            executor = Executor()
-            for node in graph_spec.nodes:
-                executor.register_node(node)
-            
-            # Create validator and register nodes
-            validator = Validator()
-            for node in graph_spec.nodes:
-                validator.register_node(node)
-            
-            # Create engine with discovered sinks
-            self.engine = Engine(
-                sinks=graph_spec.sinks,
-                scheduler=scheduler,
-                executor=executor,
-                validator=validator,
+            # Start managers
+            await self.script_manager.start_watching(self._handle_script_change)
+            await self.web_server_manager.start(
+                engine_provider=lambda: self.engine,
                 monitor=self.monitor
             )
             
-            logger.info(f"Engine created with {len(graph_spec.sinks)} sinks")
+            # Start engine execution
+            await self._start_engine()
             
-        except Exception as e:
-            logger.error(f"Failed to load script: {e}")
-            raise
+            # Wait for shutdown signal
+            await self._shutdown_event.wait()
             
-    async def _start_script_watcher(self):
-        """Start watching script file for changes."""
-        self.script_watcher = ScriptWatcher(
-            script_path=self.config.script_path,
-            on_change=self._handle_script_change
-        )
-        await self.script_watcher.start()
-        logger.info("Script watcher started")
+        finally:
+            # Always cleanup
+            await self._cleanup()
+    
+    def _create_engine(self):
+        """Create engine from current script specification."""
+        if not self.script_manager.current_spec:
+            raise RuntimeError("No script loaded")
         
+        spec = self.script_manager.current_spec
+        logger.info(f"Creating engine: {len(spec.nodes)} nodes, {len(spec.sinks)} sinks")
+        
+        # Import engine components
+        from rasl.core.scheduler import FixedRateScheduler, MonotonicClock
+        from rasl.core.engine import Engine
+        from rasl.core.executor import Executor
+        from rasl.core.validator import Validator
+        
+        # Create scheduler with configured frame rate
+        clock = MonotonicClock()
+        scheduler = FixedRateScheduler(clock, self.config.default_frame_rate)
+        
+        # Create executor and register all discovered nodes
+        executor = Executor()
+        for node in spec.nodes:
+            executor.register_node(node)
+        
+        # Create validator and register nodes
+        validator = Validator()
+        for node in spec.nodes:
+            validator.register_node(node)
+        
+        # Create engine with discovered sinks
+        self.engine = Engine(
+            sinks=spec.sinks,
+            scheduler=scheduler,
+            executor=executor,
+            validator=validator,
+            monitor=self.monitor
+        )
+        
+        logger.info(f"Engine created with {len(spec.sinks)} sinks")
+        return self.engine
+    
     async def _handle_script_change(self):
         """Handle script file changes for hot-reload."""
         logger.info("Script changed, reloading...")
         
         try:
-            await self._load_script()
+            await self.script_manager.reload_script()
             
             # Restart engine with new graph
             if self.engine:
@@ -140,31 +128,7 @@ class RASLApp:
         except Exception as e:
             logger.error(f"Failed to reload script: {e}")
             # Don't crash on reload failure, keep running with old graph
-            
-    async def _start_web_server(self):
-        """Start the web server for UI and API."""
-        import uvicorn
-        from rasl.server.app import create_web_app
-        
-        self.web_app = create_web_app(
-            engine_provider=lambda: self.engine,
-            monitor=self.monitor,
-            config=self.config
-        )
-        
-        # Start uvicorn server in background
-        config = uvicorn.Config(
-            self.web_app,
-            host=self.config.host,
-            port=self.config.ui_port,
-            log_level="info"
-        )
-        self.web_server = uvicorn.Server(config)
-        
-        # Start server in background task
-        import asyncio
-        self.web_server_task = asyncio.create_task(self.web_server.serve())
-        
+    
     async def _start_engine(self):
         """Start the execution engine."""
         if not self.engine:
@@ -180,18 +144,19 @@ class RASLApp:
         
         tasks = []
         
+        # Stop engine
         if self.engine:
             tasks.append(self.engine.stop())
-            
-        if self.script_watcher:
-            tasks.append(self.script_watcher.stop())
-            
+        
+        # Stop script watcher
+        if self.script_manager.is_watching:
+            tasks.append(self.script_manager.stop_watching())
+        
         # Stop web server
-        if hasattr(self, 'web_server') and self.web_server:
-            self.web_server.should_exit = True
-            if hasattr(self, 'web_server_task'):
-                tasks.append(self.web_server_task)
-            
+        if self.web_server_manager.is_running:
+            tasks.append(self.web_server_manager.stop())
+        
+        # Wait for all cleanup tasks
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
             
