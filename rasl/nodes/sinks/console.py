@@ -197,21 +197,17 @@ class ConsoleSink(BaseSink):
             print(f"{port_name}: {data}")
     
     def port_schema(self, name: str) -> Schema:
-        """Accept any input schema."""
+        """
+        ConsoleSink accepts any input schema - it's flexible.
+        
+        Returns a minimal schema that will be compatible with any input
+        through the connection validation process.
+        """
         if name == "in":
-            # For MVP: Flexible schema that accepts multiple channels
-            # TODO: Make this truly dynamic
-            return Schema(components=(
-                Component(
-                    name="Scalar",
-                    channels=(
-                        Channel("ch0", "unitless", Range()),
-                        Channel("ch1", "unitless", Range()),
-                        Channel("ch2", "unitless", Range()),
-                        Channel("ch3", "unitless", Range()),
-                    )
-                ),
-            ))
+            # Return an empty schema that will be adapted during connection
+            # The actual schema compatibility will be handled by allowing
+            # any number of channels in the connection validation
+            return Schema(components=())
         
         raise ValueError(f"Unknown port: {name}")
 

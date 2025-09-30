@@ -143,15 +143,27 @@ class RASLApp:
             
     async def _start_web_server(self):
         """Start the web server for UI and API."""
+        import uvicorn
+        from rasl.server.app import create_web_app
+        
         self.web_app = create_web_app(
             engine_provider=lambda: self.engine,
             monitor=self.monitor,
             config=self.config
         )
         
-        # TODO: Start web server
-        # This should start both the API server and serve the UI
-        logger.info(f"Web server starting on {self.config.host}:{self.config.ui_port}")
+        # Start uvicorn server in background
+        config = uvicorn.Config(
+            self.web_app,
+            host=self.config.host,
+            port=self.config.ui_port,
+            log_level="info"
+        )
+        self.web_server = uvicorn.Server(config)
+        
+        # Start server in background task
+        import asyncio
+        self.web_server_task = asyncio.create_task(self.web_server.serve())
         
     async def _start_engine(self):
         """Start the execution engine."""
@@ -173,6 +185,12 @@ class RASLApp:
             
         if self.script_watcher:
             tasks.append(self.script_watcher.stop())
+            
+        # Stop web server
+        if hasattr(self, 'web_server') and self.web_server:
+            self.web_server.should_exit = True
+            if hasattr(self, 'web_server_task'):
+                tasks.append(self.web_server_task)
             
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)

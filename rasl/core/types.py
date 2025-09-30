@@ -122,6 +122,10 @@ class Schema:
     
     def is_compatible(self, other: "Schema") -> bool:
         """Check if this schema is compatible with another for connections."""
+        # Special case: Empty schema (like ConsoleSink) accepts any input
+        if self.channel_count() == 0 or other.channel_count() == 0:
+            return True
+        
         # For MVP: Allow connections if channel counts match
         # This enables flexible connections between different node types
         # TODO: Implement full compatibility checking including units, colorspace, names

@@ -121,31 +121,8 @@ class BaseNode:
         """Override in subclasses to define port schemas."""
         raise NotImplementedError(f"Port schema not defined for {name}")
     
-    def __rshift__(self, other: "Node") -> "Node":
-        """
-        Enable node >> node syntax for connecting default ports.
-        
-        Connects self.ports.out to other.ports.in by default.
-        Returns the destination node to enable chaining.
-        """
-        from .ports import connect
-        
-        # Get default output port from source
-        try:
-            src_port = self.ports["out"]
-        except (ValueError, KeyError):
-            raise ValueError(f"Node {self.id} has no 'out' port for connection")
-        
-        # Get default input port from destination  
-        try:
-            dst_port = other.ports["in"]
-        except (ValueError, KeyError):
-            raise ValueError(f"Node {other.id} has no 'in' port for connection")
-        
-        # Create the connection
-        connect(src_port, dst_port)
-        
-        return other
+    # Node-level connections removed - use explicit port connections:
+    # sine.ports.out >> console.ports.in
 
 
 @runtime_checkable

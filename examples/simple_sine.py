@@ -33,7 +33,8 @@ console = ConsoleSink(
 )
 
 # Connect the nodes - this registers connections globally
-sine >> console
+sine.ports.out >> scaler.ports["in"]
+scaler.ports.out >> console.ports["in"]
 
 # The RASL application will:
 # 1. Find 'console' (a Sink) in the script globals

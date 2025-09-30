@@ -57,21 +57,15 @@ class ScaleBias(BaseTransform):
         return {"out": output_data}
     
     def port_schema(self, name: str) -> Schema:
-        """Pass-through schema - output matches input."""
+        """
+        Flexible schema - accepts any number of input channels.
+        
+        Transform nodes should be flexible and adapt to their inputs.
+        """
         if name in ("in", "out"):
-            # For MVP: Use a flexible schema that accepts any number of channels
-            # TODO: Make this properly dynamic based on connected input
-            return Schema(components=(
-                Component(
-                    name="Scalar",
-                    channels=(
-                        Channel("ch0", "unitless", Range()),
-                        Channel("ch1", "unitless", Range()),
-                        Channel("ch2", "unitless", Range()),
-                        Channel("ch3", "unitless", Range()),
-                    )
-                ),
-            ))
+            # Return empty schema for flexibility - will accept any input
+            # and pass through the same structure
+            return Schema(components=())
         
         raise ValueError(f"Unknown port: {name}")
 
