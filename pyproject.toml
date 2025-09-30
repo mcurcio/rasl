@@ -1,0 +1,92 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rasl"
+version = "0.1.0"
+description = "Real-Time Animation Show Library - Standalone application for lighting control"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    {name = "RASL Team", email = "team@rasl.dev"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: System :: Hardware",
+]
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "websockets>=12.0",
+    "numpy>=1.24.0",
+    "pydantic>=2.5.0",
+    "watchdog>=3.0.0",
+    "click>=8.1.0",
+    "rich>=13.0.0",
+    "sacn>=1.9.0",
+    "lifxlan>=1.2.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "mypy>=1.6.0",
+    "ruff>=0.1.0",
+]
+build = [
+    "pyinstaller>=6.0.0",
+    "cx-freeze>=6.15.0",
+]
+
+[project.scripts]
+rasl = "rasl.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/rasl-dev/rasl"
+Repository = "https://github.com/rasl-dev/rasl"
+Documentation = "https://rasl.dev/docs"
+"Bug Tracker" = "https://github.com/rasl-dev/rasl/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["rasl*"]
+
+[tool.setuptools.package-data]
+rasl = ["ui/dist/**/*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py39']
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q --strict-markers"
+testpaths = ["tests"]
+asyncio_mode = "auto"

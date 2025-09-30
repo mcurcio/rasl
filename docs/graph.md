@@ -51,7 +51,11 @@ The graph defines *what* computes in RASL and *how* data flows. It is a directed
 
 ---
 ## Liveness & EOS
-- **Source capability**: `STREAM | FINITE | EVENT` declared by type (not a param).
+- **Source capability**: `FINITE | GENERATOR | STREAMING` declared by type (not a param).
+  - **FINITE**: bounded media with definite end (CSV file, audio file)
+  - **GENERATOR**: can run indefinitely but may end naturally (sine wave, noise)
+  - **STREAMING**: external infinite streams (network input, live audio)
+- **Liveness Elevation**: Sources with looping elevate their liveness (finite loops → GENERATOR, infinite loops → STREAMING).
 - **Per‑input EOS policy** at joins/sinks: `hold_last | zero | repeat | stop_sink | fail`.
 - **Multi‑input nodes** declare `eos_mode`: `pass_through | until_all_done | until_any_done`.
 - **Defaults** favor real‑time continuity: `pass_through` + `hold_last`.

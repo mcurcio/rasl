@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Protocol, Sequence, Tuple, Union, runtime_checkable
+from abc import ABC, abstractmethod
 
 # Minimal array protocol for type hints; implementers can widen as needed
 NDArrayLike = Any  # numpy.ndarray | torch.Tensor | array.array | memoryview
@@ -43,21 +44,22 @@ class Range:
 
 class Liveness(str, Enum):
     """Source capability (declared at type level).
-    - STREAM: potentially unbounded stream; may end/interrupt but not predetermined
-    - FINITE: bounded media that will emit EOS once (unless looping)
-    - EVENT: sparse/bursty events with timestamps (engine samples/holds)
+    - FINITE: bounded media with definite end (CSV file, audio file played once)
+    - GENERATOR: can produce data indefinitely but may end naturally (sine wave, noise)
+    - STREAMING: external, potentially infinite data streams (network input, live audio)
     """
-    STREAM = "stream"
     FINITE = "finite"
-    EVENT = "event"
+    GENERATOR = "generator"
+    STREAMING = "streaming"
 
 @dataclass(frozen=True)
 class Frame:
     """Monotonic frame context emitted by the scheduler. All nodes see the same
     Frame during a tick."""
-    t: float   # absolute time (seconds)
+    t: float   # sequence time (0.0 = start of execution)
     dt: float  # delta time since previous frame (seconds)
     seq: int   # monotonically increasing sequence number
+    wall_time: float = 0.0  # wall clock time (for debugging/logging only)
 
 @dataclass(frozen=True)
 class Channel:
@@ -81,6 +83,34 @@ class Schema:
     Connections align **by component/channel ids**, not positional index.
     """
     components: Tuple[Component, ...]
+
+class EOS:
+    """End of stream marker returned by nodes when they complete naturally."""
+    pass
+
+class EndOfData(Exception):
+    """Raised by finite sources when data is exhausted."""
+    pass
+
+@dataclass
+class ExecutionState:
+    """Read-only execution state available to node implementations."""
+    current_loop: int = 0
+    should_loop: bool = False
+    remaining_duration: Optional[float] = None
+    downstream_demand: bool = True
+    
+    def notify_loop_completed(self) -> None:
+        """Inform base class that a loop iteration completed."""
+        pass
+    
+    def notify_duration_exceeded(self) -> None:
+        """Signal that duration limit was reached."""
+        pass
+    
+    def notify_resource_exhausted(self) -> None:
+        """Indicate external resource was depleted."""
+        pass
 ```
 
 ---
@@ -155,27 +185,53 @@ class Node(Protocol):
 @runtime_checkable
 class Source(Node, Protocol):
     LIVENESS: Liveness
+    
+    @property
+    def execution_state(self) -> ExecutionState: ...  # Read-only execution state
+    
     def open(self) -> None: ...    # acquire resources
     def close(self) -> None: ...
 
-    # Produce data for a given frame; must not mutate inputs; non‑blocking
-    def sample(self, frame: Frame) -> Mapping[str, NDArrayLike]: ...  # typically {"out": array}
+    # Core implementation methods (implemented by child classes)
+    def _determine_base_liveness(self) -> Liveness: ...  # Intrinsic liveness before elevation
+    def _generate_data(self, frame: Frame) -> Union[NDArrayLike, EOS]: ...  # Core data generation
+    def _reset_to_beginning(self) -> None: ...  # Domain-specific reset for looping
+
+    # Engine interface (implemented by base class)
+    def sample(self, frame: Frame) -> Union[Mapping[str, NDArrayLike], EOS]: ...  # Engine calls this
 
     # Optional for FINITE media
-    def duration_seconds(self) -> Optional[float]: ...
+    def calculate_duration(self) -> Optional[float]: ...  # Calculate intrinsic duration
 
 @runtime_checkable
 class Transform(Node, Protocol):
-    # Pure compute given inputs for this frame
+    # Core implementation method (implemented by child classes)
+    def _transform_data(self, inputs: Dict[str, NDArrayLike], frame: Frame) -> Dict[str, NDArrayLike]: ...
+    
+    # Engine interface (implemented by base class)
     def evaluate(self, frame: Frame, **inputs: NDArrayLike) -> Mapping[str, NDArrayLike]: ...
 
 @runtime_checkable
 class Sink(Node, Protocol):
-    # Called when sink should emit for this frame. Must be fast and non‑blocking.
-    def emit(self, frame: Frame, **inputs: NDArrayLike) -> None: ...
+    # Core implementation methods (implemented by child classes)
+    def _initialize(self) -> None: ...  # Setup resources (optional)
+    def _emit_data(self, inputs: Dict[str, NDArrayLike], frame: Frame) -> None: ...  # Core emission logic
+    def _finalize(self) -> None: ...  # Cleanup resources (optional)
+    
+    # Engine interface (implemented by base class)
+    def emit(self, frame: Frame, **inputs: NDArrayLike) -> None: ...  # Engine calls this
 
     # Optional per‑sink cadence requirements
     def required_rate(self) -> Optional[Mapping[str, Any]]: ...  # {target_hz, tolerance, align}
+
+# Special transform for time domain bridging
+class TimeWarp(Transform):
+    """Converts between different time domains (e.g., audio time to sequence time)."""
+    def __init__(self, from_domain: str, to_domain: str, rate: float = 1.0, **kwargs):
+        self.from_domain = from_domain
+        self.to_domain = to_domain
+        self.rate = rate  # Time scaling factor
+        super().__init__(**kwargs)
 ```
 
 ---
@@ -294,7 +350,49 @@ class HttpApi(Protocol):
 ```
 
 ---
-## 10. Plugins
+## 10. Mixins (composable behaviors)
+
+```python
+class LoopingMixin:
+    """Adds loop counting with automatic liveness elevation."""
+    def __init__(self, loop_count: int = 1, **kwargs):
+        self.loop_count = loop_count
+        super().__init__(**kwargs)
+    
+    @property
+    def liveness(self) -> Liveness:
+        """Elevate base liveness based on loop configuration."""
+        base = self._determine_base_liveness()
+        if self.loop_count == -1:
+            return Liveness.STREAMING  # Infinite loops
+        elif self.loop_count > 1:
+            return Liveness.GENERATOR  # Multiple loops
+        else:
+            return base  # Single iteration
+
+class DurationMixin:
+    """Adds duration limits for generator sources."""
+    def __init__(self, duration: Optional[float] = None, **kwargs):
+        self.duration = duration
+        super().__init__(**kwargs)
+    
+    @property 
+    def liveness(self) -> Liveness:
+        """Generators with duration limits become finite."""
+        base = self._determine_base_liveness()
+        if base == Liveness.GENERATOR and self.duration is not None:
+            return Liveness.FINITE
+        return base
+
+class RateLimitMixin:
+    """Adds output rate control."""
+    def __init__(self, max_hz: float = 60.0, **kwargs):
+        self.max_hz = max_hz
+        super().__init__(**kwargs)
+```
+
+---
+## 11. Plugins
 
 ```python
 class PluginRegistry(Protocol):
@@ -321,7 +419,7 @@ class EngineStartError(Exception): ...
 
 ```python
 # Define nodes
-sine = SineSource(freq=1.2, channels=150)   # Source (STREAM)
+sine = SineSource(freq=1.2, channels=150)   # Source (GENERATOR)
 amp  = ScaleBias(scale=0.6, bias=0.2)       # Transform
 rgb  = ToRGB()                              # Transform
 sacn = SACNSink(universe=1, start=1,        # Sink
@@ -345,4 +443,4 @@ await engine.start()
 - Observers read **committed** snapshots only; reads never trigger compute.
 - Permutations of components/channels are resolved by **name**, not index; reorders don’t require a transform.
 - Semantic changes (colorspace, units, structural) require explicit nodes.
-- Finite/stream/event are declared by **type** (not by params). Looping for seekable media (CSV) is intrinsic.
+- Liveness (FINITE/GENERATOR/STREAMING) is declared by **type** with elevation via looping configuration. Looping for seekable media (CSV) is explicit via parameters.
