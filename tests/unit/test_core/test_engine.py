@@ -165,8 +165,8 @@ class TestEngineIntegration:
     async def test_engine_with_test_nodes(self, test_source, test_transform, test_sink):
         """Test engine with actual test nodes."""
         # Connect nodes
-        test_source.ports.out >> test_transform.ports.in
-        test_transform.ports.out >> test_sink.ports.in
+        test_source.ports.out >> test_transform.ports["in"]
+        test_transform.ports.out >> test_sink.ports["in"]
         
         # Create engine
         clock = MonotonicClock()

@@ -17,7 +17,7 @@ When run with `rasl run color_chase.py`, RASL will:
 4. Start execution loop outputting to both console and sACN network
 """
 
-from rasl import *
+from rasl import SineSource, ScaleBias, ConsoleSink
 
 # Create multiple sine waves with phase shifts for chase effect
 chase = SineSource(

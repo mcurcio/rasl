@@ -9,10 +9,12 @@ Defines the fundamental node types:
 """
 
 import abc
+import uuid
 from typing import Any, Dict, Mapping, Optional, Protocol, runtime_checkable
 
 from .types import Frame, Liveness, NodeState, Schema
-from .ports import PortsView
+from .ports import PortsView, SimplePortsView
+from .parameter_validator import ParameterValidator
 
 # Type alias for array-like data
 NDArrayLike = Any  # numpy.ndarray | torch.Tensor | list | etc.
@@ -73,14 +75,18 @@ class BaseNode:
         self._id = id or self._generate_id()
         self._params = {}
         self._ports_view = None  # Lazy initialization
+        self._parameter_validator = ParameterValidator()
         
         # Validate and set initial parameters
         param_spec = self.param_spec()
-        for key, value in params.items():
-            if key not in param_spec:
-                raise ValueError(f"Unknown parameter: {key}")
-            # TODO: Add parameter validation based on spec
-            self._params[key] = value
+        if params:
+            validated_params = self._parameter_validator.validate_and_coerce(param_spec, params)
+            self._params.update(validated_params)
+        
+        # Set defaults for missing parameters
+        for param_name, spec in param_spec.items():
+            if param_name not in self._params:
+                self._params[param_name] = self._parameter_validator.get_default_value(spec)
     
     @property
     def id(self) -> str:
@@ -98,23 +104,18 @@ class BaseNode:
     
     def set_params(self, **params: Any) -> None:
         param_spec = self.param_spec()
-        for key, value in params.items():
-            if key not in param_spec:
-                raise ValueError(f"Unknown parameter: {key}")
-            # TODO: Add parameter validation and coercion
-            self._params[key] = value
+        validated_params = self._parameter_validator.validate_and_coerce(param_spec, params)
+        self._params.update(validated_params)
     
     def get_params(self) -> Mapping[str, Any]:
         return dict(self._params)
     
     def _generate_id(self) -> str:
         """Generate unique node ID."""
-        import uuid
         return f"{self.TYPE.lower()}_{uuid.uuid4().hex[:8]}"
     
     def _create_ports_view(self) -> PortsView:
         """Create ports view for this node. Override in subclasses."""
-        from .ports import SimplePortsView
         return SimplePortsView(self)
     
     def port_schema(self, name: str) -> Schema:
@@ -159,23 +160,23 @@ class BaseSource(BaseNode):
     """Base implementation for Source nodes."""
     
     KIND = "source"
+    TYPE = "BaseSource"
     LIVENESS = Liveness.STREAM
     
-    def open(self) -> None:
-        """Default implementation - override if resources needed."""
-        pass
-    
-    def close(self) -> None:
-        """Default implementation - override if resources needed."""
-        pass
-    
     def sample(self, frame: Frame) -> Mapping[str, NDArrayLike]:
-        """Override in subclasses."""
+        """Generate output data for the given frame."""
         raise NotImplementedError("Subclasses must implement sample()")
     
     def duration_seconds(self) -> Optional[float]:
-        """Override for FINITE sources."""
+        """Return duration in seconds for finite sources, None for infinite."""
         return None
+    
+    def port_schema(self, name: str) -> Schema:
+        """Default port schema for sources."""
+        from .types import SCALAR_SCHEMA
+        if name == "out":
+            return SCALAR_SCHEMA
+        raise ValueError(f"Port '{name}' not found")
 
 
 @runtime_checkable  
@@ -186,21 +187,26 @@ class Transform(Node, Protocol):
     """
     
     def evaluate(self, frame: Frame, **inputs: NDArrayLike) -> Mapping[str, NDArrayLike]:
-        """
-        Pure computation given inputs for this frame.
-        Returns dict mapping output port names to data arrays.
-        """
+        """Process inputs and return outputs."""
         ...
 
 
 class BaseTransform(BaseNode):
-    """Base implementation for Transform nodes."""
+    """Base implementation for transform nodes."""
     
     KIND = "transform"
+    TYPE = "BaseTransform"
     
     def evaluate(self, frame: Frame, **inputs: NDArrayLike) -> Mapping[str, NDArrayLike]:
-        """Override in subclasses."""
+        """Process inputs and return outputs."""
         raise NotImplementedError("Subclasses must implement evaluate()")
+    
+    def port_schema(self, name: str) -> Schema:
+        """Default port schema for transforms."""
+        from .types import SCALAR_SCHEMA
+        if name in ["in", "out"]:
+            return SCALAR_SCHEMA
+        raise ValueError(f"Port '{name}' not found")
 
 
 @runtime_checkable
@@ -211,34 +217,38 @@ class Sink(Node, Protocol):
     """
     
     def emit(self, frame: Frame, **inputs: NDArrayLike) -> None:
-        """
-        Called when sink should emit for this frame.
-        Must be fast and non-blocking.
-        """
+        """Process inputs and emit/output data."""
         ...
     
-    def required_rate(self) -> Optional[Mapping[str, Any]]:
-        """Optional per-sink cadence requirements."""
+    def required_rate(self) -> Optional[float]:
+        """Return required frame rate, or None for no requirement."""
         ...
 
 
 class BaseSink(BaseNode):
-    """Base implementation for Sink nodes."""
+    """Base implementation for sink nodes."""
     
     KIND = "sink"
+    TYPE = "BaseSink"
     
     def emit(self, frame: Frame, **inputs: NDArrayLike) -> None:
-        """Override in subclasses."""
+        """Process inputs and emit/output data."""
         raise NotImplementedError("Subclasses must implement emit()")
     
-    def required_rate(self) -> Optional[Mapping[str, Any]]:
-        """Override if sink has rate requirements."""
+    def required_rate(self) -> Optional[float]:
+        """Return required frame rate, or None for no requirement."""
         return None
+    
+    def port_schema(self, name: str) -> Schema:
+        """Default port schema for sinks."""
+        from .types import SCALAR_SCHEMA
+        if name == "in":
+            return SCALAR_SCHEMA
+        raise ValueError(f"Port '{name}' not found")
 
 
 # Export the main interfaces
 __all__ = [
     "Node", "Source", "Transform", "Sink",
-    "BaseNode", "BaseSource", "BaseTransform", "BaseSink",
     "NDArrayLike"
 ]

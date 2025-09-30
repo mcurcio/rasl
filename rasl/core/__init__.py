@@ -12,6 +12,7 @@ This module contains the fundamental building blocks of the RASL execution engin
 from .types import *
 from .nodes import *
 from .ports import *
+from .parameter_validator import ParameterValidator, ParameterValidationError
 from .engine import Engine
 from .scheduler import Scheduler, FixedRateScheduler
 from .executor import Executor

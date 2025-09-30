@@ -15,6 +15,7 @@ from .scheduler import Scheduler
 from .executor import Executor
 from .validator import Validator
 from .monitor import NodeMonitor
+from .ports import get_connection_registry, PortRef
 
 logger = logging.getLogger(__name__)
 
@@ -174,7 +175,6 @@ class Engine:
         for port_ref in sink.ports.list("in"):
             try:
                 # Find what output port is connected to this input port
-                from rasl.core.ports import get_connection_registry, PortRef
                 registry = get_connection_registry()
                 
                 # Look for a connection that feeds into this input port

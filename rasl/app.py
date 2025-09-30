@@ -13,6 +13,10 @@ from typing import Optional
 
 from rasl.config import Config
 from rasl.core.monitor import NodeMonitor
+from rasl.core.scheduler import FixedRateScheduler, MonotonicClock
+from rasl.core.engine import Engine
+from rasl.core.executor import Executor
+from rasl.core.validator import Validator
 from rasl.script.manager import ScriptManager
 from rasl.server.manager import WebServerManager
 
@@ -80,11 +84,6 @@ class RASLApp:
         spec = self.script_manager.current_spec
         logger.info(f"Creating engine: {len(spec.nodes)} nodes, {len(spec.sinks)} sinks")
         
-        # Import engine components
-        from rasl.core.scheduler import FixedRateScheduler, MonotonicClock
-        from rasl.core.engine import Engine
-        from rasl.core.executor import Executor
-        from rasl.core.validator import Validator
         
         # Create scheduler with configured frame rate
         clock = MonotonicClock()

@@ -11,7 +11,7 @@ When you run this with `rasl run simple_sine.py`, the RASL application:
 4. Starts the execution loop at 30 Hz by default
 """
 
-from rasl import *
+from rasl import SineSource, ScaleBias, ConsoleSink
 
 # Create a sine wave source
 sine = SineSource(

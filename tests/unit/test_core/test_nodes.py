@@ -105,6 +105,12 @@ class TestSource(BaseSource):
         return {
             "frequency": {"type": "float", "default": 1.0, "min": 0.1, "max": 100.0}
         }
+    
+    def port_schema(self, name: str):
+        from rasl.core.types import SCALAR_SCHEMA
+        if name == "out":
+            return SCALAR_SCHEMA
+        raise ValueError(f"Port '{name}' not found")
 
 
 class TestBaseSource:
@@ -163,6 +169,12 @@ class TestTransform(BaseTransform):
         return {
             "gain": {"type": "float", "default": 1.0, "min": 0.0, "max": 10.0}
         }
+    
+    def port_schema(self, name: str):
+        from rasl.core.types import SCALAR_SCHEMA
+        if name in ["in", "out"]:
+            return SCALAR_SCHEMA
+        raise ValueError(f"Port '{name}' not found")
 
 
 class TestBaseTransform:
@@ -205,6 +217,12 @@ class TestSink(BaseSink):
     def emit(self, frame: Frame, **inputs):
         self.received_frames.append(frame)
         self.received_data.append(dict(inputs))
+    
+    def port_schema(self, name: str):
+        from rasl.core.types import SCALAR_SCHEMA
+        if name == "in":
+            return SCALAR_SCHEMA
+        raise ValueError(f"Port '{name}' not found")
 
 
 class TestBaseSink:

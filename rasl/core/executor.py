@@ -7,6 +7,7 @@ each node is evaluated at most once per frame.
 
 import asyncio
 import logging
+import time
 from typing import Any, Dict, Optional
 
 from .types import Frame
@@ -80,7 +81,6 @@ class Executor:
     
     async def _evaluate_node(self, node: Node, frame: Frame) -> Dict[str, NDArrayLike]:
         """Evaluate a single node and return its outputs."""
-        import time
         start_time = time.perf_counter()
         
         try:

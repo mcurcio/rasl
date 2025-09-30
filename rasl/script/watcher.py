@@ -7,6 +7,7 @@ for seamless development experience.
 
 import asyncio
 import logging
+import time
 from pathlib import Path
 from typing import Callable, Optional
 from watchdog.observers import Observer
@@ -36,7 +37,6 @@ class ScriptFileHandler(FileSystemEventHandler):
             return
         
         # Debounce rapid file changes (common with editors)
-        import time
         current_time = time.time()
         if current_time - self._last_modified < self._debounce_delay:
             return

@@ -8,7 +8,7 @@ This approach is optional - normally `rasl run` handles engine creation automati
 """
 
 import asyncio
-from rasl import *
+from rasl import SineSource, ScaleBias, ConsoleSink
 from rasl.core.engine import Engine
 from rasl.core.scheduler import FixedRateScheduler, MonotonicClock
 from rasl.core.monitor import NodeMonitor

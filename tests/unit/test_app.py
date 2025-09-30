@@ -173,9 +173,9 @@ class TestRASLApp:
         app.script_manager.current_spec = mock_spec
         
         # Mock engine creation
-        with patch('rasl.core.engine.Engine') as mock_engine_class, \
-             patch('rasl.core.scheduler.FixedRateScheduler') as mock_scheduler_class, \
-             patch('rasl.core.scheduler.MonotonicClock') as mock_clock_class:
+        with patch('rasl.app.Engine') as mock_engine_class, \
+             patch('rasl.app.FixedRateScheduler') as mock_scheduler_class, \
+             patch('rasl.app.MonotonicClock') as mock_clock_class:
             
             mock_engine = Mock()
             mock_engine_class.return_value = mock_engine
