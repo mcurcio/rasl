@@ -1,23 +1,23 @@
 """Unit tests for the Runtime scheduler."""
 
-from typing import Any, List, Tuple
-from unittest.mock import AsyncMock
+from typing import List
 
 import anyio
 import numpy as np
 import pytest
 
-from rasl.engine.frame import Frame
+from rasl.engine.frame import ArrayPayload, Frame
 from rasl.engine.graph import GraphBuilder
 from rasl.engine.node import NodeContext
+from rasl.engine.ports import PortGroup, PortSpec
 from rasl.runtime import Runtime
 
 
 class RecordingSourceNode:
     """Source node that emits a fixed sequence of frames."""
 
-    inputs: Tuple[str, ...] = ()
-    outputs: Tuple[str, ...] = ("output",)
+    # Source: no inputs, single output
+    outputs = PortGroup(output=PortSpec(accepts=ArrayPayload))
 
     def __init__(self, node_id: str, frames: List[Frame]) -> None:
         """Initialize with frames to emit."""
@@ -44,8 +44,8 @@ class RecordingSourceNode:
 class RecordingSinkNode:
     """Sink node that records received frames."""
 
-    inputs: Tuple[str, ...] = ("input",)
-    outputs: Tuple[str, ...] = ()
+    inputs = PortGroup(input=PortSpec(accepts=ArrayPayload))
+    # Sink: no outputs
 
     def __init__(self, node_id: str) -> None:
         """Initialize the recording sink."""
@@ -70,8 +70,8 @@ class RecordingSinkNode:
 class PassthroughNode:
     """Transform node that passes frames through unchanged."""
 
-    inputs: Tuple[str, ...] = ("input",)
-    outputs: Tuple[str, ...] = ("output",)
+    inputs = PortGroup(input=PortSpec(accepts=ArrayPayload))
+    outputs = PortGroup(output=PortSpec(accepts=ArrayPayload))
 
     def __init__(self, node_id: str) -> None:
         """Initialize passthrough node."""
@@ -113,7 +113,7 @@ class TestRuntime:
             Frame(
                 topic="test",
                 timestamp=1.0,
-                payload=np.zeros(10, dtype=np.float32),
+                payload=ArrayPayload(np.zeros(10, dtype=np.float32)),
             )
         ]
         source = RecordingSourceNode("source", frames)
@@ -140,7 +140,7 @@ class TestRuntime:
         test_frame = Frame(
             topic="test",
             timestamp=1.0,
-            payload=np.array([0.5, 0.6, 0.7], dtype=np.float32),
+            payload=ArrayPayload(np.array([0.5, 0.6, 0.7], dtype=np.float32)),
             metadata={"key": "value"},
         )
         source = RecordingSourceNode("source", [test_frame])
@@ -171,7 +171,7 @@ class TestRuntime:
         test_frame = Frame(
             topic="test",
             timestamp=1.0,
-            payload=np.zeros(5, dtype=np.float32),
+            payload=ArrayPayload(np.zeros(5, dtype=np.float32)),
         )
         source = RecordingSourceNode("source", [test_frame])
         transform = PassthroughNode("transform")
@@ -199,7 +199,7 @@ class TestRuntime:
         test_frame = Frame(
             topic="test",
             timestamp=1.0,
-            payload=np.zeros(5, dtype=np.float32),
+            payload=ArrayPayload(np.zeros(5, dtype=np.float32)),
         )
         source = RecordingSourceNode("source", [test_frame])
         sink1 = RecordingSinkNode("sink1")
@@ -226,7 +226,7 @@ class TestRuntime:
     async def test_runtime_multiple_frames(self) -> None:
         """Test runtime handles multiple frames."""
         frames = [
-            Frame(topic="test", timestamp=float(i), payload=np.zeros(5, dtype=np.float32))
+            Frame(topic="test", timestamp=float(i), payload=ArrayPayload(np.zeros(5, dtype=np.float32)))
             for i in range(5)
         ]
         source = RecordingSourceNode("source", frames)

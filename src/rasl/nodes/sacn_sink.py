@@ -8,20 +8,25 @@ It handles rate limiting to respect minimum packet intervals.
 from __future__ import annotations
 
 import time
-from typing import Any, Optional, Tuple
+from typing import Optional
 
 import numpy as np
 import sacn
+from pydantic import Field
 
-from rasl.engine.frame import Frame
-from rasl.engine.node import Node, NodeContext
-from rasl.engine.node_config import NodeKind, SinkNodeConfig
+from rasl.config.models import SinkNodeConfig
+from rasl.engine.base_node import BaseNode
+from rasl.engine.frame import ArrayPayload, Frame
+from rasl.engine.node import NodeContext
+from rasl.engine.ports import PortGroup, PortSpec
+from rasl.engine.registry import node
 from rasl.shims import allow_sacn_universe_zero
 
 allow_sacn_universe_zero()
 
 
-class SacnSinkNode:
+@node("SacnSinkNode", "SacnSink")
+class SacnSinkNode(BaseNode):
     """Sink node that transmits DMX data via sACN (E1.31) protocol.
 
     SacnSinkNode receives normalized channel data from upstream nodes
@@ -29,20 +34,10 @@ class SacnSinkNode:
     and universe. It respects minimum packet intervals to avoid
     overwhelming receivers.
 
-    This is a SinkNode (no outputs) that accepts frames on a configurable
-    input port.
-
-    Attributes:
-        id: Unique node identifier.
-        inputs: Tuple containing the configured input port name.
-        outputs: Empty tuple (sink node has no outputs).
-
-    The node is configured via :class:`~rasl.engine.node_config.SinkNodeConfig`,
-    typically created by the config loader from a block like:
-
+    Example config:
         rasl {
             node SacnSink sacnSink0 {
-                input universe0;
+                input_port universe0;
                 target_host "10.0.60.30";
                 target_universe 0;
                 min_interval_ms 25;
@@ -50,117 +45,63 @@ class SacnSinkNode:
                 priority 100;
             }
         }
-
-    The loader builds a SinkNodeConfig where:
-
-    * ``input.port`` is taken from ``input`` (``universe0`` in the example).
-    * ``params["target_host"]`` / ``params["target_universe"]`` select the target.
-    * ``params["min_interval_ms"]`` controls rate limiting.
-    * ``params["source_name"]`` and ``params["priority"]`` configure sACN metadata.
-
-    Attributes:
-        id: Unique node identifier.
-        inputs: Tuple containing the configured input port name.
-        outputs: Empty tuple (sink node has no outputs).
     """
 
-    outputs: Tuple[str, ...] = ()
-    """Empty tuple - sink nodes do not emit output frames."""
+    class Config(SinkNodeConfig):
+        """Configuration for SacnSinkNode."""
 
-    def __init__(self, config: SinkNodeConfig) -> None:
-        """Initialize the sACN sink node.
+        input_port: str = Field("input", description="Input port name")
+        target_host: str = Field(..., description="Target IP address (required)")
+        target_universe: int = Field(0, ge=0, le=63999, description="sACN universe number")
+        min_interval_ms: int = Field(25, ge=0, le=1000, description="Minimum ms between packets")
+        source_name: str = Field("RASL", max_length=64, description="sACN source name")
+        priority: int = Field(100, ge=0, le=200, description="sACN priority")
+        bind_address: str = Field("0.0.0.0", description="Local bind address")
+        bind_port: int = Field(0, ge=0, le=65535, description="Local bind port (0=auto)")
 
-        Args:
-            config: Typed configuration for this sACN sink node.
-        """
-        if config.kind is not NodeKind.SINK:
-            raise ValueError("SacnSinkNode requires a sink node config")
-
-        self.id = config.id
+    def __init__(self, config: Config) -> None:
+        super().__init__(config)
         self._config = config
+        self._input_port = config.input_port
 
-        input_cfg = config.input
-        if input_cfg is None:
-            raise ValueError("SacnSinkNode requires an input port configuration")
-        self.inputs: Tuple[str, ...] = (input_cfg.port,)
-        self._input_port: str = input_cfg.port
+        # Build dynamic input port
+        self.inputs = PortGroup(**{self._input_port: PortSpec(accepts="array")})
 
-        params = config.params
-        self._target_host = str(params["target_host"])
-        self._target_universe = int(params.get("target_universe", 0))
-        self._min_interval_ms = int(params.get("min_interval_ms", 25))
-        self._source_name = str(params.get("source_name", "RASL"))
-        self._priority = int(params.get("priority", 100))
-        self._bind_address = str(params.get("bind_address", "0.0.0.0"))
-        self._bind_port = int(params.get("bind_port", 0))
+        # Strongly-typed config access
+        self._target_host = config.target_host
+        self._target_universe = config.target_universe
+        self._min_interval_ms = config.min_interval_ms
+        self._source_name = config.source_name
+        self._priority = config.priority
+        self._bind_address = config.bind_address
+        self._bind_port = config.bind_port
+
         self._sender: Optional[sacn.sACNsender] = None
         self._last_send_time: float = 0.0
-        self._sequence: int = 0
-
-    def _next_sequence(self) -> int:
-        """Get the next sequence number for sACN packets.
-
-        Sequence numbers wrap from 255 to 0 (skipping 0 per E1.31 spec
-        uses 0 for sync, but library may handle this).
-
-        Returns:
-            Next sequence number (0-255).
-        """
-        seq = self._sequence
-        self._sequence = (self._sequence + 1) % 256
-        return seq
 
     async def start(self, ctx: NodeContext) -> None:
-        """Start the sACN sender and activate the output.
-
-        Called by the Runtime when execution begins. Sets up the sACN
-        sender with the configured target.
-
-        Args:
-            ctx: Node execution context providing runtime services.
-        """
-        # sACN sender requires fps > 0. Derive from min interval (ms) or use
-        # a safe default when unrestricted.
         fps = 40 if self._min_interval_ms <= 0 else max(1, int(1000 / self._min_interval_ms))
-
         self._sender = sacn.sACNsender(
             source_name=self._source_name,
             bind_address=self._bind_address,
             bind_port=self._bind_port,
             fps=fps,
         )
-        self._sender.start()  # type: ignore[no-untyped-call]
-        # Activate the universe for unicast to target host
-        self._sender.activate_output(self._target_universe)  # type: ignore[no-untyped-call]
+        self._sender.start()
+        self._sender.activate_output(self._target_universe)
         self._sender[self._target_universe].destination = self._target_host
         self._sender[self._target_universe].priority = self._priority
 
     async def handle(self, port: str, frame: Frame, ctx: NodeContext) -> None:
-        """Process an incoming frame and transmit via sACN.
-
-        Converts the normalized float32 channel data back to DMX bytes
-        (0-255) and transmits if the minimum interval has elapsed.
-
-        Args:
-            port: Input port name (must match configured input_port).
-            frame: Incoming Frame with normalized channel data.
-            ctx: Node execution context.
-        """
-        if port != self._input_port:
-            return
-        if self._sender is None:
+        if port != self._input_port or self._sender is None:
             return
 
-        # Rate limiting
         now = time.monotonic()
         elapsed_ms = (now - self._last_send_time) * 1000
         if elapsed_ms < self._min_interval_ms:
             return
 
-        # Convert normalized float32 [0.0, 1.0] back to DMX bytes [0, 255]
         dmx_data = (np.clip(frame.payload, 0.0, 1.0) * 255.0).astype(np.uint8)
-
-        # Ensure we have exactly 512 channels (pad or truncate)
         if len(dmx_data) < 512:
             padded = np.zeros(512, dtype=np.uint8)
             padded[: len(dmx_data)] = dmx_data
@@ -168,25 +109,16 @@ class SacnSinkNode:
         elif len(dmx_data) > 512:
             dmx_data = dmx_data[:512]
 
-        # Send the packet
         self._sender[self._target_universe].dmx_data = tuple(dmx_data.tolist())
         self._last_send_time = now
 
     async def stop(self, ctx: NodeContext) -> None:
-        """Stop the sACN sender and release resources.
-
-        Called by the Runtime during graceful shutdown. Deactivates
-        the output and stops the sender.
-
-        Args:
-            ctx: Node execution context.
-        """
         if self._sender is not None:
             try:
-                self._sender.deactivate_output(self._target_universe)  # type: ignore[no-untyped-call]
+                self._sender.deactivate_output(self._target_universe)
             except Exception:
-                pass  # Ignore errors during shutdown
+                pass
             try:
-                self._sender.stop()  # type: ignore[no-untyped-call]
+                self._sender.stop()
             finally:
                 self._sender = None

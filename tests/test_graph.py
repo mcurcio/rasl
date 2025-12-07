@@ -1,19 +1,20 @@
 """Unit tests for the graph builder and execution plan."""
 
-from typing import Tuple
+import warnings
 
 import pytest
 
-from rasl.engine.frame import Frame
-from rasl.engine.graph import Edge, ExecutionPlan, GraphBuilder
+from rasl.engine.frame import ArrayPayload, Frame
+from rasl.engine.graph import CycleWarning, Edge, ExecutionPlan, GraphBuilder
 from rasl.engine.node import NodeContext
+from rasl.engine.ports import PortGroup, PortSpec
 
 
 class MockSourceNode:
     """Mock source node for testing."""
 
-    inputs: Tuple[str, ...] = ()
-    outputs: Tuple[str, ...] = ("output",)
+    # Source: no inputs, single output
+    outputs = PortGroup(output=PortSpec(accepts=ArrayPayload))
 
     def __init__(self, node_id: str) -> None:
         """Initialize mock source node."""
@@ -35,8 +36,8 @@ class MockSourceNode:
 class MockTransformNode:
     """Mock transform node for testing."""
 
-    inputs: Tuple[str, ...] = ("input",)
-    outputs: Tuple[str, ...] = ("output",)
+    inputs = PortGroup(input=PortSpec(accepts=ArrayPayload))
+    outputs = PortGroup(output=PortSpec(accepts=ArrayPayload))
 
     def __init__(self, node_id: str) -> None:
         """Initialize mock transform node."""
@@ -58,8 +59,8 @@ class MockTransformNode:
 class MockSinkNode:
     """Mock sink node for testing."""
 
-    inputs: Tuple[str, ...] = ("input",)
-    outputs: Tuple[str, ...] = ()
+    inputs = PortGroup(input=PortSpec(accepts=ArrayPayload))
+    # Sink: no outputs
 
     def __init__(self, node_id: str) -> None:
         """Initialize mock sink node."""
@@ -198,25 +199,60 @@ class TestGraphBuilder:
         assert plan.topological_order.index("source") < plan.topological_order.index("sink1")
         assert plan.topological_order.index("source") < plan.topological_order.index("sink2")
 
-    def test_build_with_cycle_raises(self) -> None:
-        """Test that building a graph with a cycle raises ValueError."""
+    def test_build_with_cycle_raises_when_disallowed(self) -> None:
+        """Test that building a graph with a cycle raises ValueError when allow_cycles=False."""
         builder = GraphBuilder()
         node1 = MockTransformNode("node1")
         node2 = MockTransformNode("node2")
-
-        # Trick: set inputs/outputs to allow cycle
-        node1.inputs = ("input",)
-        node1.outputs = ("output",)
-        node2.inputs = ("input",)
-        node2.outputs = ("output",)
 
         builder.add_node(node1)
         builder.add_node(node2)
         builder.connect("node1", "output", "node2", "input")
         builder.connect("node2", "output", "node1", "input")
 
-        with pytest.raises(ValueError, match="cycle"):
-            builder.build()
+        with pytest.raises(ValueError, match="Cycle"):
+            builder.build(allow_cycles=False)
+
+    def test_build_with_cycle_warns_by_default(self) -> None:
+        """Test that building a graph with a cycle emits warning by default."""
+        builder = GraphBuilder()
+        node1 = MockTransformNode("node1")
+        node2 = MockTransformNode("node2")
+
+        builder.add_node(node1)
+        builder.add_node(node2)
+        builder.connect("node1", "output", "node2", "input")
+        builder.connect("node2", "output", "node1", "input")
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            plan = builder.build()  # allow_cycles=True by default
+
+            assert len(w) == 1
+            assert issubclass(w[0].category, CycleWarning)
+            assert "Cycle" in str(w[0].message)
+
+        # Plan is still built successfully
+        assert plan is not None
+        assert len(plan.nodes) == 2
+        assert len(plan.topological_order) == 2
+
+    def test_build_with_self_loop_warns(self) -> None:
+        """Test that a self-loop is detected and warned about."""
+        builder = GraphBuilder()
+        node = MockTransformNode("node")
+
+        builder.add_node(node)
+        builder.connect("node", "output", "node", "input")
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            plan = builder.build()
+
+            assert len(w) == 1
+            assert issubclass(w[0].category, CycleWarning)
+
+        assert plan is not None
 
     def test_build_adjacency(self) -> None:
         """Test that adjacency map is correctly built."""

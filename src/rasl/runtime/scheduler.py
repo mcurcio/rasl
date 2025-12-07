@@ -12,24 +12,24 @@ Features:
 
 from __future__ import annotations
 
+import contextlib
 import time
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
-import contextlib
-
 import anyio
+import numpy as np
 import structlog
+from anyio.streams.memory import MemoryObjectReceiveStream
 
+from rasl.config.connect_parser import ResolvedSlice
+from rasl.engine.frame import ArrayPayload, Frame
+from rasl.engine.graph import Edge, ExecutionPlan
+from rasl.engine.node import Node, NodeContext, get_inputs
 from rasl.runtime.monitor import NodeMonitor, NodeStats
 
 logger = structlog.get_logger()
-from anyio.streams.memory import MemoryObjectReceiveStream
-
-from rasl.engine.frame import Frame
-from rasl.engine.graph import Edge, ExecutionPlan
-from rasl.engine.node import Node, NodeContext
 
 
 @dataclass(slots=True)
@@ -47,6 +47,66 @@ class RuntimeConfig:
     max_consecutive_errors: Optional[int] = None
 
 
+@dataclass(slots=True)
+class PortBuffer:
+    """Pre-allocated buffer for a target port that receives sliced data.
+
+    When multiple edges write sliced data to the same target port,
+    this buffer accumulates the writes before dispatching.
+    """
+
+    data: np.ndarray
+    """The pre-allocated numpy buffer."""
+
+    pending_edges: int
+    """Number of edges that write to this buffer (for tracking completion)."""
+
+    received_count: int = 0
+    """Number of sliced writes received this frame cycle."""
+
+
+def _apply_slice(
+    source_data: np.ndarray,
+    source_slice: Optional[ResolvedSlice],
+    target_buffer: np.ndarray,
+    target_slice: Optional[ResolvedSlice],
+) -> None:
+    """Apply source slice to target buffer at target slice position.
+
+    Handles mismatched lengths by taking the minimum of source and target sizes.
+    This allows open-ended slices like [0:] to work with fixed-size targets.
+
+    Args:
+        source_data: Source array to read from.
+        source_slice: Slice to extract from source (None = full array).
+        target_buffer: Target buffer to write to.
+        target_slice: Slice position in target (None = full buffer).
+    """
+    # Determine source range
+    if source_slice is not None:
+        src_start = source_slice.start
+        src_end = source_slice.end if source_slice.end is not None else len(source_data)
+    else:
+        src_start = 0
+        src_end = len(source_data)
+
+    # Determine target range
+    if target_slice is not None:
+        tgt_start = target_slice.start
+        tgt_end = target_slice.end if target_slice.end is not None else len(target_buffer)
+    else:
+        tgt_start = 0
+        tgt_end = len(target_buffer)
+
+    # Calculate actual copy length (minimum of source and target sizes)
+    src_len = src_end - src_start
+    tgt_len = tgt_end - tgt_start
+    copy_len = min(src_len, tgt_len)
+
+    # Copy data
+    target_buffer[tgt_start:tgt_start + copy_len] = source_data[src_start:src_start + copy_len]
+
+
 class Runtime:
     """Async runtime for executing a compiled graph ExecutionPlan.
 
@@ -62,6 +122,7 @@ class Runtime:
         - Provide NodeContext with emit and background task capabilities
         - Monitor node health and isolate errors
         - Track frame processing budget
+        - Apply channel slicing for partial port connections
 
     Example:
         >>> plan = builder.build()
@@ -91,6 +152,34 @@ class Runtime:
         for source, edges in plan.adjacency.items():
             for edge in edges:
                 self._routes[(source, edge.source_port)].append(edge)
+
+        # Pre-allocate buffers for target ports that receive sliced data
+        # Key: (target_node, target_port) -> PortBuffer
+        self._port_buffers: Dict[Tuple[str, str], PortBuffer] = {}
+        self._sliced_edges: Dict[Tuple[str, str], List[Edge]] = defaultdict(list)
+
+        # Find all edges with slices and pre-allocate target buffers
+        for source, edges in plan.adjacency.items():
+            for edge in edges:
+                if edge.source_slice is not None or edge.target_slice is not None:
+                    key = (edge.target, edge.target_port)
+                    self._sliced_edges[key].append(edge)
+
+        # Create buffers for sliced targets
+        for (target_node, target_port), edges in self._sliced_edges.items():
+            node = plan.nodes[target_node]
+            inputs = get_inputs(node)
+            port_spec = inputs.get(target_port)
+            # Determine buffer size from port spec or max target slice end
+            buffer_size = port_spec.channels if port_spec.channels else 512
+            # Check if any edge specifies a larger target range
+            for edge in edges:
+                if edge.target_slice and edge.target_slice.end:
+                    buffer_size = max(buffer_size, edge.target_slice.end)
+            self._port_buffers[key] = PortBuffer(
+                data=np.zeros(buffer_size, dtype=np.float32),
+                pending_edges=len(edges),
+            )
 
     @property
     def monitor(self) -> NodeMonitor:
@@ -146,11 +235,47 @@ class Runtime:
                     async def emit(
                         port: str, frame: Frame, *, _node_id: str = node_id
                     ) -> None:
-                        """Route a frame to all nodes connected to this output port."""
+                        """Route a frame to all nodes connected to this output port.
+
+                        Handles channel slicing: if an edge has source/target slices,
+                        the data is extracted from the source slice and written to
+                        a pre-allocated buffer at the target slice position.
+                        """
                         edges = self._routes.get((_node_id, port), [])
                         for edge in edges:
                             target_send = streams[edge.target][0]
-                            await target_send.send((edge.target_port, frame))
+
+                            # Check if this edge uses slicing
+                            if edge.source_slice is not None or edge.target_slice is not None:
+                                # Get the pre-allocated buffer for this target port
+                                buffer_key = (edge.target, edge.target_port)
+                                port_buffer = self._port_buffers.get(buffer_key)
+
+                                if port_buffer is not None and hasattr(frame.payload, 'data'):
+                                    # Apply the slice to the buffer
+                                    _apply_slice(
+                                        frame.payload.data,
+                                        edge.source_slice,
+                                        port_buffer.data,
+                                        edge.target_slice,
+                                    )
+
+                                    # Create a new frame with the buffered data
+                                    # We send on every write for simplicity
+                                    sliced_payload = ArrayPayload(port_buffer.data.copy())
+                                    sliced_frame = Frame(
+                                        topic=frame.topic,
+                                        timestamp=frame.timestamp,
+                                        payload=sliced_payload,
+                                        metadata=frame.metadata,
+                                    )
+                                    await target_send.send((edge.target_port, sliced_frame))
+                                else:
+                                    # Fallback: send original frame if no buffer or non-array payload
+                                    await target_send.send((edge.target_port, frame))
+                            else:
+                                # No slicing - send frame as-is
+                                await target_send.send((edge.target_port, frame))
 
                     # Create background task spawner
                     def start_background(
@@ -160,16 +285,12 @@ class Runtime:
                         tg.start_soon(fn, *args)
 
                     node_logger = logger.bind(
-                        node_id=node_id,
-                        node_type=type(node).__name__,
+                        node=type(node).__name__ + "." + node_id,
                     )
-
-                    node_config = getattr(node, "_config", None)
 
                     ctx = NodeContext(
                         node_id=node_id,
                         emit=emit,
-                        config=node_config,
                         logger=node_logger,
                         _start_background=start_background,
                     )

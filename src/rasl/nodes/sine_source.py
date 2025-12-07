@@ -1,67 +1,67 @@
+"""Sine wave test source node.
+
+This module provides SineSourceNode, a virtual source useful for testing
+graphs without hardware. It generates a sine wave pattern and emits it
+as normalized Frames at a configurable frame rate.
+"""
+
 from __future__ import annotations
 
 import math
 import time
-from typing import Any, Iterable, Mapping, Optional, Tuple
 
 import anyio
 import numpy as np
+from pydantic import Field
 
-from rasl.engine.frame import Frame
+from rasl.config.models import SourceNodeConfig
+from rasl.engine.base_node import BaseNode
+from rasl.engine.frame import ArrayPayload, Frame
 from rasl.engine.node import NodeContext
-from rasl.engine.node_config import NodeKind, SourceNodeConfig
+from rasl.engine.ports import PortGroup, PortSpec
+from rasl.engine.registry import node
 
 
-class SineSourceNode:
+@node("SineSourceNode", "SineSource")
+class SineSourceNode(BaseNode):
     """Source node that generates a test sine waveform.
 
     SineSourceNode is a virtual source useful for testing graphs without
-    hardware. It fills a DMX-shaped buffer with a single scalar sine value
-    and emits it on the ``"dmx"`` output port at a fixed frame rate.
+    hardware. It fills a buffer with a single scalar sine value and emits
+    it on the "dmx" output port at a fixed frame rate.
 
-    The node is configured via :class:`~rasl.engine.node_config.SourceNodeConfig`,
-    typically created by the config loader from a block like:
-
+    Example config:
         rasl {
             node SineSource sine {
-                outputs 512;        # number of channels
-                frequency_hz 1.0;   # sine frequency in Hz
-                fps 30;             # output frame rate
+                output_channels 512;
+                frequency_hz 1.0;
+                fps 30;
                 amplitude 0.5;
                 offset 0.5;
-                # optional: topic "sine.sine";
-                # optional: metadata "colorSpace=rgb";
             }
         }
-
-    The loader maps ``outputs`` to ``config.output.channels`` and stores the
-    remaining parameters in ``config.params``.
     """
-    inputs: Tuple[str, ...] = ()
-    outputs: Tuple[str, ...] = ("dmx",)
 
-    def __init__(self, config: SourceNodeConfig) -> None:
-        if config.kind is not NodeKind.SOURCE:
-            raise ValueError("SineSourceNode requires a source node config")
+    class Config(SourceNodeConfig):
+        """Configuration for SineSourceNode."""
 
-        self.id = config.id
+        output_channels: int = Field(512, ge=1, le=65536, description="Number of output channels")
+        frequency_hz: float = Field(1.0, ge=0.001, le=100.0, description="Sine frequency in Hz")
+        amplitude: float = Field(0.5, ge=0.0, le=1.0, description="Wave amplitude")
+        offset: float = Field(0.5, ge=0.0, le=1.0, description="DC offset")
+        topic: str | None = Field(None, description="Optional topic override")
+
+    outputs = PortGroup(dmx=PortSpec(accepts="array"))
+
+    def __init__(self, config: Config) -> None:
+        super().__init__(config)
         self._config = config
-
-        output_cfg = config.output
-        if output_cfg is None:
-            raise ValueError("SineSourceNode requires an output port configuration")
-        if output_cfg.channels <= 0:
-            raise ValueError("SineSourceNode requires channels > 0")
-        self._channels = int(output_cfg.channels)
-
-        self._frequency_hz = float(config.params.get("frequency_hz", 1.0))
-        fps_value = config.timing.fps
-        self._fps = int(fps_value) if fps_value and fps_value > 0 else 30
-        self._amplitude = float(config.params.get("amplitude", 0.5))
-        self._offset = float(config.params.get("offset", 0.5))
-        metadata = config.params.get("metadata")
-        self._metadata = dict(metadata or {})
-        self._topic = str(config.params.get("topic", f"sine.{self.id}"))
+        self._channels = config.output_channels
+        self._frequency_hz = config.frequency_hz
+        self._amplitude = config.amplitude
+        self._offset = config.offset
+        self._fps = int(config.fps) if config.fps else 30
+        self._topic = config.topic or f"sine.{self.id}"
 
     async def start(self, ctx: NodeContext) -> None:
         ctx.start_background(self._run_loop, ctx)
@@ -76,19 +76,17 @@ class SineSourceNode:
             value = self._offset + self._amplitude * math.sin(phase)
             payload = np.full(self._channels, value, dtype=np.float32)
             payload = np.clip(payload, 0.0, 1.0)
-            timestamp = now
-            metadata: dict[str, Any] = dict(self._metadata)
             frame = Frame(
                 topic=self._topic,
-                timestamp=timestamp,
-                payload=payload,
-                metadata=metadata,
+                timestamp=now,
+                payload=ArrayPayload(payload),
+                metadata=dict(self._metadata),
             )
             await ctx.emit("dmx", frame)
             await anyio.sleep(interval)
 
     async def handle(self, port: str, frame: Frame, ctx: NodeContext) -> None:
-        return
+        pass  # Source nodes don't receive frames
 
     async def stop(self, ctx: NodeContext) -> None:
-        return
+        pass

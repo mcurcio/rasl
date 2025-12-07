@@ -1,0 +1,237 @@
+"""TwinkleEffect transform node.
+
+Applies TwinkleFOX-style modulation to incoming color data.
+Each pixel gets a random phase offset and speed multiplier, creating
+organic, non-synchronized twinkling.
+
+Two modes are supported:
+- **brightness**: Multiply RGB by envelope → fade to black (classic twinkle)
+- **whiteness**: Reduce OkHSL saturation by envelope → fade to white (sparkle)
+"""
+
+from __future__ import annotations
+
+import time
+from typing import Literal
+
+import numpy as np
+from numpy.typing import NDArray
+from pydantic import Field
+
+from rasl.config.models import TransformNodeConfig
+from rasl.engine.base_node import BaseNode
+from rasl.engine.frame import ArrayPayload, ColorPayload, Frame
+from rasl.engine.node import NodeContext
+from rasl.engine.ports import PortGroup, PortSpec
+from rasl.engine.registry import node
+
+TwinkleMode = Literal["brightness", "whiteness"]
+
+
+def attack_decay_wave(phase: NDArray[np.float32], attack_ratio: float = 0.33) -> NDArray[np.float32]:
+    """Attempt to perf-optimize the attack-decay waveform.
+
+    Fast attack (attack_ratio of cycle), slow decay (rest of cycle).
+    This is the classic TwinkleFOX brightness envelope.
+
+    Args:
+        phase: Phase values in [0, 1] range
+        attack_ratio: Fraction of cycle for attack (default 0.33 = 1/3)
+
+    Returns:
+        Brightness values in [0, 1] range
+    """
+    phase = phase % 1.0
+    result = np.where(
+        phase < attack_ratio,
+        phase / attack_ratio,  # Attack: ramp up
+        1.0 - (phase - attack_ratio) / (1.0 - attack_ratio),  # Decay: ramp down
+    )
+    return result.astype(np.float32)
+
+
+@node("TwinkleEffectNode", "TwinkleEffect")
+class TwinkleEffectNode(BaseNode):
+    """Applies TwinkleFOX-style twinkle effect to color input.
+
+    This transform node modulates incoming color data using per-pixel
+    random phase offsets and speed multipliers. The result is organic,
+    non-synchronized twinkling that mimics holiday lights.
+
+    Two modes are available:
+    - **brightness**: Multiply RGB by envelope → LEDs fade to black
+    - **whiteness**: Reduce saturation by envelope → LEDs fade to white
+
+    The effect uses:
+    - Per-pixel phase offsets (stable across frames, from seed)
+    - Per-pixel speed multipliers (1x to max_speed)
+    - Attack-decay waveform (fast rise, slow fall)
+
+    Example config:
+        node TwinkleEffect twinkle {
+            seed 11337;
+            mode brightness;  # or "whiteness"
+            frequency_hz 0.3;
+            attack_ratio 0.33;
+            min_speed 1.0;
+            max_speed 3.0;
+
+            connect color_source;
+        }
+    """
+
+    class Config(TransformNodeConfig):
+        """Configuration for TwinkleEffectNode."""
+
+        seed: int = Field(42, description="Random seed for deterministic per-pixel values")
+        mode: TwinkleMode = Field(
+            "brightness",
+            description="Twinkle mode: 'brightness' (fade to black) or 'whiteness' (fade to white)"
+        )
+        frequency_hz: float = Field(
+            0.3, ge=0.01, le=10.0, description="Base twinkle frequency in Hz"
+        )
+        attack_ratio: float = Field(
+            0.33, ge=0.1, le=0.9, description="Fraction of cycle for attack (rise)"
+        )
+        min_speed: float = Field(
+            1.0, ge=0.1, le=10.0, description="Minimum speed multiplier"
+        )
+        max_speed: float = Field(
+            3.0, ge=0.1, le=10.0, description="Maximum speed multiplier"
+        )
+
+    inputs = PortGroup(input=PortSpec(accepts="color"))
+    outputs = PortGroup(out=PortSpec(accepts="color"))
+
+    def __init__(self, config: Config) -> None:
+        super().__init__(config)
+        self._seed = config.seed
+        self._mode: TwinkleMode = config.mode
+        self._frequency_hz = config.frequency_hz
+        self._attack_ratio = config.attack_ratio
+        self._min_speed = config.min_speed
+        self._max_speed = config.max_speed
+
+        # Will be initialized on first frame (need to know channel count)
+        self._phase_offsets: NDArray[np.float32] | None = None
+        self._speed_multipliers: NDArray[np.float32] | None = None
+        self._num_pixels: int | None = None
+        self._t0: float | None = None
+
+    def _initialize_for_size(self, num_pixels: int) -> None:
+        """Initialize per-pixel random values for given pixel count."""
+        if self._num_pixels == num_pixels:
+            return  # Already initialized for this size
+
+        self._num_pixels = num_pixels
+        self._t0 = time.monotonic()
+
+        # Generate phase offsets [0, 1)
+        rng_phase = np.random.Generator(np.random.PCG64(self._seed))
+        self._phase_offsets = rng_phase.random(num_pixels, dtype=np.float32)
+
+        # Generate speed multipliers [min_speed, max_speed]
+        rng_speed = np.random.Generator(np.random.PCG64(self._seed + 1))
+        self._speed_multipliers = (
+            rng_speed.random(num_pixels, dtype=np.float32)
+            * (self._max_speed - self._min_speed)
+            + self._min_speed
+        ).astype(np.float32)
+
+    async def start(self, ctx: NodeContext) -> None:
+        pass
+
+    async def handle(self, port: str, frame: Frame, ctx: NodeContext) -> None:
+        if port != "input":
+            return
+
+        payload = frame.payload
+        
+        # Get color data and metadata
+        if isinstance(payload, ColorPayload):
+            original_model = payload.model
+            original_encoding = payload.encoding
+            data = payload.data.copy()  # Copy to avoid mutating original
+        else:
+            # Assume RGB if we get a plain ArrayPayload
+            original_model = "srgb"
+            original_encoding = "srgb"
+            data = np.asarray(payload, dtype=np.float32).copy()
+
+        # Validate: must be RGB triplets
+        total_values = len(data)
+        if total_values % 3 != 0:
+            await ctx.emit("out", frame)
+            return
+            
+        num_pixels = total_values // 3
+
+        # Initialize per-pixel values if needed
+        self._initialize_for_size(num_pixels)
+        assert self._phase_offsets is not None
+        assert self._speed_multipliers is not None
+        assert self._t0 is not None
+
+        # Calculate current phase for each pixel
+        t = time.monotonic() - self._t0
+        base_phase = t * self._frequency_hz
+        pixel_phases = (
+            base_phase * self._speed_multipliers + self._phase_offsets
+        ) % 1.0
+
+        # Generate envelope [0, 1]
+        envelope = attack_decay_wave(pixel_phases, self._attack_ratio)
+
+        if self._mode == "brightness":
+            # Brightness mode: multiply RGB by envelope → fade to black
+            # First ensure we have RGB data
+            if original_model != "srgb":
+                rgb_payload = ColorPayload(data, model=original_model, encoding=original_encoding)
+                rgb_data = rgb_payload.to_model("srgb").data.copy()
+            else:
+                rgb_data = data
+            
+            # Reshape to (num_pixels, 3) and apply envelope
+            rgb = rgb_data.reshape(num_pixels, 3)
+            rgb *= envelope[:, np.newaxis]  # Broadcast envelope to all 3 channels
+            
+            output_payload = ColorPayload(
+                rgb.reshape(-1).astype(np.float32),
+                model="srgb",
+                encoding=original_encoding
+            )
+            # Convert back to original model if needed
+            if original_model != "srgb":
+                output_payload = output_payload.to_model(original_model)
+                
+        else:  # whiteness mode
+            # Whiteness mode: reduce saturation by envelope → fade to white
+            # Convert to OkHSL
+            if original_model == "okhsl":
+                hsl_data = data
+            else:
+                color_payload = ColorPayload(data, model=original_model, encoding=original_encoding)
+                hsl_data = color_payload.to_model("okhsl").data.copy()
+            
+            # Reshape to (num_pixels, 3): [H, S, L]
+            hsl = hsl_data.reshape(num_pixels, 3)
+            
+            # Reduce saturation: S = S * (1 - envelope)
+            # envelope=0 → full saturation (color), envelope=1 → zero saturation (white)
+            hsl[:, 1] = hsl[:, 1] * (1.0 - envelope)
+            
+            output_okhsl = ColorPayload(
+                hsl.reshape(-1).astype(np.float32),
+                model="okhsl",
+                encoding=original_encoding
+            )
+            # Convert back to original model
+            output_payload = output_okhsl.to_model(original_model)
+
+        # Emit with modulated payload
+        out_frame = frame.with_payload(output_payload)
+        await ctx.emit("out", out_frame)
+
+    async def stop(self, ctx: NodeContext) -> None:
+        pass

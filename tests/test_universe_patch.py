@@ -1,23 +1,22 @@
 """Unit tests for the UniversePatchTransform node."""
 
-from typing import Any, List, Tuple
+from typing import List
 from unittest.mock import AsyncMock
 
 import numpy as np
 import pytest
 
-from rasl.engine.frame import Frame
+from rasl.engine.frame import ArrayPayload, Frame
 from rasl.engine.node import NodeContext
-from rasl.engine.node_config import NodeKind, PortIOConfig, TimingConfig, TransformNodeConfig
-from rasl.nodes.universe_patch import Segment, UniversePatchTransform
+from rasl.nodes.universe_patch import SegmentConfig, UniversePatchTransform
 
 
-class TestSegment:
-    """Tests for the Segment dataclass."""
+class TestSegmentConfig:
+    """Tests for the SegmentConfig Pydantic model."""
 
     def test_segment_creation(self) -> None:
         """Test segment creation with all fields."""
-        segment = Segment(
+        segment = SegmentConfig(
             source_universe=1,
             source_channel=1,
             length=150,
@@ -31,7 +30,7 @@ class TestSegment:
 
     def test_source_slice(self) -> None:
         """Test source_slice converts 1-indexed to 0-indexed."""
-        segment = Segment(
+        segment = SegmentConfig(
             source_universe=1,
             source_channel=1,
             length=150,
@@ -44,7 +43,7 @@ class TestSegment:
 
     def test_source_slice_offset(self) -> None:
         """Test source_slice with offset channel."""
-        segment = Segment(
+        segment = SegmentConfig(
             source_universe=1,
             source_channel=100,
             length=50,
@@ -57,7 +56,7 @@ class TestSegment:
 
     def test_target_slice(self) -> None:
         """Test target_slice converts 1-indexed to 0-indexed."""
-        segment = Segment(
+        segment = SegmentConfig(
             source_universe=1,
             source_channel=1,
             length=150,
@@ -79,55 +78,40 @@ class TestUniversePatchTransform:
         return NodeContext(
             node_id="test",
             emit=emit_mock,
-            config=None,
             logger=AsyncMock(),
             _start_background=lambda fn, args: None,
         )
 
-    def _make_config(self, node_id: str, output_port: str, segments: List[Segment]) -> TransformNodeConfig:
-        timing = TimingConfig(fps=None)
-        input_cfg = PortIOConfig(channels=512, port="dmx")
-        if segments:
-            buffer_length = max(seg.target_channel - 1 + seg.length for seg in segments)
-            output_cfg = PortIOConfig(channels=buffer_length, port=output_port)
-        else:
-            # Channels won't be used when segments is empty (constructor will raise).
-            output_cfg = PortIOConfig(channels=0, port=output_port)
-
-        return TransformNodeConfig(
+    def _make_config(self, node_id: str, output_port: str, segments: List[SegmentConfig]) -> UniversePatchTransform.Config:
+        return UniversePatchTransform.Config(
             id=node_id,
-            type_id="UniversePatchTransform",
-            kind=NodeKind.TRANSFORM,
-            timing=timing,
-            params={"segments": segments},
-            input=input_cfg,
-            output=output_cfg,
+            output_port=output_port,
+            segments=segments,
         )
 
     def test_init_with_segments(self) -> None:
         """Test initialization with valid segments."""
         segments = [
-            Segment(source_universe=1, source_channel=1, length=150, target_channel=1),
-            Segment(source_universe=1, source_channel=1, length=150, target_channel=151),
+            SegmentConfig(source_universe=1, source_channel=1, length=150, target_channel=1),
+            SegmentConfig(source_universe=1, source_channel=1, length=150, target_channel=151),
         ]
         config = self._make_config("patch1", "universe0", segments)
         transform = UniversePatchTransform(config)
 
         assert transform.id == "patch1"
-        assert transform.outputs == ("universe0",)
-        assert transform.inputs == ("dmx",)
+        assert transform.outputs.names == ("universe0",)
+        assert transform.inputs.names == ("dmx",)
 
     def test_init_empty_segments_raises(self) -> None:
-        """Test that empty segments list raises ValueError."""
-        with pytest.raises(ValueError, match="requires at least one segment"):
-            config = self._make_config("patch1", "output", [])
-            UniversePatchTransform(config)
+        """Test that empty segments list raises validation error."""
+        with pytest.raises(Exception):  # Pydantic ValidationError
+            self._make_config("patch1", "output", [])
 
     def test_buffer_size_calculation(self) -> None:
         """Test that buffer size is calculated from segments."""
         segments = [
-            Segment(source_universe=1, source_channel=1, length=100, target_channel=1),
-            Segment(source_universe=1, source_channel=1, length=50, target_channel=200),
+            SegmentConfig(source_universe=1, source_channel=1, length=100, target_channel=1),
+            SegmentConfig(source_universe=1, source_channel=1, length=50, target_channel=200),
         ]
         config = self._make_config("patch1", "output", segments)
         transform = UniversePatchTransform(config)
@@ -139,13 +123,13 @@ class TestUniversePatchTransform:
     async def test_handle_copies_data(self, mock_context: NodeContext) -> None:
         """Test that handle copies segment data to buffer."""
         segments = [
-            Segment(source_universe=1, source_channel=1, length=3, target_channel=1),
+            SegmentConfig(source_universe=1, source_channel=1, length=3, target_channel=1),
         ]
         config = self._make_config("patch1", "output", segments)
         transform = UniversePatchTransform(config)
 
         # Create input frame with known values
-        payload = np.array([0.1, 0.2, 0.3] + [0.0] * 509, dtype=np.float32)
+        payload = ArrayPayload(np.array([0.1, 0.2, 0.3] + [0.0] * 509, dtype=np.float32))
         frame = Frame(
             topic="sacn.universe.1",
             timestamp=1.0,
@@ -170,12 +154,12 @@ class TestUniversePatchTransform:
     async def test_handle_ignores_wrong_port(self, mock_context: NodeContext) -> None:
         """Test that handle ignores frames on wrong port."""
         segments = [
-            Segment(source_universe=1, source_channel=1, length=3, target_channel=1),
+            SegmentConfig(source_universe=1, source_channel=1, length=3, target_channel=1),
         ]
         config = self._make_config("patch1", "output", segments)
         transform = UniversePatchTransform(config)
 
-        payload = np.zeros(512, dtype=np.float32)
+        payload = ArrayPayload(np.zeros(512, dtype=np.float32))
         frame = Frame(
             topic="test",
             timestamp=1.0,
@@ -192,12 +176,12 @@ class TestUniversePatchTransform:
     async def test_handle_ignores_unmatched_universe(self, mock_context: NodeContext) -> None:
         """Test that handle ignores frames from unmatched universes."""
         segments = [
-            Segment(source_universe=1, source_channel=1, length=3, target_channel=1),
+            SegmentConfig(source_universe=1, source_channel=1, length=3, target_channel=1),
         ]
         config = self._make_config("patch1", "output", segments)
         transform = UniversePatchTransform(config)
 
-        payload = np.zeros(512, dtype=np.float32)
+        payload = ArrayPayload(np.zeros(512, dtype=np.float32))
         frame = Frame(
             topic="test",
             timestamp=1.0,
@@ -214,13 +198,13 @@ class TestUniversePatchTransform:
     async def test_handle_multiple_segments(self, mock_context: NodeContext) -> None:
         """Test handling with multiple segments from same universe."""
         segments = [
-            Segment(source_universe=1, source_channel=1, length=2, target_channel=1),
-            Segment(source_universe=1, source_channel=3, length=2, target_channel=5),
+            SegmentConfig(source_universe=1, source_channel=1, length=2, target_channel=1),
+            SegmentConfig(source_universe=1, source_channel=3, length=2, target_channel=5),
         ]
         config = self._make_config("patch1", "output", segments)
         transform = UniversePatchTransform(config)
 
-        payload = np.array([0.1, 0.2, 0.3, 0.4] + [0.0] * 508, dtype=np.float32)
+        payload = ArrayPayload(np.array([0.1, 0.2, 0.3, 0.4] + [0.0] * 508, dtype=np.float32))
         frame = Frame(
             topic="sacn.universe.1",
             timestamp=1.0,
@@ -244,12 +228,12 @@ class TestUniversePatchTransform:
     async def test_handle_adds_metadata(self, mock_context: NodeContext) -> None:
         """Test that handle adds bufferId to output metadata."""
         segments = [
-            Segment(source_universe=1, source_channel=1, length=1, target_channel=1),
+            SegmentConfig(source_universe=1, source_channel=1, length=1, target_channel=1),
         ]
         config = self._make_config("patch1", "output", segments)
         transform = UniversePatchTransform(config)
 
-        payload = np.array([0.5] + [0.0] * 511, dtype=np.float32)
+        payload = ArrayPayload(np.array([0.5] + [0.0] * 511, dtype=np.float32))
         frame = Frame(
             topic="test",
             timestamp=1.0,

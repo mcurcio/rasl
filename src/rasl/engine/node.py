@@ -13,10 +13,13 @@ Node Types:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Protocol, Tuple
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Protocol, Tuple, Union
 
 from .frame import Frame
-from .node_config import NodeConfig
+from .ports import EMPTY_PORTS, PortGroup, _EmptyPortGroup
+
+if TYPE_CHECKING:
+    pass
 
 
 EmitCallable = Callable[[str, Frame], Awaitable[None]]
@@ -42,9 +45,13 @@ class NodeContext:
     This context is created by the Runtime for each node and should not
     be instantiated directly by node implementations.
 
+    Note: Node configuration is not included here. Nodes receive their
+    config in __init__ and store it as self._config.
+
     Attributes:
         node_id: Unique identifier of the node this context belongs to.
         emit: Async callback to send frames to downstream nodes.
+        logger: Structured logger instance bound to this node.
         _start_background: Internal callback for spawning background tasks.
 
     Example:
@@ -59,9 +66,6 @@ class NodeContext:
 
     emit: EmitCallable
     """Async callback to emit frames to connected downstream nodes."""
-
-    config: NodeConfig | None
-    """Typed configuration for this node instance, if available."""
 
     logger: Any
     """Structured logger instance bound to this node instance."""
@@ -95,9 +99,9 @@ class Node(Protocol):
     on output ports. All nodes must implement this protocol.
 
     Node Categories:
-        - SourceNode: inputs=(), owns external listeners, emits frames
-        - TransformNode: Receives and transforms frames, emits results
-        - SinkNode: outputs=(), writes frames to external targets
+        - SourceNode: No inputs attribute, generates frames
+        - TransformNode: Has both inputs and outputs PortGroups
+        - SinkNode: No outputs attribute, consumes frames
 
     Lifecycle:
         1. start() is called when the runtime begins execution
@@ -106,21 +110,24 @@ class Node(Protocol):
 
     Attributes:
         id: Unique node identifier within the graph.
-        inputs: Tuple of input port names this node accepts.
-        outputs: Tuple of output port names this node emits on.
+        inputs: PortGroup of input port specs (optional, omit for sources).
+        outputs: PortGroup of output port specs (optional, omit for sinks).
 
     Example:
+        >>> from rasl.engine.ports import PortGroup, PortSpec
+        >>> from rasl.engine.frame import ArrayPayload
+        >>>
         >>> class MyTransform:
         ...     id: str = "my_transform"
-        ...     inputs: Tuple[str, ...] = ("input",)
-        ...     outputs: Tuple[str, ...] = ("output",)
+        ...     inputs = PortGroup(data=PortSpec(accepts=ArrayPayload))
+        ...     outputs = PortGroup(result=PortSpec(accepts=ArrayPayload))
         ...
         ...     async def start(self, ctx: NodeContext) -> None:
         ...         pass  # Initialize resources
         ...
         ...     async def handle(self, port: str, frame: Frame, ctx: NodeContext) -> None:
         ...         # Process frame and emit
-        ...         await ctx.emit("output", frame)
+        ...         await ctx.emit("result", frame)
         ...
         ...     async def stop(self, ctx: NodeContext) -> None:
         ...         pass  # Cleanup resources
@@ -129,11 +136,9 @@ class Node(Protocol):
     id: str
     """Unique node identifier within the graph."""
 
-    inputs: Tuple[str, ...]
-    """Tuple of input port names this node accepts frames on."""
-
-    outputs: Tuple[str, ...]
-    """Tuple of output port names this node can emit frames on."""
+    # inputs and outputs are optional - omit for source/sink nodes
+    # inputs: PortGroup
+    # outputs: PortGroup
 
     async def start(self, ctx: NodeContext) -> None:
         """Initialize the node when runtime execution begins.
@@ -171,3 +176,27 @@ class Node(Protocol):
             ctx: Node execution context providing runtime services.
         """
         ...
+
+
+def get_inputs(node: Node) -> Union[PortGroup, _EmptyPortGroup]:
+    """Get node's input ports, defaulting to empty.
+
+    Args:
+        node: The node to get inputs from.
+
+    Returns:
+        The node's inputs PortGroup, or EMPTY_PORTS if not defined.
+    """
+    return getattr(node, "inputs", EMPTY_PORTS)
+
+
+def get_outputs(node: Node) -> Union[PortGroup, _EmptyPortGroup]:
+    """Get node's output ports, defaulting to empty.
+
+    Args:
+        node: The node to get outputs from.
+
+    Returns:
+        The node's outputs PortGroup, or EMPTY_PORTS if not defined.
+    """
+    return getattr(node, "outputs", EMPTY_PORTS)

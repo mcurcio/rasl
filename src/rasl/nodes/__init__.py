@@ -5,49 +5,67 @@ This package provides the built-in node types for common operations:
 Source Nodes:
     - SacnSourceNode: Receive sACN/E1.31 DMX data from network
     - SineSourceNode: Generate virtual sine-wave test data
+    - WaveformNode: Configurable waveform generator (sine, triangle, attack_decay)
+    - SeededRandomNode: Deterministic per-channel random values (TwinkleFOX style)
 
 Transform Nodes:
     - UniversePatchTransform: Remap DMX channels between universes
-    - Segment: Channel mapping definition for UniversePatchTransform
+    - ColorNode: Universal color space converter (oklch, oklab, srgb, hsl)
+    - ComposeNode: Interleave multiple inputs into single output
+    - MathNode: Element-wise math operations (multiply, add, screen, lerp)
+    - TwinkleEffectNode: TwinkleFOX-style brightness modulation
 
 Sink Nodes:
     - SacnSinkNode: Transmit sACN/E1.31 DMX data to network
+    - DdpSinkNode: Transmit RGB pixel data via DDP protocol
     - ConsoleSinkNode: Log frames to the console/logger
 
-Nodes are normally constructed by the configuration loader, which parses
-nginx-style config into :class:`~rasl.engine.node_config.NodeConfig`
-instances and then instantiates the corresponding node classes.
+Nodes are registered via the @node decorator and discovered by the
+config loader through the registry. Importing this module triggers
+registration of all built-in nodes.
 
 Example configuration (see ``sample.conf``)::
 
     rasl {
         node SacnSource sacnSource {
             universes 1 2;
-            metadata "colorSpace=rgb";
         }
-        node UniversePatch universePatch0 {
-            output universe0;
-            segment { source_universe 1; source_channel 1; length 150; target_channel 1; }
-        }
+        node Color toOklch {}  # Default: oklch output
+        node Color toRgb rgb {}  # Explicit rgb output
         node SacnSink sacnSink0 {
-            input universe0;
+            input_port universe0;
             target_host "10.0.60.30";
             target_universe 0;
         }
     }
 """
 
+# Importing these modules triggers @node decorator registration
+from .color_node import ColorNode
+from .compose_node import ComposeNode
 from .console_sink import ConsoleSinkNode
+from .ddp_sink import DdpSinkNode
+from .math_node import MathNode
 from .sacn_sink import SacnSinkNode
 from .sacn_source import SacnSourceNode
+from .seeded_random_node import SeededRandomNode
 from .sine_source import SineSourceNode
-from .universe_patch import Segment, UniversePatchTransform
+from .twinkle_effect import TwinkleEffectNode
+from .universe_patch import SegmentConfig, UniversePatchTransform
+from .waveform_node import WaveformNode
 
 __all__ = [
+    "ColorNode",
+    "ComposeNode",
     "ConsoleSinkNode",
+    "DdpSinkNode",
+    "MathNode",
     "SacnSinkNode",
     "SacnSourceNode",
-    "Segment",
+    "SeededRandomNode",
+    "SegmentConfig",
     "SineSourceNode",
+    "TwinkleEffectNode",
     "UniversePatchTransform",
+    "WaveformNode",
 ]
