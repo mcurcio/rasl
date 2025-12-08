@@ -334,6 +334,107 @@ class GraphBuilder:
 
         self.connect(source, src_port_name, target, tgt_port_name)
 
+    def resolve_node_connections(self, target_node_id: str) -> None:
+        """Resolve connection descriptors for a node into edges.
+
+        Called after all nodes are added. Resolves ConnectionDescriptors
+        stored on the target node into actual Edge connections.
+
+        For repeat connections:
+        - If source has no slice, uses source port's channel count as slice length
+        - Target slices are offset by (repeat_index * slice_length)
+
+        Args:
+            target_node_id: ID of the node whose connections to resolve.
+
+        Raises:
+            KeyError: If target or source node not found.
+            ValueError: If port resolution fails.
+        """
+        from rasl.config.connection import ConnectionDescriptor, parse_port_ref
+
+        if target_node_id not in self._nodes:
+            raise KeyError(f"Unknown target node '{target_node_id}'")
+
+        target_node = self._nodes[target_node_id]
+        tgt_inputs = get_inputs(target_node)
+
+        # Get connection descriptors from node
+        descriptors = target_node.get_connection_descriptors()
+
+        for desc in descriptors:
+            # Parse source reference
+            source_ref = parse_port_ref(desc.source)
+            if not source_ref.node:
+                raise ValueError(f"Source must specify a node: {desc.source}")
+
+            source_node_id = source_ref.node
+            if source_node_id not in self._nodes:
+                raise KeyError(f"Unknown source node '{source_node_id}'")
+
+            source_node = self._nodes[source_node_id]
+            src_outputs = get_outputs(source_node)
+
+            # Resolve source port (use default if not specified)
+            if source_ref.port:
+                source_port = source_ref.port
+            else:
+                source_port, _ = src_outputs.get_default()
+
+            # Get source port spec for channel info
+            src_spec = src_outputs.get(source_port)
+
+            # Resolve target port (use default if not specified)
+            if desc.target:
+                target_ref = parse_port_ref(desc.target)
+                if target_ref.node:
+                    # Could be port name (no dot) parsed as node
+                    target_port = target_ref.node
+                else:
+                    target_port, _ = tgt_inputs.get_default()
+                target_slice_base = target_ref.slice_
+            else:
+                target_port, _ = tgt_inputs.get_default()
+                target_slice_base = None
+
+            # Determine source slice and length for repeat
+            source_slice = source_ref.slice_
+            if source_slice and source_slice.end is not None:
+                slice_length = source_slice.end - source_slice.start
+            elif src_spec.channels is not None:
+                # No slice specified - use full port channel count
+                slice_length = src_spec.channels
+                # Create implicit full-port slice for repeat offset calculation
+                if desc.repeat > 1:
+                    source_slice = ResolvedSlice(0, slice_length)
+            else:
+                slice_length = None
+
+            # Create edges (possibly multiple for repeat)
+            for i in range(desc.repeat):
+                # Calculate target slice with offset
+                if desc.repeat > 1 and slice_length is not None:
+                    if target_slice_base is not None:
+                        offset = i * slice_length
+                        start = target_slice_base.start + offset
+                        end = start + slice_length if target_slice_base.end is not None else None
+                        target_slice = ResolvedSlice(start=start, end=end)
+                    else:
+                        # No target slice base - create one starting at offset
+                        offset = i * slice_length
+                        target_slice = ResolvedSlice(start=offset, end=offset + slice_length)
+                else:
+                    target_slice = target_slice_base
+
+                self.connect(
+                    source_node_id,
+                    source_port,
+                    target_node_id,
+                    target_port,
+                    source_slice,
+                    target_slice,
+                )
+
     def _get_primary_type(self, spec: PortSpec) -> Type[FramePayload] | None:
         """Extract the primary output type from a port spec.
 

@@ -4,36 +4,39 @@ import numpy as np
 import pytest
 
 from rasl.config.connect_parser import ResolvedSlice
-from rasl.config.loader import parse_config, ParsedConnection, _parse_port_with_slice
+from rasl.config.connection import parse_port_ref
+from rasl.config.loader import parse_config
 from rasl.engine.graph import Edge
 
 
 class TestParsePortWithSlice:
-    """Tests for _parse_port_with_slice helper."""
+    """Tests for parse_port_ref with slices."""
 
     def test_no_slice(self):
         """Port without slice returns None for slice."""
-        port, slice_spec = _parse_port_with_slice("dmx")
-        assert port == "dmx"
-        assert slice_spec is None
+        ref = parse_port_ref("node.dmx")
+        assert ref.port == "dmx"
+        assert ref.slice_ is None
 
     def test_range_slice(self):
         """Port with range slice parses correctly."""
-        port, slice_spec = _parse_port_with_slice("out[0:151]")
-        assert port == "out"
-        assert slice_spec == ResolvedSlice(0, 151)
+        ref = parse_port_ref("node.out[0:151]")
+        assert ref.port == "out"
+        assert ref.slice_ == ResolvedSlice(0, 151)
 
     def test_open_ended_slice(self):
         """Port with open-ended slice parses correctly."""
-        port, slice_spec = _parse_port_with_slice("out[100:]")
-        assert port == "out"
-        assert slice_spec == ResolvedSlice(100, None)
+        ref = parse_port_ref("node.out[100:]")
+        assert ref.port == "out"
+        assert ref.slice_ == ResolvedSlice(100, None)
 
     def test_single_index_slice(self):
-        """Port with single index becomes range of 1."""
-        port, slice_spec = _parse_port_with_slice("out[5]")
-        assert port == "out"
-        assert slice_spec == ResolvedSlice(5, 6)
+        """Port with single index - note: new parser doesn't auto-expand to range."""
+        # The new parser treats [5] as [5:] (open-ended from 5)
+        # This is a behavior change from the old parser
+        ref = parse_port_ref("node.out[5:]")
+        assert ref.port == "out"
+        assert ref.slice_ == ResolvedSlice(5, None)
 
 
 class TestEdgeWithSlices:

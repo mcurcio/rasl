@@ -171,11 +171,21 @@ class Runtime:
             inputs = get_inputs(node)
             port_spec = inputs.get(target_port)
             # Determine buffer size from port spec or max target slice end
-            buffer_size = port_spec.channels if port_spec.channels else 512
+            buffer_size = port_spec.channels if port_spec.channels else 0
             # Check if any edge specifies a larger target range
             for edge in edges:
-                if edge.target_slice and edge.target_slice.end:
-                    buffer_size = max(buffer_size, edge.target_slice.end)
+                if edge.target_slice:
+                    if edge.target_slice.end:
+                        # Explicit end
+                        buffer_size = max(buffer_size, edge.target_slice.end)
+                    elif edge.source_slice:
+                        # Open-ended target: calculate from start + source length
+                        src_len = (edge.source_slice.end - edge.source_slice.start
+                                   if edge.source_slice.end else 0)
+                        buffer_size = max(buffer_size, edge.target_slice.start + src_len)
+            # Ensure minimum buffer size
+            if buffer_size == 0:
+                raise ValueError(f"No buffer size determined for edge {edge}")
             self._port_buffers[key] = PortBuffer(
                 data=np.zeros(buffer_size, dtype=np.float32),
                 pending_edges=len(edges),

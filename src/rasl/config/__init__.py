@@ -8,6 +8,12 @@ Example:
     >>>
     >>> plan = load_config("config.conf")
     >>> # plan is an ExecutionPlan ready for Runtime
+
+New config dispatch system:
+    >>> from rasl.config import Directive, ConfigDispatch, config
+    >>>
+    >>> root = Directive.from_file("config.conf")
+    >>> # Use ConfigDispatch to route directives to handlers
 """
 
 from .channel_mapping import (
@@ -22,7 +28,16 @@ from .connect_parser import (
     parse_connect,
     parse_connect_batch,
 )
-from .loader import ConfigError, load_config, parse_config
+from .connection import (
+    ConnectionDescriptor,
+    ConnectionSpec,
+    PortRef,
+    parse_connect_directive,
+    parse_port_ref,
+)
+from .directive import Directive
+from .dispatch import ConfigDispatch, ConfigError, config
+from .loader import load_config, parse_config
 from .models import (
     BaseNodeConfig,
     SinkNodeConfig,
@@ -31,10 +46,20 @@ from .models import (
 )
 
 __all__ = [
+    # New config dispatch system
+    "config",
+    "ConfigDispatch",
+    "ConfigError",
+    "ConnectionDescriptor",
+    "ConnectionSpec",
+    "Directive",
+    "parse_connect_directive",
+    "parse_port_ref",
+    "PortRef",
+    # Legacy config system
     "BaseNodeConfig",
     "ChannelMapping",
     "ChannelOverlapError",
-    "ConfigError",
     "ConnectParseError",
     "load_config",
     "parse_config",

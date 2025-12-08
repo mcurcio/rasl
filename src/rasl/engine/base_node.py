@@ -4,6 +4,9 @@ This module provides the abstract base class that all node implementations
 must inherit from. It handles common initialization (id, metadata) and
 defines the lifecycle interface.
 
+BaseNode also handles the `connect` directive via the config dispatch system,
+collecting ConnectionSpec objects that the Graph resolves into edges.
+
 Example:
     >>> from rasl.engine.base_node import BaseNode
     >>> from rasl.engine.registry import node
@@ -24,11 +27,14 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, ClassVar, Sequence, Type
 
+from rasl.config.connection import ConnectionDescriptor, parse_connect_directive
+
 if TYPE_CHECKING:
     from .frame import Frame
     from .graph import Edge
     from .node import NodeContext
     from rasl.config.models import BaseNodeConfig
+    from rasl.config.directive import Directive
 
 
 class BaseNode(ABC):
@@ -79,6 +85,9 @@ class BaseNode(ABC):
     id: str
     """Unique node identifier within the graph."""
 
+    # Connection descriptors collected during config parsing
+    _connection_descriptors: list[ConnectionDescriptor]
+
     def __init__(self, config: "BaseNodeConfig") -> None:
         """Initialize base node with common config.
 
@@ -90,6 +99,29 @@ class BaseNode(ABC):
         """
         self.id = config.id
         self._metadata = dict(config.metadata)
+        self._connection_descriptors = []
+
+    def parse_connect_directives(self, directive: "Directive") -> None:
+        """Parse connect directives from node config block.
+
+        Called by the loader after node construction. Extracts all
+        connect directives and stores them as ConnectionDescriptors.
+
+        Args:
+            directive: The node's config directive block.
+        """
+        for child in directive.block:
+            if child.keyword == "connect":
+                desc = parse_connect_directive(child)
+                self._connection_descriptors.append(desc)
+
+    def get_connection_descriptors(self) -> list[ConnectionDescriptor]:
+        """Get all connection descriptors for this node.
+
+        Returns:
+            List of ConnectionDescriptor objects to be resolved by Graph.
+        """
+        return self._connection_descriptors.copy()
 
     @abstractmethod
     async def start(self, ctx: "NodeContext") -> None:

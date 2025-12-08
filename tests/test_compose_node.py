@@ -3,7 +3,8 @@
 import numpy as np
 import pytest
 
-from rasl.config.loader import _extract_block_dict
+from rasl.config.directive import Directive
+from rasl.config.loader import _extract_config_dict
 from rasl.engine.frame import ArrayPayload, Frame
 from rasl.engine.graph import Edge, GraphBuilder
 from rasl.engine.ports import PortSpec
@@ -233,53 +234,64 @@ class TestExtractBlockDictAccumulation:
 
     def test_accumulates_repeated_directives(self) -> None:
         """Repeated directives are accumulated as list-of-lists."""
-        # Simulate crossplane AST for:
+        # Create Directive tree for:
         # fill saturation 1;
         # fill lightness 0.5;
-        block = {
-            "block": [
-                {"directive": "fill", "args": ["saturation", "1"]},
-                {"directive": "fill", "args": ["lightness", "0.5"]},
-            ]
-        }
+        directive = Directive(
+            keyword="node",
+            args=(),
+            block=(
+                Directive("fill", ("saturation", "1"), (), 0),
+                Directive("fill", ("lightness", "0.5"), (), 0),
+            ),
+            line=0,
+        )
 
-        result = _extract_block_dict(block)
+        result = _extract_config_dict(directive)
 
         assert "fill" in result
         assert result["fill"] == [["saturation", 1], ["lightness", 0.5]]
 
     def test_single_directive_not_wrapped(self) -> None:
         """Single directive is not wrapped in extra list."""
-        block = {
-            "block": [
-                {"directive": "fill", "args": ["saturation", "1"]},
-            ]
-        }
+        directive = Directive(
+            keyword="node",
+            args=(),
+            block=(
+                Directive("fill", ("saturation", "1"), (), 0),
+            ),
+            line=0,
+        )
 
-        result = _extract_block_dict(block)
+        result = _extract_config_dict(directive)
 
         assert result["fill"] == ["saturation", 1]
 
     def test_nested_ports_block(self) -> None:
-        """Nested ports block is extracted as dict."""
-        block = {
-            "block": [
-                {
-                    "directive": "ports",
-                    "args": [],
-                    "block": [
-                        {"directive": "hue", "args": []},
-                        {"directive": "saturation", "args": []},
-                        {"directive": "lightness", "args": []},
-                    ],
-                },
-            ]
-        }
+        """Nested ports block is extracted as list of names."""
+        directive = Directive(
+            keyword="node",
+            args=(),
+            block=(
+                Directive(
+                    keyword="ports",
+                    args=(),
+                    block=(
+                        Directive("hue", (), (), 0),
+                        Directive("saturation", (), (), 0),
+                        Directive("lightness", (), (), 0),
+                    ),
+                    line=0,
+                ),
+            ),
+            line=0,
+        )
 
-        result = _extract_block_dict(block)
+        result = _extract_config_dict(directive)
 
         assert "ports" in result
-        assert result["ports"] == {"hue": True, "saturation": True, "lightness": True}
+        # New loader extracts ports as list of names
+        assert result["ports"] == ["hue", "saturation", "lightness"]
 
 
 class TestComposeNodeIntegration:
