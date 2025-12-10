@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from rasl.engine.color.convert import convert, MODELS
+from rasl.nodes.color.convert import convert, MODELS
 from rasl.engine.frame import ColorPayload
 
 

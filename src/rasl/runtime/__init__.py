@@ -1,22 +1,31 @@
 """RASL Runtime - Execution engine for the processing graph.
 
-This package provides the Runtime scheduler that executes a compiled
-ExecutionPlan using anyio for async concurrency.
+This package provides schedulers that execute a compiled ExecutionPlan
+using anyio for async concurrency.
+
+Two schedulers are available:
+- UnifiedScheduler: Pull-based execution driven by sink frame rates (recommended)
+- Runtime: Legacy push-based execution (deprecated)
 
 Example:
     >>> from rasl.engine import GraphBuilder
-    >>> from rasl.runtime import Runtime, RuntimeConfig
+    >>> from rasl.runtime import UnifiedScheduler
     >>>
     >>> builder = GraphBuilder()
     >>> # ... add nodes and edges ...
     >>> plan = builder.build()
-    >>> config = RuntimeConfig(frame_budget_ms=16.0, max_consecutive_errors=10)
-    >>> runtime = Runtime(plan, config)
-    >>> await runtime.run()
-    >>> print(runtime.get_node_stats())
+    >>> scheduler = UnifiedScheduler(plan)
+    >>> await scheduler.run()
 """
 
 from .monitor import NodeMonitor, NodeStats
 from .scheduler import Runtime, RuntimeConfig
+from .unified import UnifiedScheduler
 
-__all__ = ["Runtime", "RuntimeConfig", "NodeMonitor", "NodeStats"]
+__all__ = [
+    "Runtime",
+    "RuntimeConfig",
+    "NodeMonitor",
+    "NodeStats",
+    "UnifiedScheduler",
+]

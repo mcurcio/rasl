@@ -36,8 +36,17 @@ from .frame import (
     RgbColorPayload,
 )
 from .graph import CycleWarning, Edge, ExecutionPlan, GraphBuilder
-from .node import EmitCallable, Node, NodeContext, StartTaskCallable, get_inputs, get_outputs
-from .ports import EMPTY_PORTS, AcceptsSpec, ChannelSpec, PortGroup, PortSpec
+from .node import EmitCallable, InjectCallable, Node, NodeContext, StartTaskCallable, get_inputs, get_outputs
+from .ports import (
+    EMPTY_PORTS,
+    AcceptsSpec,
+    BoundPortGroup,
+    ChannelSpec,
+    InputPort,
+    OutputPort,
+    PortGroup,
+    PortSpec,
+)
 from .registry import (
     ensure_nodes_loaded,
     export_node_schemas,
@@ -49,11 +58,13 @@ from .registry import (
     node,
     payload,
 )
+from .tick import TickContext, pull_rate
 
 __all__ = [
     "AcceptsSpec",
     "ArrayPayload",
     "BaseNode",
+    "BoundPortGroup",
     "ChannelSpec",
     "ColorPayload",
     "CycleWarning",
@@ -72,6 +83,8 @@ __all__ = [
     "get_payload_type",
     "GraphBuilder",
     "HslColorPayload",
+    "InjectCallable",
+    "InputPort",
     "list_node_types",
     "OklabColorPayload",
     "OklchColorPayload",
@@ -80,10 +93,13 @@ __all__ = [
     "Node",
     "node",
     "NodeContext",
+    "OutputPort",
     "payload",
     "PayloadDescriptor",
     "PortGroup",
     "PortSpec",
+    "pull_rate",
     "RgbColorPayload",
     "StartTaskCallable",
+    "TickContext",
 ]

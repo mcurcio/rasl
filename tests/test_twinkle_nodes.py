@@ -8,9 +8,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from rasl.nodes.math_node import MathNode
-from rasl.nodes.seeded_random_node import SeededRandomNode
-from rasl.nodes.waveform_node import (
+from rasl.nodes.effects.math import MathNode
+from rasl.nodes.effects.seeded_random import SeededRandomNode
+from rasl.nodes.effects.waveform import (
     WaveformNode,
     attack_decay_wave,
     sine_wave,
@@ -349,7 +349,7 @@ class TestTwinkleEffectNode:
 
     def test_config_defaults(self) -> None:
         """Test default configuration values."""
-        from rasl.nodes.twinkle_effect import TwinkleEffectNode
+        from rasl.nodes.effects.twinkle import TwinkleEffectNode
 
         config = TwinkleEffectNode.Config(id="test")
         assert config.seed == 42
@@ -360,7 +360,7 @@ class TestTwinkleEffectNode:
 
     def test_config_custom(self) -> None:
         """Test custom configuration values."""
-        from rasl.nodes.twinkle_effect import TwinkleEffectNode
+        from rasl.nodes.effects.twinkle import TwinkleEffectNode
 
         config = TwinkleEffectNode.Config(
             id="test",
@@ -378,7 +378,7 @@ class TestTwinkleEffectNode:
 
     def test_deterministic_with_same_seed(self) -> None:
         """Test that same seed produces same per-pixel values."""
-        from rasl.nodes.twinkle_effect import TwinkleEffectNode
+        from rasl.nodes.effects.twinkle import TwinkleEffectNode
 
         node1 = TwinkleEffectNode(TwinkleEffectNode.Config(id="n1", seed=42))
         node2 = TwinkleEffectNode(TwinkleEffectNode.Config(id="n2", seed=42))
@@ -394,7 +394,7 @@ class TestTwinkleEffectNode:
 
     def test_different_seed_different_values(self) -> None:
         """Test that different seeds produce different per-pixel values."""
-        from rasl.nodes.twinkle_effect import TwinkleEffectNode
+        from rasl.nodes.effects.twinkle import TwinkleEffectNode
 
         node1 = TwinkleEffectNode(TwinkleEffectNode.Config(id="n1", seed=42))
         node2 = TwinkleEffectNode(TwinkleEffectNode.Config(id="n2", seed=99))

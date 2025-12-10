@@ -3,25 +3,26 @@
 This module provides WaveformNode, which generates various waveform shapes
 with per-channel phase and speed modulation support. This is the core
 building block for twinkle and other animated effects.
+
+Pull-based execution: Computes waveform on-demand using tick.t for timing.
+No internal loop - scheduler drives all timing.
 """
 
 from __future__ import annotations
 
-import math
-import time
 from typing import Literal
 
-import anyio
 import numpy as np
 from numpy.typing import NDArray
 from pydantic import Field
 
-from rasl.config.models import SourceNodeConfig
 from rasl.engine.base_node import BaseNode
 from rasl.engine.frame import ArrayPayload, Frame
 from rasl.engine.node import NodeContext
 from rasl.engine.ports import PortGroup, PortSpec
 from rasl.engine.registry import node
+from rasl.engine.tick import TickContext
+from rasl.nodes.models import SourceNodeConfig
 
 
 WaveShape = Literal["sine", "triangle", "sawtooth", "attack_decay", "square"]
@@ -92,6 +93,9 @@ class WaveformNode(BaseNode):
     modulation inputs. This enables effects like twinkle where each LED
     has its own phase and speed.
 
+    Pull-based: Computes waveform on-demand using tick.t for timing.
+    No internal loop - scheduler drives all timing.
+
     Waveform shapes:
         - sine: Smooth sinusoidal wave
         - triangle: Symmetric up-down triangle
@@ -129,11 +133,12 @@ class WaveformNode(BaseNode):
         duty: float = Field(0.5, ge=0.0, le=1.0, description="Duty cycle for square wave")
         topic: str | None = Field(None, description="Optional topic override")
 
-    inputs = PortGroup(
+    # Class-level ports
+    inputs = PortGroup.inputs(
         phase=PortSpec(accepts="array"),  # Per-channel phase offsets [0, 1]
         speed=PortSpec(accepts="array"),  # Per-channel speed multipliers
     )
-    outputs = PortGroup(out=PortSpec(accepts="array"))
+    outputs = PortGroup.outputs(out=PortSpec(accepts="array"))
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)
@@ -142,54 +147,53 @@ class WaveformNode(BaseNode):
         self._frequency_hz = config.frequency_hz
         self._attack_ratio = config.attack_ratio
         self._duty = config.duty
-        self._fps = int(config.fps) if config.fps else 30
         self._topic = config.topic or f"waveform.{self.id}"
 
-        # Modulation buffers (optional inputs)
-        self._phase_offsets: NDArray[np.float32] | None = None
-        self._speed_multipliers: NDArray[np.float32] | None = None
+    async def pull(self, tick: TickContext) -> None:
+        """Compute waveform using scheduler's authoritative time."""
+        t = tick.t
 
-    async def start(self, ctx: NodeContext) -> None:
-        ctx.start_background(self._run_loop, ctx)
+        # Base phase for all channels
+        base_phase = (self._frequency_hz * t) % 1.0
 
-    async def _run_loop(self, ctx: NodeContext) -> None:
-        interval = 1.0 / float(self._fps)
-        t0 = time.monotonic()
+        # Read optional modulation inputs
+        phase_offsets: NDArray[np.float32] | None = None
+        speed_multipliers: NDArray[np.float32] | None = None
 
-        while True:
-            now = time.monotonic()
-            t = now - t0
+        if phase_frame := self.inputs.phase.read():
+            phase_offsets = np.asarray(phase_frame.payload, dtype=np.float32)
 
-            # Base phase for all channels
-            base_phase = (self._frequency_hz * t) % 1.0
+        if speed_frame := self.inputs.speed.read():
+            speed_multipliers = np.asarray(speed_frame.payload, dtype=np.float32)
 
-            # Apply per-channel speed multipliers if available
-            if self._speed_multipliers is not None:
-                speeds = self._speed_multipliers[:self._channels]
-                if len(speeds) < self._channels:
-                    speeds = np.resize(speeds, self._channels)
-                phase = (base_phase * speeds) % 1.0
-            else:
-                phase = np.full(self._channels, base_phase, dtype=np.float32)
+        # Apply per-channel speed multipliers if available
+        if speed_multipliers is not None:
+            speeds = speed_multipliers[: self._channels]
+            if len(speeds) < self._channels:
+                speeds = np.resize(speeds, self._channels)
+            phase = (base_phase * speeds) % 1.0
+        else:
+            phase = np.full(self._channels, base_phase, dtype=np.float32)
 
-            # Apply per-channel phase offsets if available
-            if self._phase_offsets is not None:
-                offsets = self._phase_offsets[:self._channels]
-                if len(offsets) < self._channels:
-                    offsets = np.resize(offsets, self._channels)
-                phase = (phase + offsets) % 1.0
+        # Apply per-channel phase offsets if available
+        if phase_offsets is not None:
+            offsets = phase_offsets[: self._channels]
+            if len(offsets) < self._channels:
+                offsets = np.resize(offsets, self._channels)
+            phase = (phase + offsets) % 1.0
 
-            # Generate waveform
-            values = self._apply_shape(phase)
+        # Generate waveform
+        values = self._apply_shape(phase)
 
-            frame = Frame(
+        # Write to output port
+        self.outputs.out.write(
+            Frame(
                 topic=self._topic,
-                timestamp=now,
+                timestamp=tick.wall_time,
                 payload=ArrayPayload(values),
                 metadata=dict(self._metadata),
             )
-            await ctx.emit("out", frame)
-            await anyio.sleep(interval)
+        )
 
     def _apply_shape(self, phase: NDArray[np.float32]) -> NDArray[np.float32]:
         """Apply the configured waveform shape."""
@@ -207,15 +211,3 @@ class WaveformNode(BaseNode):
             return square_wave(phase, self._duty)
         else:
             return sine_wave(phase)
-
-    async def handle(self, port: str, frame: Frame, ctx: NodeContext) -> None:
-        """Handle modulation inputs."""
-        data = np.asarray(frame.payload, dtype=np.float32)
-
-        if port == "phase":
-            self._phase_offsets = data
-        elif port == "speed":
-            self._speed_multipliers = data
-
-    async def stop(self, ctx: NodeContext) -> None:
-        pass

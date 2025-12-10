@@ -141,7 +141,7 @@ class ColorPayload(ArrayPayload):
             return self
             
         # Import here to avoid circular dependency
-        from rasl.engine.color.convert import convert
+        from rasl.nodes.color.convert import convert
         
         converted = convert(self._data, self._model, target)
         return ColorPayload(converted, model=target, encoding=self._encoding)
@@ -277,6 +277,30 @@ class OkhsvColorPayload(ColorPayload):
     @classmethod
     def is_compatible_with(cls, other: Type[FramePayload]) -> bool:
         """OkhsvColorPayload accepts any ArrayPayload (raw or color)."""
+        return issubclass(other, ArrayPayload)
+
+
+@payload("linear")
+class LinearRgbColorPayload(ColorPayload):
+    """Linear RGB color payload - no gamma encoding.
+
+    Linear RGB is the raw, physically linear color space before
+    gamma encoding is applied. Useful for:
+    - Physically correct blending and compositing
+    - Color correction operations
+    - Converting to/from sRGB for display
+
+    Components are R, G, B in [0, 1] range (linear light).
+    """
+
+    __slots__ = ()
+
+    def __init__(self, data: NDArray[np.float32], encoding: str = "linear") -> None:
+        super().__init__(data, model="linear", encoding=encoding)
+
+    @classmethod
+    def is_compatible_with(cls, other: Type[FramePayload]) -> bool:
+        """LinearRgbColorPayload accepts any ArrayPayload (raw or color)."""
         return issubclass(other, ArrayPayload)
 
 

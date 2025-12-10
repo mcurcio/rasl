@@ -13,14 +13,14 @@ from typing import Any, Optional
 
 import numpy as np
 import sacn
-from pydantic import Field
+from pydantic import Field, field_validator
 
-from rasl.config.models import SourceNodeConfig
 from rasl.engine.base_node import BaseNode
 from rasl.engine.frame import ArrayPayload, Frame
 from rasl.engine.node import NodeContext
 from rasl.engine.ports import PortGroup, PortSpec
 from rasl.engine.registry import node
+from rasl.nodes.models import SourceNodeConfig
 
 
 @node("SacnSourceNode", "SacnSource")
@@ -49,7 +49,15 @@ class SacnSourceNode(BaseNode):
         bind_address: str = Field("0.0.0.0", description="Network interface to bind to")
         bind_port: int = Field(5568, ge=1, le=65535, description="UDP port to listen on")
 
-    outputs = PortGroup(dmx=PortSpec(accepts="array"))
+        @field_validator("universes", mode="before")
+        @classmethod
+        def normalize_universes(cls, v: int | list[int]) -> list[int]:
+            """Coerce single integer to list."""
+            if isinstance(v, int):
+                return [v]
+            return v
+
+    outputs = PortGroup.outputs(dmx=PortSpec(accepts="array"))
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)
@@ -79,8 +87,12 @@ class SacnSourceNode(BaseNode):
         def _listener(packet: Any) -> None:
             if self._ctx is None or self._loop is None:
                 return
+            
             # Normalize DMX bytes (0-255) to float32 (0.0-1.0)
+            # Note: sacn library always pads dmxData to 512 bytes
+            # Use slicing in config to extract RGB data (e.g., hyperhdr[0:432])
             slots = np.array(packet.dmxData, dtype=np.float32) / 255.0
+            
             timestamp = time.monotonic()
             metadata = {
                 "sourceUniverse": packet.universe,
@@ -97,7 +109,8 @@ class SacnSourceNode(BaseNode):
                 payload=ArrayPayload(slots),
                 metadata={k: v for k, v in metadata.items() if v is not None},
             )
-            asyncio.run_coroutine_threadsafe(self._ctx.emit("dmx", frame), self._loop)
+            # Write to output port - scheduler handles caching and wakeup
+            self.outputs.dmx.write(frame)
 
         return _listener
 

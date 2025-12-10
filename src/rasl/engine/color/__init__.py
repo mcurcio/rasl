@@ -1,21 +1,11 @@
 """Color conversion utilities for RASL.
 
-This module provides color space conversion using the colour-science library.
-OKLCH is the default internal color model for perceptually uniform mixing.
+DEPRECATED: This module is deprecated. Import from rasl.nodes.color instead.
 
-Supported models:
-    - oklch: Perceptually uniform cylindrical (L, C, H) - DEFAULT
-    - oklab: Perceptually uniform cartesian (L, a, b)
-    - srgb: Standard RGB with gamma encoding
-    - hsl: Hue, Saturation, Lightness (legacy)
-
-Example:
-    >>> from rasl.engine.color import convert
-    >>> import numpy as np
-    >>> hsl_data = np.array([[0.5, 1.0, 0.5]], dtype=np.float32)
-    >>> oklch_data = convert(hsl_data, "hsl", "oklch")
+This module re-exports from rasl.nodes.color for backward compatibility.
 """
 
-from .convert import MODELS, DEFAULT_MODEL, convert
+# Re-export from new location for backward compatibility
+from rasl.nodes.color.convert import DEFAULT_MODEL, MODELS, convert
 
-__all__ = ["MODELS", "DEFAULT_MODEL", "convert"]
+__all__ = ["DEFAULT_MODEL", "MODELS", "convert"]

@@ -19,7 +19,7 @@ import colour
 colour.utilities.filter_warnings(colour_usage_warnings=False)
 
 # Supported color models
-MODELS: frozenset[str] = frozenset({"oklch", "oklab", "srgb", "rgb", "hsl", "okhsl", "okhsv"})
+MODELS: frozenset[str] = frozenset({"oklch", "oklab", "srgb", "rgb", "hsl", "okhsl", "okhsv", "linear"})
 
 # Default internal model for mixing/animation
 DEFAULT_MODEL: str = "oklch"
@@ -32,7 +32,8 @@ def convert(
 ) -> NDArray[np.float32]:
     """Convert color data between models.
 
-    All conversions route through XYZ as the hub space.
+    Uses direct conversion paths where available for performance,
+    otherwise routes through XYZ as the hub space.
     Data shape: (N, 3) or flat (N*3,) - will be reshaped as needed.
 
     Args:
@@ -59,12 +60,25 @@ def convert(
         return data
 
     original_shape = data.shape
-    pixels = data.reshape(-1, 3)
+    flat_data = data.reshape(-1)
+    
+    # Validate: color data must be RGB triplets (divisible by 3)
+    if len(flat_data) % 3 != 0:
+        raise ValueError(
+            f"Color data must have length divisible by 3 (RGB triplets), "
+            f"got {len(flat_data)} values. Use slicing to extract valid RGB data."
+        )
+    
+    pixels = flat_data.reshape(-1, 3)
 
-    # Step 1: Convert to XYZ (hub space)
+    # Fast paths for common conversions (bypass XYZ hub)
+    result = _try_direct_convert(pixels, from_model, to_model)
+    if result is not None:
+        result = np.clip(result, 0.0, 1.0)
+        return result.reshape(original_shape).astype(np.float32)
+
+    # Fallback: route through XYZ hub space
     xyz = _to_xyz(pixels, from_model)
-
-    # Step 2: Convert from XYZ to target
     result = _from_xyz(xyz, to_model)
 
     # Clip to valid range and restore shape
@@ -72,11 +86,66 @@ def convert(
     return result.reshape(original_shape).astype(np.float32)
 
 
+def _try_direct_convert(
+    data: NDArray,
+    from_model: str,
+    to_model: str,
+) -> NDArray | None:
+    """Try direct conversion without XYZ hub. Returns None if no direct path."""
+    # OkHSL <-> sRGB (most common in this pipeline)
+    if from_model == "okhsl" and to_model == "srgb":
+        return _okhsl_to_srgb(data)
+    if from_model == "srgb" and to_model == "okhsl":
+        return _srgb_to_okhsl(data)
+    
+    # OkHSV <-> sRGB
+    if from_model == "okhsv" and to_model == "srgb":
+        return _okhsv_to_srgb(data)
+    if from_model == "srgb" and to_model == "okhsv":
+        return _srgb_to_okhsv(data)
+    
+    # Oklab <-> sRGB (direct, no XYZ needed)
+    if from_model == "oklab" and to_model == "srgb":
+        return _oklab_to_srgb_direct(data)
+    if from_model == "srgb" and to_model == "oklab":
+        return _srgb_to_oklab_direct(data)
+    
+    # HSL <-> sRGB
+    if from_model == "hsl" and to_model == "srgb":
+        return _hsl_to_srgb(data)
+    if from_model == "srgb" and to_model == "hsl":
+        return _srgb_to_hsl(data)
+    
+    # OKLCH <-> Oklab (simple coordinate transform)
+    if from_model == "oklch" and to_model == "oklab":
+        return _oklch_to_oklab(data)
+    if from_model == "oklab" and to_model == "oklch":
+        return _oklab_to_oklch(data)
+    
+    # OKLCH <-> sRGB via Oklab (faster than XYZ)
+    if from_model == "oklch" and to_model == "srgb":
+        oklab = _oklch_to_oklab(data)
+        return _oklab_to_srgb_direct(oklab)
+    if from_model == "srgb" and to_model == "oklch":
+        oklab = _srgb_to_oklab_direct(data)
+        return _oklab_to_oklch(oklab)
+    
+    # Linear RGB <-> sRGB (gamma only)
+    if from_model == "linear" and to_model == "srgb":
+        return _linear_to_srgb(data)
+    if from_model == "srgb" and to_model == "linear":
+        return _srgb_to_linear(data)
+    
+    return None
+
+
 def _normalize_model(model: str) -> str:
     """Normalize model name aliases."""
     model = model.lower()
     if model == "rgb":
         return "srgb"
+    if model == "linear_rgb" or model == "linearrgb":
+        return "linear"
     if model not in MODELS:
         raise ValueError(f"Unknown color model: {model}. Supported: {sorted(MODELS)}")
     return model
@@ -87,6 +156,9 @@ def _to_xyz(data: NDArray, model: str) -> NDArray:
     match model:
         case "srgb":
             return colour.sRGB_to_XYZ(data)
+        case "linear":
+            # Linear RGB to XYZ (no gamma, direct matrix)
+            return colour.RGB_to_XYZ(data, "sRGB")
         case "oklab":
             return colour.Oklab_to_XYZ(data)
         case "oklch":
@@ -110,6 +182,9 @@ def _from_xyz(xyz: NDArray, model: str) -> NDArray:
     match model:
         case "srgb":
             return colour.XYZ_to_sRGB(xyz)
+        case "linear":
+            # XYZ to linear RGB (no gamma, direct matrix)
+            return colour.XYZ_to_RGB(xyz, "sRGB")
         case "oklab":
             return colour.XYZ_to_Oklab(xyz)
         case "oklch":
@@ -259,6 +334,51 @@ def _srgb_to_hsl(rgb: NDArray) -> NDArray:
         h[mask] = hm
 
     return np.stack([h, s, l], axis=-1)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# sRGB <-> Linear RGB conversions (gamma only)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _srgb_to_linear(rgb: NDArray) -> NDArray:
+    """Convert sRGB to linear RGB (remove gamma encoding).
+    
+    Uses the standard sRGB transfer function:
+    - Linear portion for values <= 0.04045
+    - Power curve (gamma ~2.4) for values > 0.04045
+    
+    Args:
+        rgb: sRGB values in [0, 1] range, shape (..., 3)
+        
+    Returns:
+        Linear RGB values in [0, 1] range
+    """
+    return np.where(
+        rgb <= 0.04045,
+        rgb / 12.92,
+        np.power((rgb + 0.055) / 1.055, 2.4)
+    ).astype(np.float32)
+
+
+def _linear_to_srgb(linear: NDArray) -> NDArray:
+    """Convert linear RGB to sRGB (apply gamma encoding).
+    
+    Uses the standard sRGB transfer function:
+    - Linear portion for values <= 0.0031308
+    - Power curve (gamma ~1/2.4) for values > 0.0031308
+    
+    Args:
+        linear: Linear RGB values in [0, 1] range, shape (..., 3)
+        
+    Returns:
+        sRGB values in [0, 1] range
+    """
+    return np.where(
+        linear <= 0.0031308,
+        12.92 * linear,
+        1.055 * np.power(np.maximum(linear, 0), 1/2.4) - 0.055
+    ).astype(np.float32)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

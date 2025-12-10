@@ -8,7 +8,7 @@ from rasl.config.loader import _extract_config_dict
 from rasl.engine.frame import ArrayPayload, Frame
 from rasl.engine.graph import Edge, GraphBuilder
 from rasl.engine.ports import PortSpec
-from rasl.nodes.compose_node import ComposeNode
+from rasl.nodes.color.compose_node import ComposeNode
 
 
 class TestComposeNodeConfig:
@@ -299,7 +299,7 @@ class TestComposeNodeIntegration:
 
     def test_graph_validates_compose_connections(self) -> None:
         """GraphBuilder calls validate_connections on ComposeNode."""
-        from rasl.nodes.sine_source import SineSourceNode
+        from rasl.nodes.debug.sine_source import SineSourceNode
 
         # Create nodes
         sine_config = SineSourceNode.Config(id="sine", output_channels=10)
@@ -324,7 +324,7 @@ class TestComposeNodeIntegration:
 
     def test_graph_fails_on_missing_connection(self) -> None:
         """GraphBuilder fails when ComposeNode port lacks connection and fill."""
-        from rasl.nodes.sine_source import SineSourceNode
+        from rasl.nodes.debug.sine_source import SineSourceNode
 
         sine_config = SineSourceNode.Config(id="sine", output_channels=10)
         sine = SineSourceNode(sine_config)

@@ -12,12 +12,12 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import Field
 
-from rasl.config.models import TransformNodeConfig
 from rasl.engine.base_node import BaseNode
 from rasl.engine.frame import ArrayPayload, Frame
 from rasl.engine.node import NodeContext
 from rasl.engine.ports import PortGroup, PortSpec
 from rasl.engine.registry import node
+from rasl.nodes.models import TransformNodeConfig
 
 
 Operation = Literal["multiply", "add", "subtract", "min", "max", "screen", "lerp"]
@@ -64,11 +64,11 @@ class MathNode(BaseNode):
         mix: float = Field(0.5, ge=0.0, le=1.0, description="Mix factor for lerp operation")
         clamp: bool = Field(True, description="Clamp output to [0, 1]")
 
-    inputs = PortGroup(
+    inputs = PortGroup.inputs(
         a=PortSpec(accepts="array"),
         b=PortSpec(accepts="array"),
     )
-    outputs = PortGroup(out=PortSpec(accepts="array"))
+    outputs = PortGroup.outputs(out=PortSpec(accepts="array"))
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)

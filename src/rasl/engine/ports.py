@@ -7,12 +7,19 @@ validation of graph connections and channel-level routing.
 Payload types are referenced by string name (e.g., "array", "color")
 rather than direct class references, enabling a plugin architecture
 where the port system is decoupled from specific implementations.
+
+The port model supports both pull-based and push-based execution:
+- InputPort: Read data from upstream nodes via read()
+- OutputPort: Write data to downstream nodes via write()
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Iterator, Optional, Tuple, Type, Union
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Callable, Iterator, Optional, Tuple, Type, Union
+
+if TYPE_CHECKING:
+    from .frame import Frame
 
 
 AcceptsSpec = Union[str, Tuple[str, ...]]
@@ -286,71 +293,300 @@ EMPTY_PORTS = _EmptyPortGroup()
 
 
 class PortGroup:
-    """Named collection of ports with default resolution.
+    """Named collection of input or output ports.
 
-    PortGroup provides a dict-like interface for accessing port specs
-    by name, with support for default port resolution when there's
-    exactly one port in the group.
+    PortGroup creates InputPort or OutputPort objects directly as attributes,
+    providing fast attribute access without dynamic lookup. Use the factory
+    methods `inputs()` and `outputs()` to create port groups.
 
     Example:
-        >>> outputs = PortGroup(
-        ...     dmx=PortSpec(accepts=ArrayPayload),
-        ... )
-        >>> outputs.dmx  # Access by attribute
-        PortSpec(accepts=ArrayPayload)
-        >>> outputs.get_default()  # Single port is default
-        ('dmx', PortSpec(accepts=ArrayPayload))
+        >>> outputs = PortGroup.outputs(dmx=PortSpec(accepts="array"))
+        >>> outputs.dmx  # Direct attribute access to OutputPort
+        OutputPort(name='dmx', ...)
+        >>> outputs.dmx.write(frame)  # Write to port
+        
+        >>> inputs = PortGroup.inputs(color=PortSpec(accepts="color"))
+        >>> inputs.color.read()  # Read from port
     """
 
-    __slots__ = ("_ports",)
+    # Ports are stored as direct attributes for fast access
+    # No __slots__ so we can add port attributes dynamically
 
-    def __init__(self, **ports: PortSpec) -> None:
-        """Initialize a port group with named port specs.
+    @classmethod
+    def inputs(cls, **ports: PortSpec) -> "PortGroup":
+        """Create an input port group.
+        
+        Args:
+            **ports: Named PortSpec instances defining input ports.
+            
+        Returns:
+            PortGroup with InputPort objects as attributes.
+        """
+        return cls(_is_input=True, **ports)
+
+    @classmethod
+    def outputs(cls, **ports: PortSpec) -> "PortGroup":
+        """Create an output port group.
+        
+        Args:
+            **ports: Named PortSpec instances defining output ports.
+            
+        Returns:
+            PortGroup with OutputPort objects as attributes.
+        """
+        return cls(_is_input=False, **ports)
+
+    def __init__(self, *, _is_input: bool, **ports: PortSpec) -> None:
+        """Initialize a port group (use factory methods instead).
 
         Args:
+            _is_input: True for InputPorts, False for OutputPorts.
             **ports: Named PortSpec instances.
         """
-        self._ports: dict[str, PortSpec] = ports
+        object.__setattr__(self, "_port_names", tuple(ports.keys()))
+        object.__setattr__(self, "_is_input", _is_input)
+        
+        # Create port objects directly as attributes
+        for name, spec in ports.items():
+            if _is_input:
+                port = InputPort(name=name, spec=spec)
+            else:
+                port = OutputPort(name=name, spec=spec)
+            object.__setattr__(self, name, port)
 
-    def __getattr__(self, name: str) -> PortSpec:
+    def __iter__(self) -> Iterator["InputPort | OutputPort"]:
+        """Iterate over port objects."""
+        for name in self._port_names:
+            yield getattr(self, name)
+
+    def __len__(self) -> int:
+        return len(self._port_names)
+
+    def __contains__(self, name: str) -> bool:
+        return name in self._port_names
+
+    def get(self, name: str) -> Optional["InputPort | OutputPort"]:
+        """Get a port by name, or None if not found."""
+        if name in self._port_names:
+            return getattr(self, name)
+        return None
+
+    def get_default(self) -> tuple[str, "InputPort | OutputPort"]:
+        """Return (name, port) for the default port.
+
+        A port is default if and only if it's the sole port in the group.
+
+        Returns:
+            Tuple of (port_name, port_object).
+
+        Raises:
+            ValueError: If the group has zero or more than one port.
+        """
+        if len(self._port_names) == 1:
+            name = self._port_names[0]
+            return (name, getattr(self, name))
+        raise ValueError(
+            f"No default port: group has {len(self._port_names)} ports"
+        )
+
+    @property
+    def names(self) -> tuple[str, ...]:
+        """Return tuple of all port names in this group."""
+        return self._port_names
+    
+    @property
+    def is_input(self) -> bool:
+        """True if this is an input port group."""
+        return self._is_input
+
+
+# =============================================================================
+# Runtime Port Objects (used during execution)
+# =============================================================================
+
+
+@dataclass
+class InputPort:
+    """A readable input port on a node.
+
+    In PULL mode: Contains pre-pulled frame from upstream.
+    In PUSH mode: Contains most recently pushed frame.
+
+    Nodes read from input ports via read() during pull() execution.
+
+    Attributes:
+        name: Port name within the node.
+        spec: Port specification (type constraints, channels).
+    """
+
+    name: str
+    spec: PortSpec
+    _frame: Optional["Frame"] = field(default=None, repr=False)
+    _has_upstream: bool = field(default=False, repr=False)
+
+    def read(self, default: Optional["Frame"] = None) -> Optional["Frame"]:
+        """Read the current frame on this port.
+
+        Args:
+            default: Value to return if no frame available.
+
+        Returns:
+            The frame, or default if port is empty/unconnected.
+        """
+        return self._frame if self._frame is not None else default
+
+    @property
+    def connected(self) -> bool:
+        """True if an upstream node is connected to this port."""
+        return self._has_upstream
+
+    @property
+    def channels(self) -> Optional[int]:
+        """Number of channels (delegated to spec)."""
+        return self.spec.channels
+
+    def accepts_payload_type(self, payload_type: Type) -> bool:
+        """Check if this port accepts a payload type (delegated to spec)."""
+        return self.spec.accepts_payload_type(payload_type)
+
+    def resolve_payload_types(self) -> tuple[Type, ...]:
+        """Resolve accepted type names to actual payload classes (delegated to spec)."""
+        return self.spec.resolve_payload_types()
+
+    def _set_frame(self, frame: Optional["Frame"]) -> None:
+        """Internal: Set the frame (called by scheduler)."""
+        self._frame = frame
+
+    def _clear(self) -> None:
+        """Internal: Clear the frame."""
+        self._frame = None
+
+
+@dataclass
+class OutputPort:
+    """A writable output port on a node.
+
+    Nodes write frames to output ports during pull() execution.
+    The scheduler routes written frames to connected downstream nodes.
+
+    For push sources, writing also triggers a scheduler wakeup so the
+    frame can be propagated to downstream nodes.
+
+    Attributes:
+        name: Port name within the node.
+        spec: Port specification (type constraints, channels).
+    """
+
+    name: str
+    spec: PortSpec
+    _frame: Optional["Frame"] = field(default=None, repr=False)
+    _written: bool = field(default=False, repr=False)
+    _node_id: str = field(default="", repr=False)
+    _on_write: Optional[Callable[["OutputPort"], None]] = field(default=None, repr=False)
+
+    def write(self, frame: "Frame") -> None:
+        """Write a frame to this output port.
+
+        The frame will be routed to all connected downstream nodes
+        after the current node's processing completes.
+
+        For push sources, this also triggers a scheduler wakeup.
+
+        Args:
+            frame: The frame to output.
+        """
+        self._frame = frame
+        self._written = True
+        # Notify scheduler for push sources
+        if self._on_write is not None:
+            self._on_write(self)
+
+    @property
+    def was_written(self) -> bool:
+        """True if write() was called since last consume."""
+        return self._written
+
+    @property
+    def channels(self) -> Optional[int]:
+        """Number of channels (delegated to spec)."""
+        return self.spec.channels
+
+    def accepts_payload_type(self, payload_type: Type) -> bool:
+        """Check if this port accepts a payload type (delegated to spec)."""
+        return self.spec.accepts_payload_type(payload_type)
+
+    def resolve_payload_types(self) -> tuple[Type, ...]:
+        """Resolve accepted type names to actual payload classes (delegated to spec)."""
+        return self.spec.resolve_payload_types()
+
+    def _consume(self) -> Optional["Frame"]:
+        """Internal: Get written frame and reset state."""
+        frame = self._frame
+        self._frame = None
+        self._written = False
+        return frame
+
+    def _clear(self) -> None:
+        """Internal: Clear the frame without consuming."""
+        self._frame = None
+        self._written = False
+
+
+class BoundPortGroup:
+    """Runtime port group with actual InputPort/OutputPort instances.
+
+    Created when a node is instantiated, binding PortSpecs to actual
+    port objects that can hold frame data.
+
+    Example:
+        # In node's __init__:
+        self._bound_inputs = BoundPortGroup.from_specs(self.inputs, is_input=True)
+
+        # In node's pull():
+        frame = self._bound_inputs.color.read()
+    """
+
+    __slots__ = ("_ports", "_is_input")
+
+    def __init__(self, ports: dict[str, InputPort | OutputPort], is_input: bool) -> None:
+        self._ports = ports
+        self._is_input = is_input
+
+    @classmethod
+    def from_specs(cls, spec_group: PortGroup, is_input: bool) -> "BoundPortGroup":
+        """Create bound ports from a PortGroup specification."""
+        ports: dict[str, InputPort | OutputPort] = {}
+        for name in spec_group.names:
+            spec = spec_group.get(name)
+            if spec is None:
+                continue
+            if is_input:
+                ports[name] = InputPort(name=name, spec=spec)
+            else:
+                ports[name] = OutputPort(name=name, spec=spec)
+        return cls(ports, is_input)
+
+    def __getattr__(self, name: str) -> InputPort | OutputPort:
         if name.startswith("_"):
             raise AttributeError(name)
         if name not in self._ports:
             raise AttributeError(f"No port named '{name}'")
         return self._ports[name]
 
-    def __iter__(self) -> Iterator[str]:
-        return iter(self._ports)
-
-    def __len__(self) -> int:
-        return len(self._ports)
+    def __iter__(self) -> Iterator[InputPort | OutputPort]:
+        return iter(self._ports.values())
 
     def __contains__(self, name: str) -> bool:
         return name in self._ports
 
-    def get(self, name: str) -> Optional[PortSpec]:
-        """Get a port spec by name, or None if not found."""
+    def __len__(self) -> int:
+        return len(self._ports)
+
+    def get(self, name: str) -> Optional[InputPort | OutputPort]:
+        """Get a port by name, or None if not found."""
         return self._ports.get(name)
-
-    def get_default(self) -> tuple[str, PortSpec]:
-        """Return (name, spec) for the default port.
-
-        A port is default if and only if it's the sole port in the group.
-
-        Returns:
-            Tuple of (port_name, port_spec).
-
-        Raises:
-            ValueError: If the group has zero or more than one port.
-        """
-        if len(self._ports) == 1:
-            name = next(iter(self._ports))
-            return (name, self._ports[name])
-        raise ValueError(
-            f"No default port: group has {len(self._ports)} ports"
-        )
 
     @property
     def names(self) -> tuple[str, ...]:
-        """Return tuple of all port names in this group."""
+        """Return tuple of all port names."""
         return tuple(self._ports.keys())

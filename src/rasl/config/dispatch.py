@@ -17,19 +17,63 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class ConfigError(Exception):
-    """Configuration parsing error.
+    """Configuration parsing error with source location.
 
     Attributes:
         message: Description of the error.
-        line: Line number where error occurred (if available).
+        line: Line number where error occurred (1-indexed).
+        column: Column number where error occurred (0-indexed).
+        source_line: The source line text for display.
     """
 
-    def __init__(self, message: str, line: int = 0) -> None:
+    def __init__(
+        self,
+        message: str,
+        line: int = 0,
+        column: int | None = None,
+        source_line: str | None = None,
+    ) -> None:
+        self.message = message
         self.line = line
-        if line:
-            super().__init__(f"Line {line}: {message}")
+        self.column = column
+        self.source_line = source_line
+        super().__init__(self._format())
+
+    def _format(self) -> str:
+        """Format error with source location and caret indicator."""
+        parts = []
+        if self.line:
+            parts.append(f"Line {self.line}: {self.message}")
         else:
-            super().__init__(message)
+            parts.append(self.message)
+        
+        # Show source line with caret if available
+        if self.source_line is not None:
+            parts.append(f"\n  {self.source_line}")
+            if self.column is not None:
+                parts.append(f"\n  {' ' * self.column}^")
+        
+        return "".join(parts)
+    
+    def with_source(self, source_text: str) -> "ConfigError":
+        """Return new ConfigError with source line extracted from full text.
+        
+        Args:
+            source_text: Full source file content.
+            
+        Returns:
+            New ConfigError with source_line populated.
+        """
+        if self.line > 0:
+            lines = source_text.splitlines()
+            if 0 < self.line <= len(lines):
+                return ConfigError(
+                    self.message,
+                    line=self.line,
+                    column=self.column,
+                    source_line=lines[self.line - 1],
+                )
+        return self
 
 
 def config(keyword: str, model: Type[BaseModel] | None = None):

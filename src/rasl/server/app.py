@@ -10,11 +10,13 @@ from __future__ import annotations
 import asyncio
 import time
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict
 
 import structlog
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
+
+from .state import AppState
 
 if TYPE_CHECKING:
     from rasl.engine.graph import ExecutionPlan
@@ -22,31 +24,34 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger()
 
-# Track connected WebSocket clients
-_ws_clients: set[WebSocket] = set()
-_metrics_task: Optional[asyncio.Task] = None
-_runtime_ref: Optional["Runtime"] = None
-_plan_ref: Optional["ExecutionPlan"] = None
-_start_time: float = 0.0
+
+def _get_state(request: Request) -> AppState:
+    """Get the AppState from the request."""
+    return request.app.state.rasl
+
+
+def _get_state_ws(websocket: WebSocket) -> AppState:
+    """Get the AppState from a WebSocket."""
+    return websocket.app.state.rasl
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage WebSocket broadcast task lifecycle."""
-    global _metrics_task, _start_time
-    _start_time = time.time()
+    state: AppState = app.state.rasl
+    state.start_time = time.time()
     
     # Start metrics broadcast task
-    _metrics_task = asyncio.create_task(_broadcast_metrics_loop())
+    state.metrics_task = asyncio.create_task(_broadcast_metrics_loop(state))
     logger.info("api_server_started")
     
     yield
     
     # Cleanup
-    if _metrics_task:
-        _metrics_task.cancel()
+    if state.metrics_task:
+        state.metrics_task.cancel()
         try:
-            await _metrics_task
+            await state.metrics_task
         except asyncio.CancelledError:
             pass
     logger.info("api_server_stopped")
@@ -62,16 +67,15 @@ def create_app(runtime: "Runtime", plan: "ExecutionPlan") -> FastAPI:
     Returns:
         Configured FastAPI application.
     """
-    global _runtime_ref, _plan_ref
-    _runtime_ref = runtime
-    _plan_ref = plan
-    
     app = FastAPI(
         title="RASL API",
         description="Real-time Async Streaming for Lighting - Monitoring API",
         version="0.1.0",
         lifespan=lifespan,
     )
+    
+    # Store state in app.state (no globals!)
+    app.state.rasl = AppState(runtime=runtime, plan=plan)
     
     # Register routes
     app.get("/", response_class=HTMLResponse)(dashboard)
@@ -88,46 +92,44 @@ def create_app(runtime: "Runtime", plan: "ExecutionPlan") -> FastAPI:
 # REST Endpoints
 # -----------------------------------------------------------------------------
 
-async def health() -> Dict[str, Any]:
+async def health(request: Request) -> Dict[str, Any]:
     """Health check endpoint."""
+    state = _get_state(request)
     return {
         "status": "ok",
-        "uptime_seconds": round(time.time() - _start_time, 1),
+        "uptime_seconds": round(state.uptime_seconds, 1),
     }
 
 
-async def graph() -> Dict[str, Any]:
+async def graph(request: Request) -> Dict[str, Any]:
     """Get graph structure."""
-    if _plan_ref is None:
-        raise HTTPException(status_code=503, detail="Runtime not initialized")
-    return _plan_ref.describe()
+    state = _get_state(request)
+    return state.plan.describe()
 
 
-async def metrics() -> Dict[str, Any]:
+async def metrics(request: Request) -> Dict[str, Any]:
     """Get all node metrics."""
-    if _runtime_ref is None:
-        raise HTTPException(status_code=503, detail="Runtime not initialized")
+    state = _get_state(request)
     return {
         "timestamp": time.time(),
-        "nodes": _runtime_ref.get_node_stats(),
+        "nodes": state.runtime.get_node_stats(),
     }
 
 
-async def get_node(node_id: str) -> Dict[str, Any]:
+async def get_node(request: Request, node_id: str) -> Dict[str, Any]:
     """Get single node details and metrics."""
-    if _plan_ref is None or _runtime_ref is None:
-        raise HTTPException(status_code=503, detail="Runtime not initialized")
+    state = _get_state(request)
     
-    if node_id not in _plan_ref.nodes:
+    if node_id not in state.plan.nodes:
         raise HTTPException(status_code=404, detail=f"Node '{node_id}' not found")
     
-    node = _plan_ref.nodes[node_id]
-    stats = _runtime_ref.get_node_stats(node_id)
+    node = state.plan.nodes[node_id]
+    stats = state.runtime.get_node_stats(node_id)
     
     # Get edges for this node
     edges_out = []
-    if node_id in _plan_ref.adjacency:
-        for edge in _plan_ref.adjacency[node_id]:
+    if node_id in state.plan.adjacency:
+        for edge in state.plan.adjacency[node_id]:
             edges_out.append({
                 "target": edge.target,
                 "source_port": edge.source_port,
@@ -150,9 +152,11 @@ async def get_node(node_id: str) -> Dict[str, Any]:
 
 async def ws_metrics(websocket: WebSocket) -> None:
     """WebSocket endpoint for real-time metrics streaming."""
+    state = _get_state_ws(websocket)
+    
     await websocket.accept()
-    _ws_clients.add(websocket)
-    logger.info("ws_client_connected", total_clients=len(_ws_clients))
+    state.add_client(websocket)
+    logger.info("ws_client_connected", total_clients=state.client_count)
     
     try:
         # Keep connection alive, handle pings
@@ -166,34 +170,34 @@ async def ws_metrics(websocket: WebSocket) -> None:
     except WebSocketDisconnect:
         pass
     finally:
-        _ws_clients.discard(websocket)
-        logger.info("ws_client_disconnected", total_clients=len(_ws_clients))
+        state.remove_client(websocket)
+        logger.info("ws_client_disconnected", total_clients=state.client_count)
 
 
-async def _broadcast_metrics_loop() -> None:
+async def _broadcast_metrics_loop(state: AppState) -> None:
     """Background task to broadcast metrics to all WebSocket clients."""
     while True:
         await asyncio.sleep(1.0)  # Broadcast every second
         
-        if not _ws_clients or _runtime_ref is None:
+        if not state.ws_clients:
             continue
         
         message = {
             "type": "metrics",
             "timestamp": time.time(),
-            "nodes": _runtime_ref.get_node_stats(),
+            "nodes": state.runtime.get_node_stats(),
         }
         
         # Broadcast to all clients
         disconnected = set()
-        for ws in _ws_clients:
+        for ws in state.ws_clients:
             try:
                 await ws.send_json(message)
             except Exception:
                 disconnected.add(ws)
         
         # Clean up disconnected clients
-        _ws_clients.difference_update(disconnected)
+        state.ws_clients.difference_update(disconnected)
 
 
 # -----------------------------------------------------------------------------

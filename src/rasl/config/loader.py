@@ -48,7 +48,11 @@ def _coerce_value(value: str) -> str | int | float | bool:
     return value
 
 
-def _extract_config_dict(directive: Directive, exclude: set[str] | None = None) -> dict[str, Any]:
+def _extract_config_dict(
+    directive: Directive,
+    exclude: set[str] | None = None,
+    line_map: dict[str, int] | None = None,
+) -> dict[str, Any]:
     """Extract config dict from directive block.
 
     Converts directive tree to flat dict suitable for Pydantic validation.
@@ -57,6 +61,7 @@ def _extract_config_dict(directive: Directive, exclude: set[str] | None = None) 
     Args:
         directive: Directive to extract config from.
         exclude: Keywords to skip (e.g., "connect").
+        line_map: Optional dict to populate with key -> line number mapping.
 
     Returns:
         Dict suitable for Pydantic model_validate().
@@ -64,10 +69,12 @@ def _extract_config_dict(directive: Directive, exclude: set[str] | None = None) 
     exclude = exclude or set()
     result: dict[str, Any] = {}
 
-    def _accumulate(key: str, value: Any) -> None:
+    def _accumulate(key: str, value: Any, line: int) -> None:
         """Add value to result, accumulating repeated keys."""
         if key not in result:
             result[key] = value
+            if line_map is not None:
+                line_map[key] = line
         else:
             existing = result[key]
             if not isinstance(existing, list):
@@ -93,14 +100,18 @@ def _extract_config_dict(directive: Directive, exclude: set[str] | None = None) 
                 result["ports"] = [d.keyword for d in child.block]
             else:
                 result[child.keyword] = child_dict
+            if line_map is not None:
+                line_map[child.keyword] = child.line
         elif len(child.args) == 0:
             # Flag directive
             result[child.keyword] = True
+            if line_map is not None:
+                line_map[child.keyword] = child.line
         elif len(child.args) == 1:
-            _accumulate(child.keyword, _coerce_value(child.args[0]))
+            _accumulate(child.keyword, _coerce_value(child.args[0]), child.line)
         else:
             # Multiple args -> list
-            _accumulate(child.keyword, [_coerce_value(a) for a in child.args])
+            _accumulate(child.keyword, [_coerce_value(a) for a in child.args], child.line)
 
     return result
 
@@ -153,7 +164,9 @@ def _build_node(
         )
 
     # Extract config, excluding connect directives
-    raw_config = _extract_config_dict(directive, exclude={"connect", "edge"})
+    # Track line numbers for each key for better error reporting
+    line_map: dict[str, int] = {}
+    raw_config = _extract_config_dict(directive, exclude={"connect", "edge"}, line_map=line_map)
     raw_config["id"] = node_id
 
     # Merge extra args
@@ -171,11 +184,20 @@ def _build_node(
     try:
         validated_config = config_class.model_validate(raw_config)
     except ValidationError as e:
+        # Find the line number for the first error key
+        error_line = directive.line
+        for err in e.errors():
+            if err['loc']:
+                key = str(err['loc'][0])
+                if key in line_map:
+                    error_line = line_map[key]
+                    break
+        
         errors = "; ".join(
             f"{'.'.join(str(x) for x in err['loc'])}: {err['msg']}"
             for err in e.errors()
         )
-        raise ConfigError(f"Invalid config for node '{node_id}': {errors}", line=directive.line)
+        raise ConfigError(f"Invalid config for node '{node_id}': {errors}", line=error_line)
 
     return node_class(validated_config)
 
@@ -256,15 +278,10 @@ def parse_config(config_text: str) -> ExecutionPlan:
     for node_id in node_directives:
         builder.resolve_node_connections(node_id)
 
-    # Fourth pass: handle top-level connect directives (graph-level connections)
-    for directive in rasl_directive.block:
-        if directive.keyword == "connect":
-            _handle_top_level_connect(directive, builder)
+    # Note: Top-level connect directives are not supported.
+    # All connections must be declared within node blocks.
 
     return builder.build()
-
-# There is no such this a "top level connect" directive.
-# DO NOT ADD ONE.
 
 def load_config(config_path: str | Path) -> ExecutionPlan:
     """Load config from file and build an ExecutionPlan.
@@ -284,4 +301,8 @@ def load_config(config_path: str | Path) -> ExecutionPlan:
         raise FileNotFoundError(f"Config file not found: {path}")
 
     config_text = path.read_text()
-    return parse_config(config_text)
+    try:
+        return parse_config(config_text)
+    except ConfigError as e:
+        # Enrich error with source line for display
+        raise e.with_source(config_text) from None

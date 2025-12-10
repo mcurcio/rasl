@@ -7,23 +7,25 @@ organic, non-synchronized twinkling.
 Two modes are supported:
 - **brightness**: Multiply RGB by envelope → fade to black (classic twinkle)
 - **whiteness**: Reduce OkHSL saturation by envelope → fade to white (sparkle)
+
+Pull-based: Uses tick.t for timing instead of internal clock.
 """
 
 from __future__ import annotations
 
-import time
 from typing import Literal
 
 import numpy as np
 from numpy.typing import NDArray
 from pydantic import Field
 
-from rasl.config.models import TransformNodeConfig
 from rasl.engine.base_node import BaseNode
-from rasl.engine.frame import ArrayPayload, ColorPayload, Frame
+from rasl.engine.frame import ColorPayload, Frame
 from rasl.engine.node import NodeContext
 from rasl.engine.ports import PortGroup, PortSpec
 from rasl.engine.registry import node
+from rasl.engine.tick import TickContext
+from rasl.nodes.models import TransformNodeConfig
 
 TwinkleMode = Literal["brightness", "whiteness"]
 
@@ -101,8 +103,9 @@ class TwinkleEffectNode(BaseNode):
             3.0, ge=0.1, le=10.0, description="Maximum speed multiplier"
         )
 
-    inputs = PortGroup(input=PortSpec(accepts="color"))
-    outputs = PortGroup(out=PortSpec(accepts="color"))
+    # Class-level ports
+    inputs = PortGroup.inputs(input=PortSpec(accepts="color"))
+    outputs = PortGroup.outputs(out=PortSpec(accepts="color"))
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)
@@ -117,7 +120,6 @@ class TwinkleEffectNode(BaseNode):
         self._phase_offsets: NDArray[np.float32] | None = None
         self._speed_multipliers: NDArray[np.float32] | None = None
         self._num_pixels: int | None = None
-        self._t0: float | None = None
 
     def _initialize_for_size(self, num_pixels: int) -> None:
         """Initialize per-pixel random values for given pixel count."""
@@ -125,7 +127,6 @@ class TwinkleEffectNode(BaseNode):
             return  # Already initialized for this size
 
         self._num_pixels = num_pixels
-        self._t0 = time.monotonic()
 
         # Generate phase offsets [0, 1)
         rng_phase = np.random.Generator(np.random.PCG64(self._seed))
@@ -139,11 +140,10 @@ class TwinkleEffectNode(BaseNode):
             + self._min_speed
         ).astype(np.float32)
 
-    async def start(self, ctx: NodeContext) -> None:
-        pass
-
-    async def handle(self, port: str, frame: Frame, ctx: NodeContext) -> None:
-        if port != "input":
+    async def pull(self, tick: TickContext) -> None:
+        """Apply twinkle effect using scheduler's authoritative time."""
+        frame = self.inputs.input.read()
+        if frame is None:
             return
 
         payload = frame.payload
@@ -162,7 +162,7 @@ class TwinkleEffectNode(BaseNode):
         # Validate: must be RGB triplets
         total_values = len(data)
         if total_values % 3 != 0:
-            await ctx.emit("out", frame)
+            self.outputs.out.write(frame)
             return
             
         num_pixels = total_values // 3
@@ -171,10 +171,9 @@ class TwinkleEffectNode(BaseNode):
         self._initialize_for_size(num_pixels)
         assert self._phase_offsets is not None
         assert self._speed_multipliers is not None
-        assert self._t0 is not None
 
-        # Calculate current phase for each pixel
-        t = time.monotonic() - self._t0
+        # Calculate current phase for each pixel using scheduler time
+        t = tick.t
         base_phase = t * self._frequency_hz
         pixel_phases = (
             base_phase * self._speed_multipliers + self._phase_offsets
@@ -185,7 +184,9 @@ class TwinkleEffectNode(BaseNode):
 
         if self._mode == "brightness":
             # Brightness mode: multiply RGB by envelope → fade to black
-            # First ensure we have RGB data
+            # NOTE: We always work in sRGB for brightness mode because
+            # OkHSL has numerical instability at very low lightness values
+            # that produces wrong saturated colors instead of near-black.
             if original_model != "srgb":
                 rgb_payload = ColorPayload(data, model=original_model, encoding=original_encoding)
                 rgb_data = rgb_payload.to_model("srgb").data.copy()
@@ -196,42 +197,39 @@ class TwinkleEffectNode(BaseNode):
             rgb = rgb_data.reshape(num_pixels, 3)
             rgb *= envelope[:, np.newaxis]  # Broadcast envelope to all 3 channels
             
+            # Output as sRGB - ColorNode will handle any needed conversion
             output_payload = ColorPayload(
                 rgb.reshape(-1).astype(np.float32),
                 model="srgb",
                 encoding=original_encoding
             )
-            # Convert back to original model if needed
-            if original_model != "srgb":
-                output_payload = output_payload.to_model(original_model)
                 
         else:  # whiteness mode
             # Whiteness mode: reduce saturation by envelope → fade to white
-            # Convert to OkHSL
+            # For OkHSL, we can directly modify the S channel (much faster)
             if original_model == "okhsl":
-                hsl_data = data
+                # Direct saturation modulation - no conversion needed!
+                hsl = data.reshape(num_pixels, 3)
+                hsl[:, 1] = hsl[:, 1] * (1.0 - envelope)  # S channel is index 1
+                output_payload = ColorPayload(
+                    hsl.reshape(-1).astype(np.float32),
+                    model="okhsl",
+                    encoding=original_encoding
+                )
             else:
+                # Convert to OkHSL for saturation manipulation
                 color_payload = ColorPayload(data, model=original_model, encoding=original_encoding)
                 hsl_data = color_payload.to_model("okhsl").data.copy()
-            
-            # Reshape to (num_pixels, 3): [H, S, L]
-            hsl = hsl_data.reshape(num_pixels, 3)
-            
-            # Reduce saturation: S = S * (1 - envelope)
-            # envelope=0 → full saturation (color), envelope=1 → zero saturation (white)
-            hsl[:, 1] = hsl[:, 1] * (1.0 - envelope)
-            
-            output_okhsl = ColorPayload(
-                hsl.reshape(-1).astype(np.float32),
-                model="okhsl",
-                encoding=original_encoding
-            )
-            # Convert back to original model
-            output_payload = output_okhsl.to_model(original_model)
+                
+                hsl = hsl_data.reshape(num_pixels, 3)
+                hsl[:, 1] = hsl[:, 1] * (1.0 - envelope)
+                
+                # Output as OkHSL - don't convert back since ColorNode will handle it
+                output_payload = ColorPayload(
+                    hsl.reshape(-1).astype(np.float32),
+                    model="okhsl",
+                    encoding=original_encoding
+                )
 
-        # Emit with modulated payload
-        out_frame = frame.with_payload(output_payload)
-        await ctx.emit("out", out_frame)
-
-    async def stop(self, ctx: NodeContext) -> None:
-        pass
+        # Write with modulated payload
+        self.outputs.out.write(frame.with_payload(output_payload))

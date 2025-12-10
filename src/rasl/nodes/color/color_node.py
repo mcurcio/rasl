@@ -4,6 +4,8 @@ This module provides ColorNode, a configurable transform node that converts
 between color spaces using the colour-science library. OKLCH is the default
 output model for perceptually uniform color mixing.
 
+Pull-based: Reads input, converts color model, writes output.
+
 Example config:
     node Color mixer {}           # Default: oklch output
     node Color toRgb rgb {}       # Output sRGB
@@ -16,13 +18,12 @@ from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
-from rasl.config.models import TransformNodeConfig
 from rasl.engine.base_node import BaseNode
-from rasl.engine.color import DEFAULT_MODEL, convert
 from rasl.engine.frame import (
     ColorPayload,
     Frame,
     HslColorPayload,
+    LinearRgbColorPayload,
     OkhslColorPayload,
     OkhsvColorPayload,
     OklabColorPayload,
@@ -32,6 +33,10 @@ from rasl.engine.frame import (
 from rasl.engine.node import NodeContext
 from rasl.engine.ports import PortGroup, PortSpec
 from rasl.engine.registry import node
+from rasl.engine.tick import TickContext
+from rasl.nodes.models import TransformNodeConfig
+
+from .convert import DEFAULT_MODEL, convert
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -45,10 +50,11 @@ PAYLOAD_CLASSES: dict[str, type[ColorPayload]] = {
     "srgb": RgbColorPayload,
     "rgb": RgbColorPayload,  # Alias
     "hsl": HslColorPayload,
+    "linear": LinearRgbColorPayload,
 }
 
 # Valid model names for config validation
-ColorModel = Literal["oklch", "oklab", "okhsl", "okhsv", "srgb", "rgb", "hsl"]
+ColorModel = Literal["oklch", "oklab", "okhsl", "okhsv", "srgb", "rgb", "hsl", "linear"]
 
 
 @node("ColorNode", "Color")
@@ -80,8 +86,9 @@ class ColorNode(BaseNode):
 
         model: ColorModel = DEFAULT_MODEL  # type: ignore[assignment]
 
-    inputs = PortGroup(color=PortSpec(accepts=("array", "color")))
-    outputs = PortGroup(color=PortSpec(accepts="color"))
+    # Class-level ports
+    inputs = PortGroup.inputs(color=PortSpec(accepts=("array", "color")))
+    outputs = PortGroup.outputs(color=PortSpec(accepts="color"))
 
     def __init__(self, config: Config) -> None:
         """Initialize the ColorNode.
@@ -94,19 +101,10 @@ class ColorNode(BaseNode):
         self._model = "srgb" if config.model == "rgb" else config.model
         self._payload_cls = PAYLOAD_CLASSES.get(self._model, OklchColorPayload)
 
-    async def start(self, ctx: NodeContext) -> None:
-        """Start the node. No-op for ColorNode."""
-        pass
-
-    async def handle(self, port: str, frame: Frame, ctx: NodeContext) -> None:
-        """Handle incoming frame and emit converted color.
-
-        Args:
-            port: Input port name (expected: 'color').
-            frame: Incoming frame with color or array payload.
-            ctx: Node context for emitting output.
-        """
-        if port != "color":
+    async def pull(self, tick: TickContext) -> None:
+        """Read input, convert color model, write output."""
+        frame = self.inputs.color.read()
+        if frame is None:
             return
 
         payload = frame.payload
@@ -128,10 +126,6 @@ class ColorNode(BaseNode):
         else:
             out_data = convert(data, src_model, self._model)
 
-        # Emit with appropriate payload type
+        # Write with appropriate payload type
         out_payload = self._payload_cls(out_data, encoding=encoding)
-        await ctx.emit("color", frame.with_payload(out_payload))
-
-    async def stop(self, ctx: NodeContext) -> None:
-        """Stop the node. No-op for ColorNode."""
-        pass
+        self.outputs.color.write(frame.with_payload(out_payload))

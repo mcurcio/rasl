@@ -38,7 +38,8 @@ from .connection import (
 from .directive import Directive
 from .dispatch import ConfigDispatch, ConfigError, config
 from .loader import load_config, parse_config
-from .models import (
+# Re-export node config models from new location for backward compatibility
+from rasl.nodes.models import (
     BaseNodeConfig,
     SinkNodeConfig,
     SourceNodeConfig,

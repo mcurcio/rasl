@@ -1,3 +1,12 @@
+"""DDP (Distributed Display Protocol) client implementation.
+
+This module provides DDPClient for sending RGB pixel data to LED
+controllers over UDP. DDP is optimized for high pixel counts with
+up to 480 RGB pixels per packet.
+
+Protocol reference: http://www.3waylabs.com/ddp/
+"""
+
 import socket
 import struct
 from typing import Any
@@ -22,6 +31,19 @@ DDP_DEFAULT_DEST_ID = 0x01  # Default output device ID
 
 
 class DDPClient:
+    """UDP client for sending DDP packets to LED controllers.
+    
+    DDP (Distributed Display Protocol) is a simple protocol for
+    transmitting pixel data over UDP. It supports large pixel counts
+    by splitting data across multiple packets.
+    
+    Example:
+        client = DDPClient("192.168.1.100")
+        client.connect()
+        client.send(pixel_data)  # numpy array of RGB values
+        client.close()
+    """
+    
     def __init__(
         self,
         host: str,
@@ -35,6 +57,7 @@ class DDPClient:
         self._sequence = 0
 
     def connect(self) -> None:
+        """Open UDP socket for sending packets."""
         if self._sock is None:
             self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -42,11 +65,21 @@ class DDPClient:
             self._sock.setblocking(True)
 
     def close(self) -> None:
+        """Close the UDP socket."""
         if self._sock is not None:
             self._sock.close()
             self._sock = None
 
     def send(self, data: ArrayLike) -> None:
+        """Send pixel data as DDP packets.
+        
+        Args:
+            data: Pixel data as numpy array. Float values are scaled
+                  from [0, 1] to [0, 255]. Integer values are used directly.
+        
+        Raises:
+            RuntimeError: If client is not connected.
+        """
         if self._sock is None:
             raise RuntimeError("DDPClient not connected. Call connect() first.")
 
@@ -79,6 +112,7 @@ class DDPClient:
         data: bytes,
         is_last: bool,
     ) -> None:
+        """Send a single DDP packet."""
         if self._sock is None:
             return
 

@@ -8,6 +8,11 @@ Node Types:
     - SourceNode: No inputs, generates frames from external sources
     - TransformNode: Receives frames, processes them, emits results
     - SinkNode: No outputs, writes frames to external targets
+
+Execution Model:
+    - pull(): Called by scheduler when node needs to produce output
+    - Nodes read from self.inputs.<port>.read() and write to self.outputs.<port>.write()
+    - Timing info is in TickContext, not NodeContext
 """
 
 from __future__ import annotations
@@ -19,11 +24,11 @@ from .frame import Frame
 from .ports import EMPTY_PORTS, PortGroup, _EmptyPortGroup
 
 if TYPE_CHECKING:
-    pass
+    from .tick import TickContext
 
 
 EmitCallable = Callable[[str, Frame], Awaitable[None]]
-"""Type alias for the emit callback function signature.
+"""Type alias for the emit callback function signature (legacy).
 
 Args:
     port: The output port name to emit on.
@@ -33,45 +38,51 @@ Args:
 StartTaskCallable = Callable[[Callable[..., Awaitable[None]], Tuple[Any, ...]], None]
 """Type alias for background task spawning function signature."""
 
+InjectCallable = Callable[[str, Frame], None]
+"""Type alias for frame injection function signature."""
+
 
 @dataclass(slots=True)
 class NodeContext:
-    """Execution context providing runtime services to nodes.
+    """Node identity and runtime services.
 
-    NodeContext is passed to node lifecycle methods (start, handle, stop)
-    and provides the means for nodes to interact with the runtime:
-    emitting frames to downstream nodes and spawning background tasks.
+    Passed to start(), stop(), and stored as self._ctx for use during
+    pull() execution. Does NOT contain timing information - that's in
+    TickContext.
 
-    This context is created by the Runtime for each node and should not
+    This context is created by the Scheduler for each node and should not
     be instantiated directly by node implementations.
-
-    Note: Node configuration is not included here. Nodes receive their
-    config in __init__ and store it as self._config.
 
     Attributes:
         node_id: Unique identifier of the node this context belongs to.
-        emit: Async callback to send frames to downstream nodes.
         logger: Structured logger instance bound to this node.
-        _start_background: Internal callback for spawning background tasks.
 
     Example:
-        >>> async def handle(self, port: str, frame: Frame, ctx: NodeContext):
-        ...     # Process frame and emit result
-        ...     result = self._process(frame)
-        ...     await ctx.emit("output", result)
+        >>> async def start(self, ctx: NodeContext):
+        ...     self._ctx = ctx
+        ...     ctx.start_background(self._receive_loop)
+        ...
+        >>> async def _receive_loop(self):
+        ...     while True:
+        ...         data = await self._socket.recv()
+        ...         self._ctx.inject("out", Frame(...))
     """
 
     node_id: str
     """Unique identifier of the node this context belongs to."""
-
-    emit: EmitCallable
-    """Async callback to emit frames to connected downstream nodes."""
 
     logger: Any
     """Structured logger instance bound to this node instance."""
 
     _start_background: StartTaskCallable
     """Internal callback for spawning background async tasks."""
+
+    _inject: InjectCallable
+    """Internal callback for injecting pushed frames."""
+
+    # Legacy emit callback (for backwards compatibility during transition)
+    emit: EmitCallable | None = None
+    """Legacy: Async callback to emit frames. Use outputs.write() instead."""
 
     def start_background(self, func: Callable[..., Awaitable[None]], *args: Any) -> None:
         """Spawn a background async task within the node's task group.
@@ -90,23 +101,46 @@ class NodeContext:
         """
         self._start_background(func, args)
 
+    def inject(self, port: str, frame: Frame) -> None:
+        """Inject a frame into the graph (for push sources).
+
+        Frame will be processed at the next scheduler tick.
+        Use this from background tasks that receive external data.
+
+        Args:
+            port: Output port name to inject on.
+            frame: The frame to inject.
+
+        Example:
+            >>> async def _receive_loop(self):
+            ...     while True:
+            ...         packet = await self._socket.recv()
+            ...         frame = Frame(payload=ArrayPayload(packet.data), ...)
+            ...         self._ctx.inject("dmx", frame)
+        """
+        self._inject(port, frame)
+
 
 class Node(Protocol):
     """Protocol defining the interface for all DAG processing nodes.
 
     Nodes are the fundamental processing units in the RASL graph.
-    They receive frames on input ports, process them, and emit results
-    on output ports. All nodes must implement this protocol.
+    They read from input ports, process data, and write to output ports.
 
     Node Categories:
-        - SourceNode: No inputs attribute, generates frames
-        - TransformNode: Has both inputs and outputs PortGroups
-        - SinkNode: No outputs attribute, consumes frames
+        - SourceNode: No inputs, generates frames (e.g., Waveform)
+        - TransformNode: Has both inputs and outputs (e.g., Color, Compose)
+        - SinkNode: No outputs, consumes frames (e.g., DdpSink)
 
-    Lifecycle:
-        1. start() is called when the runtime begins execution
-        2. handle() is called for each incoming frame
+    Execution Model:
+        1. start() is called when the scheduler begins
+        2. pull() is called when the node needs to produce output
         3. stop() is called during graceful shutdown
+
+    For pull-based execution:
+        - Read inputs via self.inputs.<port>.read()
+        - Write outputs via self.outputs.<port>.write()
+        - Use @pull_rate decorator on pull() to drive scheduler
 
     Attributes:
         id: Unique node identifier within the graph.
@@ -115,22 +149,24 @@ class Node(Protocol):
 
     Example:
         >>> from rasl.engine.ports import PortGroup, PortSpec
-        >>> from rasl.engine.frame import ArrayPayload
+        >>> from rasl.engine.tick import TickContext, pull_rate
         >>>
         >>> class MyTransform:
         ...     id: str = "my_transform"
-        ...     inputs = PortGroup(data=PortSpec(accepts=ArrayPayload))
-        ...     outputs = PortGroup(result=PortSpec(accepts=ArrayPayload))
+        ...     inputs = PortGroup.inputs(data=PortSpec(accepts="array"))
+        ...     outputs = PortGroup.outputs(result=PortSpec(accepts="array"))
         ...
         ...     async def start(self, ctx: NodeContext) -> None:
-        ...         pass  # Initialize resources
+        ...         self._ctx = ctx
         ...
-        ...     async def handle(self, port: str, frame: Frame, ctx: NodeContext) -> None:
-        ...         # Process frame and emit
-        ...         await ctx.emit("result", frame)
+        ...     async def pull(self, tick: TickContext) -> None:
+        ...         frame = self.inputs.data.read()
+        ...         if frame:
+        ...             result = self._process(frame.payload)
+        ...             self.outputs.result.write(frame.with_payload(result))
         ...
         ...     async def stop(self, ctx: NodeContext) -> None:
-        ...         pass  # Cleanup resources
+        ...         pass
     """
 
     id: str
@@ -141,39 +177,39 @@ class Node(Protocol):
     # outputs: PortGroup
 
     async def start(self, ctx: NodeContext) -> None:
-        """Initialize the node when runtime execution begins.
+        """Initialize the node when scheduler starts.
 
-        Called once when the runtime starts, before any frames are
-        processed. Use this to set up resources, open connections,
-        or start background tasks.
+        Called once before any pull() calls. Use this to set up resources,
+        open connections, or start background tasks.
 
         Args:
-            ctx: Node execution context providing runtime services.
+            ctx: Node context providing identity and runtime services.
         """
         ...
 
-    async def handle(self, port: str, frame: Frame, ctx: NodeContext) -> None:
-        """Process an incoming frame.
+    async def pull(self, tick: "TickContext") -> None:
+        """Process inputs and produce outputs.
 
-        Called for each frame received on any input port. The node
-        should process the frame and optionally emit results to
-        downstream nodes via ctx.emit().
+        Called by the scheduler when this node needs to compute.
+        Read from self.inputs.<port>.read() and write to
+        self.outputs.<port>.write().
+
+        For sinks: decorate with @pull_rate(hz) to drive the scheduler.
+        For sources/transforms: called when downstream needs data.
 
         Args:
-            port: Name of the input port the frame arrived on.
-            frame: The incoming Frame to process.
-            ctx: Node execution context providing runtime services.
+            tick: Timing context with tick count, t, dt, wall_time.
         """
         ...
 
     async def stop(self, ctx: NodeContext) -> None:
         """Clean up the node during graceful shutdown.
 
-        Called once when the runtime is stopping. Use this to close
+        Called once when the scheduler is stopping. Use this to close
         connections, flush buffers, and release resources.
 
         Args:
-            ctx: Node execution context providing runtime services.
+            ctx: Node context providing identity and runtime services.
         """
         ...
 
@@ -181,17 +217,30 @@ class Node(Protocol):
 def get_inputs(node: Node) -> Union[PortGroup, _EmptyPortGroup]:
     """Get node's input ports, defaulting to empty.
 
+    Checks instance attribute first (for dynamic ports), then class-level.
+
     Args:
         node: The node to get inputs from.
 
     Returns:
         The node's inputs PortGroup, or EMPTY_PORTS if not defined.
     """
-    return getattr(node, "inputs", EMPTY_PORTS)
+    # Check instance attribute first (for dynamic ports like ComposeNode)
+    if "inputs" in node.__dict__:
+        inputs = node.__dict__["inputs"]
+        if inputs is not None and isinstance(inputs, PortGroup):
+            return inputs
+    # Fall back to class-level inputs
+    cls = type(node)
+    if hasattr(cls, "inputs") and not isinstance(getattr(cls, "inputs"), property):
+        return getattr(cls, "inputs")
+    return EMPTY_PORTS
 
 
 def get_outputs(node: Node) -> Union[PortGroup, _EmptyPortGroup]:
     """Get node's output ports, defaulting to empty.
+
+    Checks instance attribute first (for dynamic ports), then class-level.
 
     Args:
         node: The node to get outputs from.
@@ -199,4 +248,13 @@ def get_outputs(node: Node) -> Union[PortGroup, _EmptyPortGroup]:
     Returns:
         The node's outputs PortGroup, or EMPTY_PORTS if not defined.
     """
-    return getattr(node, "outputs", EMPTY_PORTS)
+    # Check instance attribute first (for dynamic ports)
+    if "outputs" in node.__dict__:
+        outputs = node.__dict__["outputs"]
+        if outputs is not None and isinstance(outputs, PortGroup):
+            return outputs
+    # Fall back to class-level outputs
+    cls = type(node)
+    if hasattr(cls, "outputs") and not isinstance(getattr(cls, "outputs"), property):
+        return getattr(cls, "outputs")
+    return EMPTY_PORTS

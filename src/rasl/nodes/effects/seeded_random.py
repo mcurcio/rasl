@@ -19,12 +19,12 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import Field
 
-from rasl.config.models import SourceNodeConfig
 from rasl.engine.base_node import BaseNode
 from rasl.engine.frame import ArrayPayload, Frame
 from rasl.engine.node import NodeContext
 from rasl.engine.ports import PortGroup, PortSpec
 from rasl.engine.registry import node
+from rasl.nodes.models import SourceNodeConfig
 
 
 OutputType = Literal["phase", "speed", "uniform", "binary"]
@@ -92,7 +92,7 @@ class SeededRandomNode(BaseNode):
 
         topic: str | None = Field(None, description="Optional topic override")
 
-    outputs = PortGroup(out=PortSpec(accepts="array"))
+    outputs = PortGroup.outputs(out=PortSpec(accepts="array"))
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)

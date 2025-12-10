@@ -130,7 +130,7 @@ class TestParseConfig:
         assert node._output_port == "universe0"
 
     def test_parse_connections(self):
-        """Test parsing edge connections."""
+        """Test parsing edge connections (inside node blocks)."""
         config = """
         rasl {
             node SineSource sine {
@@ -138,8 +138,8 @@ class TestParseConfig:
             }
             node ConsoleSink console {
                 input_port dmx;
+                connect sine dmx;
             }
-            connect sine.dmx console.dmx;
         }
         """
         plan = parse_config(config)
@@ -235,8 +235,8 @@ class TestDefaultPorts:
             node SineSource sine {}
             node ConsoleSink console {
                 input_port dmx;
+                connect sine;
             }
-            connect sine.dmx console;
         }
         """
         plan = parse_config(config)

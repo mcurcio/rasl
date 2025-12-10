@@ -3,6 +3,8 @@
 This module provides ComposeNode, which combines multiple input ports
 into a single interleaved output. Useful for constructing multi-component
 data like HSL color from separate H, S, L sources.
+
+Pull-based: Reads all input ports, interleaves data, writes output.
 """
 
 from __future__ import annotations
@@ -13,13 +15,14 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import Field, field_validator
 
-from rasl.config.models import TransformNodeConfig
 from rasl.engine.base_node import BaseNode
 from rasl.engine.frame import ArrayPayload, ColorPayload, Frame, HslColorPayload, RgbColorPayload
 from rasl.engine.graph import Edge
 from rasl.engine.node import NodeContext
 from rasl.engine.ports import PortGroup, PortSpec
 from rasl.engine.registry import node
+from rasl.engine.tick import TickContext
+from rasl.nodes.models import TransformNodeConfig
 
 
 @node("ComposeNode", "Compose")
@@ -61,6 +64,10 @@ class ComposeNode(BaseNode):
             default="array",
             description="Output payload type: 'array', 'hsl', or 'rgb'",
         )
+        output_channels: int | None = Field(
+            default=None,
+            description="Number of output channels per port (required when all ports use fill)",
+        )
 
         @field_validator("ports", mode="before")
         @classmethod
@@ -90,9 +97,9 @@ class ComposeNode(BaseNode):
                     return {v[0]: float(v[1])}
             return {}
 
-    # Class-level defaults (overridden per-instance)
-    inputs = PortGroup()
-    outputs = PortGroup(out=PortSpec(accepts="array"))
+    # Class-level defaults (overridden per-instance in __init__)
+    inputs = PortGroup.inputs()
+    outputs = PortGroup.outputs(out=PortSpec(accepts="array"))
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)
@@ -101,17 +108,16 @@ class ComposeNode(BaseNode):
         self._fills = config.fill
         self._num_ports = len(self._port_names)
         self._output_type = config.output_type
+        self._output_channels = config.output_channels
 
-        # All ports are variable-length
-        self.inputs = PortGroup(
+        # Override class-level inputs with instance-specific ports
+        self.inputs = PortGroup.inputs(
             **{name: PortSpec(accepts="array", channels=None) for name in self._port_names}
         )
 
-        # Runtime state
-        self._buffers: dict[str, NDArray[np.float32] | None] = {
-            name: None for name in self._port_names
-        }
-        self._resolved_length: int | None = None
+        # Runtime state - use configured output_channels if provided
+        self._resolved_length: int | None = config.output_channels
+        self._last_frame: Frame | None = None
 
     def validate_connections(self, incoming_edges: Sequence[Edge]) -> None:
         """Ensure all non-fill ports have connections."""
@@ -126,40 +132,47 @@ class ComposeNode(BaseNode):
                     f"Port '{port_name}' has no connection and no fill value"
                 )
 
-    async def start(self, ctx: NodeContext) -> None:
-        pass
+    async def pull(self, tick: TickContext) -> None:
+        """Read all input ports, interleave data, write output."""
+        # Read all inputs and determine length
+        buffers: dict[str, NDArray[np.float32] | None] = {}
+        length: int | None = self._resolved_length
 
-    async def handle(self, port: str, frame: Frame, ctx: NodeContext) -> None:
-        if port not in self._port_names:
-            return
+        for port_name in self._port_names:
+            port = self.inputs.get(port_name)
+            if port is None:
+                continue
+            
+            frame = port.read()
+            if frame is not None:
+                data = np.asarray(frame.payload, dtype=np.float32)
+                buffers[port_name] = data
+                if length is None:
+                    length = len(data)
+                self._last_frame = frame
+            else:
+                buffers[port_name] = None
 
-        data = np.asarray(frame.payload, dtype=np.float32)
-        self._buffers[port] = data
-
-        # Resolve length from first connected input
-        if self._resolved_length is None:
-            self._resolved_length = len(data)
-
-        await self._emit_composed(frame, ctx)
-
-    async def _emit_composed(self, frame: Frame, ctx: NodeContext) -> None:
-        length = self._resolved_length
         if length is None:
+            # No data and no configured output_channels
             return
 
+        self._resolved_length = length
+
+        # Build interleaved output
         out = np.zeros(length * self._num_ports, dtype=np.float32)
 
         for i, name in enumerate(self._port_names):
             if name in self._fills:
                 # Constant fill value
                 out[i :: self._num_ports] = self._fills[name]
-            elif self._buffers[name] is not None:
+            elif buffers.get(name) is not None:
                 # Connected data
-                buf = self._buffers[name]
-                assert buf is not None  # for type checker
+                buf = buffers[name]
+                assert buf is not None
                 copy_len = min(len(buf), length)
                 out[i :: self._num_ports][:copy_len] = buf[:copy_len]
-            # else: leave as zeros (waiting for data)
+            # else: leave as zeros
 
         # Create appropriate payload type based on config
         output_type = self._output_type
@@ -168,12 +181,16 @@ class ComposeNode(BaseNode):
         elif output_type == "rgb":
             out_payload = RgbColorPayload(out)
         elif output_type in ("oklch", "oklab", "okhsl", "okhsv"):
-            # Use generic ColorPayload with model tag for Ok* color spaces
             out_payload = ColorPayload(out, model=output_type)
         else:
             out_payload = ArrayPayload(out)
 
-        await ctx.emit("out", frame.with_payload(out_payload))
-
-    async def stop(self, ctx: NodeContext) -> None:
-        pass
+        # Use last received frame as template
+        if self._last_frame:
+            self.outputs.out.write(self._last_frame.with_payload(out_payload))
+        else:
+            self.outputs.out.write(Frame(
+                topic=f"compose.{self.id}",
+                timestamp=tick.wall_time,
+                payload=out_payload,
+            ))

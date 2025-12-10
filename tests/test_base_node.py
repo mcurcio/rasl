@@ -3,7 +3,7 @@
 import pytest
 from pydantic import Field
 
-from rasl.config.models import BaseNodeConfig, SourceNodeConfig, TransformNodeConfig
+from rasl.nodes.models import BaseNodeConfig, SourceNodeConfig, TransformNodeConfig
 from rasl.engine.base_node import BaseNode
 
 

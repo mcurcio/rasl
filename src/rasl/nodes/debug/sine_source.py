@@ -14,12 +14,12 @@ import anyio
 import numpy as np
 from pydantic import Field
 
-from rasl.config.models import SourceNodeConfig
 from rasl.engine.base_node import BaseNode
 from rasl.engine.frame import ArrayPayload, Frame
 from rasl.engine.node import NodeContext
 from rasl.engine.ports import PortGroup, PortSpec
 from rasl.engine.registry import node
+from rasl.nodes.models import SourceNodeConfig
 
 
 @node("SineSourceNode", "SineSource")
@@ -51,7 +51,7 @@ class SineSourceNode(BaseNode):
         offset: float = Field(0.5, ge=0.0, le=1.0, description="DC offset")
         topic: str | None = Field(None, description="Optional topic override")
 
-    outputs = PortGroup(dmx=PortSpec(accepts="array"))
+    outputs = PortGroup.outputs(dmx=PortSpec(accepts="array"))
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)

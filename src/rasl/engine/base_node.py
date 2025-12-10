@@ -7,24 +7,33 @@ defines the lifecycle interface.
 BaseNode also handles the `connect` directive via the config dispatch system,
 collecting ConnectionSpec objects that the Graph resolves into edges.
 
+Pull-based execution model:
+    - Nodes implement pull(tick) to compute outputs from inputs
+    - Read from self.inputs.<port>.read()
+    - Write to self.outputs.<port>.write(frame)
+    - Sinks use @pull_rate(hz) decorator to drive the scheduler
+
 Example:
     >>> from rasl.engine.base_node import BaseNode
     >>> from rasl.engine.registry import node
-    >>> from rasl.config.models import SourceNodeConfig
+    >>> from rasl.engine.tick import TickContext, pull_rate
+    >>> from rasl.nodes.models import SinkNodeConfig
     >>>
-    >>> @node("MySource")
-    ... class MySource(BaseNode):
-    ...     class Config(SourceNodeConfig):
-    ...         param: float = 1.0
+    >>> @node("MySink")
+    ... class MySink(BaseNode):
+    ...     class Config(SinkNodeConfig):
+    ...         fps: float = 30.0
     ...
-    ...     def __init__(self, config: Config) -> None:
-    ...         super().__init__(config)
-    ...         self._param = config.param
+    ...     @pull_rate(lambda self: self._fps)
+    ...     async def pull(self, tick: TickContext) -> None:
+    ...         frame = self.inputs.data.read()
+    ...         if frame:
+    ...             self._send(frame.payload)
 """
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import TYPE_CHECKING, ClassVar, Sequence, Type
 
 from rasl.config.connection import ConnectionDescriptor, parse_connect_directive
@@ -33,6 +42,7 @@ if TYPE_CHECKING:
     from .frame import Frame
     from .graph import Edge
     from .node import NodeContext
+    from .tick import TickContext
     from rasl.config.models import BaseNodeConfig
     from rasl.config.directive import Directive
 
@@ -43,16 +53,23 @@ class BaseNode(ABC):
     Subclasses must:
     1. Define a nested `Config` class inheriting from a base config model
     2. Call `super().__init__(config)` in their constructor
-    3. Implement lifecycle methods: start, handle, stop
+    3. Implement pull(tick) for computation (and optionally start/stop)
     4. Define `inputs` and/or `outputs` PortGroups as class attributes
 
     The base class handles:
     - Setting `self.id` from config
     - Storing metadata in `self._metadata`
 
+    Pull-based execution:
+    - Read inputs via self.inputs.<port>.read()
+    - Write outputs via self.outputs.<port>.write(frame)
+    - Use @pull_rate(hz) on pull() for sinks to drive scheduler
+
     Attributes:
         id: Unique node identifier within the graph.
         Config: Class variable pointing to the nested Config class.
+        inputs: Bound input ports (set by scheduler at runtime).
+        outputs: Bound output ports (set by scheduler at runtime).
 
     Example:
         >>> @node("MyTransform")
@@ -60,23 +77,18 @@ class BaseNode(ABC):
         ...     class Config(TransformNodeConfig):
         ...         gain: float = Field(1.0, ge=0.0)
         ...
-        ...     inputs = PortGroup(data=PortSpec(accepts="array"))
-        ...     outputs = PortGroup(result=PortSpec(accepts="array"))
+        ...     inputs = PortGroup.inputs(data=PortSpec(accepts="array"))
+        ...     outputs = PortGroup.outputs(result=PortSpec(accepts="array"))
         ...
         ...     def __init__(self, config: Config) -> None:
         ...         super().__init__(config)
         ...         self._gain = config.gain
         ...
-        ...     async def start(self, ctx: NodeContext) -> None:
-        ...         pass
-        ...
-        ...     async def handle(self, port: str, frame: Frame, ctx: NodeContext) -> None:
-        ...         # Apply gain and emit
-        ...         result = frame.payload * self._gain
-        ...         await ctx.emit("result", Frame(...))
-        ...
-        ...     async def stop(self, ctx: NodeContext) -> None:
-        ...         pass
+        ...     async def pull(self, tick: TickContext) -> None:
+        ...         frame = self.inputs.data.read()
+        ...         if frame:
+        ...             result = frame.payload.data * self._gain
+        ...             self.outputs.result.write(frame.with_payload(ArrayPayload(result)))
     """
 
     # Subclasses define this as a nested class
@@ -123,48 +135,48 @@ class BaseNode(ABC):
         """
         return self._connection_descriptors.copy()
 
-    @abstractmethod
     async def start(self, ctx: "NodeContext") -> None:
-        """Initialize the node when runtime execution begins.
+        """Initialize the node when scheduler starts.
 
-        Called once when the runtime starts, before any frames are
-        processed. Use this to set up resources, open connections,
-        or start background tasks.
+        Called once before any pull() calls. Use this to set up resources,
+        open connections, or start background tasks.
 
-        Args:
-            ctx: Node execution context providing runtime services.
-        """
-        ...
-
-    @abstractmethod
-    async def handle(self, port: str, frame: "Frame", ctx: "NodeContext") -> None:
-        """Process an incoming frame.
-
-        Called for each frame received on any input port. The node
-        should process the frame and optionally emit results to
-        downstream nodes via ctx.emit().
-
-        For source nodes, this method may be a no-op since they
-        generate frames via background tasks rather than receiving them.
+        Override in subclasses that need initialization.
 
         Args:
-            port: Name of the input port the frame arrived on.
-            frame: The incoming Frame to process.
-            ctx: Node execution context providing runtime services.
+            ctx: Node context providing identity and runtime services.
         """
-        ...
+        pass
 
-    @abstractmethod
+    async def pull(self, tick: "TickContext") -> None:
+        """Process inputs and produce outputs.
+
+        Called by the scheduler when this node needs to compute.
+        Read from self.inputs.<port>.read() and write to
+        self.outputs.<port>.write().
+
+        For sinks: decorate with @pull_rate(hz) to drive the scheduler.
+        For sources/transforms: called when downstream needs data.
+
+        Override in subclasses to implement node logic.
+
+        Args:
+            tick: Timing context with tick count, t, dt, wall_time.
+        """
+        pass
+
     async def stop(self, ctx: "NodeContext") -> None:
         """Clean up the node during graceful shutdown.
 
-        Called once when the runtime is stopping. Use this to close
+        Called once when the scheduler is stopping. Use this to close
         connections, flush buffers, and release resources.
 
+        Override in subclasses that need cleanup.
+
         Args:
-            ctx: Node execution context providing runtime services.
+            ctx: Node context providing identity and runtime services.
         """
-        ...
+        pass
 
     def validate_connections(self, incoming_edges: Sequence["Edge"]) -> None:
         """Validate that this node's connection requirements are met.

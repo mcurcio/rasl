@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.scripts]
-rasl = "rasl:main"
+rasl = "rasl.cli:main"
 
 [project.entry-points."rasl.nodes"]
 builtin = "rasl.nodes"
