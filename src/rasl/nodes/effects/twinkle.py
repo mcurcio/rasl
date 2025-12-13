@@ -19,10 +19,9 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import Field
 
-from rasl.engine.base_node import BaseNode
-from rasl.engine.frame import ColorPayload, Frame
-from rasl.engine.node import NodeContext
-from rasl.engine.ports import PortGroup, PortSpec
+from rasl.engine.nodes import BaseNode, NodeContext
+from rasl.engine.frames import ColorPayload, Frame, OkhslColorPayload, RgbColorPayload
+from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext
 from rasl.nodes.models import TransformNodeConfig
@@ -104,8 +103,8 @@ class TwinkleEffectNode(BaseNode):
         )
 
     # Class-level ports
-    inputs = PortGroup.inputs(input=PortSpec(accepts="color"))
-    outputs = PortGroup.outputs(out=PortSpec(accepts="color"))
+    inputs = PortGroup.inputs(input=InputPortSpec(ColorPayload))
+    outputs = PortGroup.outputs(out=OutputPortSpec(ColorPayload))
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)
@@ -154,18 +153,20 @@ class TwinkleEffectNode(BaseNode):
             original_encoding = payload.encoding
             data = payload.data.copy()  # Copy to avoid mutating original
         else:
-            # Assume RGB if we get a plain ArrayPayload
+            # Treat non-color payloads as sRGB matrices
             original_model = "srgb"
             original_encoding = "srgb"
             data = np.asarray(payload, dtype=np.float32).copy()
 
-        # Validate: must be RGB triplets
-        total_values = len(data)
-        if total_values % 3 != 0:
+        if data.ndim == 1:
+            data = data.reshape(-1, 1)
+        if data.ndim != 2:
             self.outputs.out.write(frame)
             return
-            
-        num_pixels = total_values // 3
+
+        num_pixels = data.shape[0]
+        if num_pixels <= 0:
+            return
 
         # Initialize per-pixel values if needed
         self._initialize_for_size(num_pixels)
@@ -188,48 +189,42 @@ class TwinkleEffectNode(BaseNode):
             # OkHSL has numerical instability at very low lightness values
             # that produces wrong saturated colors instead of near-black.
             if original_model != "srgb":
-                rgb_payload = ColorPayload(data, model=original_model, encoding=original_encoding)
-                rgb_data = rgb_payload.to_model("srgb").data.copy()
+                rgb_frame = ColorPayload(data, model=original_model, encoding=original_encoding)
+                rgb = rgb_frame.to_model(RgbColorPayload).data.copy()
             else:
-                rgb_data = data
-            
-            # Reshape to (num_pixels, 3) and apply envelope
-            rgb = rgb_data.reshape(num_pixels, 3)
-            rgb *= envelope[:, np.newaxis]  # Broadcast envelope to all 3 channels
-            
+                rgb = data
+
+            # Apply envelope to the first 3 channels (RGB)
+            if rgb.shape[1] >= 3:
+                rgb[:, :3] *= envelope[:, np.newaxis]
+
             # Output as sRGB - ColorNode will handle any needed conversion
-            output_payload = ColorPayload(
-                rgb.reshape(-1).astype(np.float32),
+            output_frame = ColorPayload(
+                rgb.astype(np.float32),
                 model="srgb",
-                encoding=original_encoding
+                encoding=original_encoding,
             )
                 
         else:  # whiteness mode
             # Whiteness mode: reduce saturation by envelope → fade to white
             # For OkHSL, we can directly modify the S channel (much faster)
             if original_model == "okhsl":
-                # Direct saturation modulation - no conversion needed!
-                hsl = data.reshape(num_pixels, 3)
-                hsl[:, 1] = hsl[:, 1] * (1.0 - envelope)  # S channel is index 1
-                output_payload = ColorPayload(
-                    hsl.reshape(-1).astype(np.float32),
-                    model="okhsl",
-                    encoding=original_encoding
-                )
+                hsl = data
             else:
                 # Convert to OkHSL for saturation manipulation
-                color_payload = ColorPayload(data, model=original_model, encoding=original_encoding)
-                hsl_data = color_payload.to_model("okhsl").data.copy()
-                
-                hsl = hsl_data.reshape(num_pixels, 3)
-                hsl[:, 1] = hsl[:, 1] * (1.0 - envelope)
-                
-                # Output as OkHSL - don't convert back since ColorNode will handle it
-                output_payload = ColorPayload(
-                    hsl.reshape(-1).astype(np.float32),
-                    model="okhsl",
-                    encoding=original_encoding
-                )
+                color_frame = ColorPayload(data, model=original_model, encoding=original_encoding)
+                hsl = color_frame.to_model(OkhslColorPayload).data.copy()
 
-        # Write with modulated payload
-        self.outputs.out.write(frame.with_payload(output_payload))
+            # Reduce saturation (channel 1) by envelope
+            if hsl.shape[1] >= 2:
+                hsl[:, 1] = hsl[:, 1] * (1.0 - envelope)
+
+            # Output as OkHSL - don't convert back since ColorNode will handle it
+            output_frame = ColorPayload(
+                hsl.astype(np.float32),
+                model="okhsl",
+                encoding=original_encoding,
+            )
+
+        # Write with modulated frame
+        self.outputs.out.write(frame.with_payload(output_frame))

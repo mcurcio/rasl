@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from rasl.config.directive import Directive
 from rasl.config.dispatch import ConfigDispatch, ConfigError, config as config_handler
+from rasl.config.loader import parse_config
 from rasl.config.connection import (
     ConnectionDescriptor,
     ConnectionSpec,
@@ -460,6 +461,24 @@ class TestParseConnectDirective:
         assert desc.target == "pixels"
         assert desc.repeat == 1
 
+
+class TestDdpSinkConfig:
+    def test_ddp_sink_accepts_max_channels(self):
+        config = """
+        rasl {
+            node literal src matrix [[1,2,3]];
+            node DdpSink leds {
+                target "10.0.0.1";
+                fps 20hz;
+                input_port pixels;
+                max_count 2284;
+                connect src pixels;
+            }
+        }
+        """
+        plan = parse_config(config)
+        assert "leds" in plan.nodes
+
     def test_with_repeat(self):
         """Parse connect with repeat option."""
         directive = Directive(
@@ -473,6 +492,35 @@ class TestParseConnectDirective:
         assert desc.source == "upstream"
         assert desc.target == "pixels"
         assert desc.repeat == 20
+
+    def test_with_repeat_until(self):
+        """Parse connect with repeat_until option."""
+        directive = Directive(
+            "connect",
+            ("upstream", "pixels"),
+            (Directive("repeat_until", ("2284",), (), 0),),
+            0,
+        )
+        desc = parse_connect_directive(directive)
+
+        assert desc.source == "upstream"
+        assert desc.target == "pixels"
+        assert desc.repeat == 1
+        assert desc.repeat_until == 2284
+
+    def test_repeat_and_repeat_until_mutually_exclusive(self):
+        """repeat and repeat_until cannot be specified together."""
+        directive = Directive(
+            "connect",
+            ("upstream", "pixels"),
+            (
+                Directive("repeat", ("2",), (), 0),
+                Directive("repeat_until", ("10",), (), 0),
+            ),
+            0,
+        )
+        with pytest.raises(ValueError, match="both repeat and repeat_until"):
+            parse_connect_directive(directive)
 
     def test_sliced_source(self):
         """Parse connect with sliced source."""

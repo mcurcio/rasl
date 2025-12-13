@@ -52,6 +52,7 @@ def _register_all_nodes() -> None:
     registered before config loading.
     """
     # Effect nodes
+    from .effects.cron import CronNode
     from .effects.math import MathNode
     from .effects.seeded_random import SeededRandomNode
     from .effects.twinkle import TwinkleEffectNode
@@ -65,13 +66,18 @@ def _register_all_nodes() -> None:
     from .debug.console_sink import ConsoleSinkNode
     from .debug.sine_source import SineSourceNode
     
+    # Utility nodes
+    from .literal_node import LiteralNode
+    
     # Protocol nodes
     from rasl.packages.sacn import SacnSinkNode, SacnSourceNode
     from rasl.packages.ddp import DdpSinkNode
 
 
-# Register all nodes when this module is imported (via entry point)
-_register_all_nodes()
+# NOTE: Node registration is deferred to avoid circular imports.
+# Nodes are registered when first accessed via __getattr__ or when
+# explicitly imported. The config loader triggers registration by
+# importing the node modules it needs.
 
 
 def __getattr__(name: str):
@@ -106,6 +112,11 @@ def __getattr__(name: str):
         from .debug.sine_source import SineSourceNode
         return SineSourceNode
     
+    # Utility nodes
+    if name == "LiteralNode":
+        from .literal_node import LiteralNode
+        return LiteralNode
+    
     # Protocol nodes
     if name == "SacnSinkNode":
         from rasl.packages.sacn import SacnSinkNode
@@ -126,6 +137,7 @@ __all__ = [
     "SourceNodeConfig",
     "TransformNodeConfig",
     # Effect nodes
+    "CronNode",
     "MathNode",
     "SeededRandomNode",
     "TwinkleEffectNode",
@@ -136,6 +148,8 @@ __all__ = [
     # Debug nodes
     "ConsoleSinkNode",
     "SineSourceNode",
+    # Utility nodes
+    "LiteralNode",
     # Protocol nodes
     "DdpSinkNode",
     "SacnSinkNode",

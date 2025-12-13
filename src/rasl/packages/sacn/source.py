@@ -15,10 +15,9 @@ import numpy as np
 import sacn
 from pydantic import Field, field_validator
 
-from rasl.engine.base_node import BaseNode
-from rasl.engine.frame import ArrayPayload, Frame
-from rasl.engine.node import NodeContext
-from rasl.engine.ports import PortGroup, PortSpec
+from rasl.engine.nodes import BaseNode, NodeContext
+from rasl.engine.frames import MatrixPayload, Frame
+from rasl.engine.ports import OutputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.nodes.models import SourceNodeConfig
 
@@ -57,7 +56,7 @@ class SacnSourceNode(BaseNode):
                 return [v]
             return v
 
-    outputs = PortGroup.outputs(dmx=PortSpec(accepts="array"))
+    outputs = PortGroup.outputs(dmx=OutputPortSpec(MatrixPayload))
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)
@@ -106,7 +105,7 @@ class SacnSourceNode(BaseNode):
             frame = Frame(
                 topic=f"sacn.universe.{packet.universe}",
                 timestamp=timestamp,
-                payload=ArrayPayload(slots),
+                payload=MatrixPayload(slots),
                 metadata={k: v for k, v in metadata.items() if v is not None},
             )
             # Write to output port - scheduler handles caching and wakeup

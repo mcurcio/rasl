@@ -14,8 +14,10 @@ Pull-based execution model:
     - Sinks use @pull_rate(hz) decorator to drive the scheduler
 
 Example:
-    >>> from rasl.engine.base_node import BaseNode
-    >>> from rasl.engine.registry import node
+    >>> from rasl.config.directive import Directive
+    >>> from rasl.engine.nodes import NodeContext
+    >>> from rasl.engine.frames import MatrixPayload
+    >>> from rasl.engine.ports import PortGroup
     >>> from rasl.engine.tick import TickContext, pull_rate
     >>> from rasl.nodes.models import SinkNodeConfig
     >>>
@@ -39,10 +41,10 @@ from typing import TYPE_CHECKING, ClassVar, Sequence, Type
 from rasl.config.connection import ConnectionDescriptor, parse_connect_directive
 
 if TYPE_CHECKING:
-    from .frame import Frame
-    from .graph import Edge
-    from .node import NodeContext
-    from .tick import TickContext
+    from ..frames import Frame
+    from ..graph import Edge
+    from .context import NodeContext
+    from ..tick import TickContext
     from rasl.config.models import BaseNodeConfig
     from rasl.config.directive import Directive
 
@@ -77,8 +79,8 @@ class BaseNode(ABC):
         ...     class Config(TransformNodeConfig):
         ...         gain: float = Field(1.0, ge=0.0)
         ...
-        ...     inputs = PortGroup.inputs(data=PortSpec(accepts="array"))
-        ...     outputs = PortGroup.outputs(result=PortSpec(accepts="array"))
+        ...     inputs = PortGroup.inputs(data=InputPortSpec(MatrixPayload))
+        ...     outputs = PortGroup.outputs(result=OutputPortSpec(MatrixPayload))
         ...
         ...     def __init__(self, config: Config) -> None:
         ...         super().__init__(config)

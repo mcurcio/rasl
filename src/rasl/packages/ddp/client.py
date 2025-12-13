@@ -87,15 +87,22 @@ class DDPClient:
 
         if np.issubdtype(arr.dtype, np.floating):
             byte_data = (np.clip(arr, 0.0, 1.0) * 255.0).astype(np.uint8)
+        elif arr.dtype == np.uint8:
+            # Fast path: already quantized.
+            byte_data = arr
         else:
             byte_data = arr.astype(np.uint8)
 
-        byte_data = byte_data.ravel()
+        # Ensure contiguous 1D buffer (so slicing produces cheap views and
+        # sendmsg can transmit without intermediate copies).
+        byte_data = np.ascontiguousarray(byte_data).ravel()
         total_len = len(byte_data)
         if total_len == 0:
             return
 
         num_packets = (total_len + DDP_MAX_DATALEN - 1) // DDP_MAX_DATALEN
+
+        can_sendmsg = hasattr(self._sock, "sendmsg")
 
         for i in range(num_packets):
             byte_offset = i * DDP_MAX_DATALEN
@@ -103,14 +110,17 @@ class DDPClient:
             is_last = (i == num_packets - 1)
             self._sequence = (self._sequence % 15) + 1
 
-            self._send_packet(self._sequence, byte_offset, bytes(chunk), is_last)
+            # Avoid copying chunk to bytes when possible.
+            view = memoryview(chunk)
+            self._send_packet(self._sequence, byte_offset, view, is_last, can_sendmsg)
 
     def _send_packet(
         self,
         sequence: int,
         byte_offset: int,
-        data: bytes,
+        data: memoryview,
         is_last: bool,
+        can_sendmsg: bool,
     ) -> None:
         """Send a single DDP packet."""
         if self._sock is None:
@@ -129,4 +139,10 @@ class DDPClient:
             data_len,
         )
 
-        self._sock.sendto(header + data, (self.host, self.port))
+        # On platforms that support it, sendmsg lets us avoid concatenating
+        # header+payload into a new bytes object.
+        if can_sendmsg:
+            self._sock.sendmsg([header, data], [], 0, (self.host, self.port))
+        else:
+            # Fallback: concatenate (copy) to send via sendto.
+            self._sock.sendto(header + data.tobytes(), (self.host, self.port))

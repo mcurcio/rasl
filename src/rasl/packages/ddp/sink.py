@@ -17,20 +17,21 @@ import threading
 import time
 from typing import Any, Optional
 
+import zlib
+
 import anyio
+import numpy as np
 from pydantic import Field, field_validator
 
 from rasl.config.units import parse_interval
-from rasl.engine.base_node import BaseNode
-from rasl.engine.frame import Frame, FramePayload
-from rasl.engine.node import NodeContext
-from rasl.engine.ports import PortGroup, PortSpec
+from rasl.engine.nodes import BaseNode, NodeContext
+from rasl.engine.frames import ColorPayload, Frame, FramePayload, MatrixPayload
+from rasl.engine.ports import InputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext, pull_rate
 from rasl.nodes.models import SinkNodeConfig
 
 from .client import DDPClient
-
 
 @node("DdpSinkNode", "DdpSink")
 class DdpSinkNode(BaseNode):
@@ -65,6 +66,11 @@ class DdpSinkNode(BaseNode):
         input_port: str = Field("input", description="Input port name")
         target: str = Field(..., description="Target IP address (required)")
         fps: str = Field("20hz", description="Frame rate (e.g., '30hz', '20', '50ms')")
+        max_count: int | None = Field(
+            None,
+            ge=1,
+            description="Maximum number of elements to send (e.g. pixels).",
+        )
 
         # Computed field for interval in seconds
         _interval_s: float = 0.05
@@ -90,18 +96,21 @@ class DdpSinkNode(BaseNode):
         self._input_port = config.input_port
 
         # Build dynamic input port
-        self.inputs = PortGroup.inputs(**{self._input_port: PortSpec(accepts="array")})
+        self.inputs = PortGroup.inputs(
+            **{self._input_port: InputPortSpec((MatrixPayload, ColorPayload))}
+        )
 
         # Strongly-typed config access
         self._target = config.target
         self._interval_s = config.get_interval_s()
         self._fps = 1.0 / self._interval_s
+        self._max_count = config.max_count
 
         self._client: Optional[DDPClient] = None
         self._ctx: Optional[NodeContext] = None
         
         # Background worker state
-        self._pending_payload: Optional[FramePayload] = None
+        self._pending_frame: Optional[tuple[np.ndarray, int | None, int | None]] = None
         self._payload_lock = threading.Lock()
         self._send_event = threading.Event()
         self._worker_thread: Optional[threading.Thread] = None
@@ -110,6 +119,11 @@ class DdpSinkNode(BaseNode):
         # Stats
         self._frames_sent = 0
         self._frames_dropped = 0
+
+        # Diagnostics
+        self._prev_checksum: int | None = None
+        self._prev_byte_data: np.ndarray | None = None
+        self._last_diag_log_t: float = 0.0
 
     async def start(self, ctx: NodeContext) -> None:
         """Initialize DDP client and start background worker."""
@@ -149,17 +163,20 @@ class DdpSinkNode(BaseNode):
             
             # Grab the pending payload
             with self._payload_lock:
-                payload = self._pending_payload
-                self._pending_payload = None
+                pending = self._pending_frame
+                self._pending_frame = None
             
-            if payload is None:
+            if pending is None:
                 continue
+
+            send_data, payload_count, payload_channels = pending
             
             # Send it
             try:
                 send_start = time.perf_counter()
                 if self._client:
-                    self._client.send(payload)
+                    self._run_diagnostics(send_data, payload_count, payload_channels)
+                    self._client.send(send_data)
                 send_ms = (time.perf_counter() - send_start) * 1000
                 self._frames_sent += 1
                 
@@ -169,7 +186,7 @@ class DdpSinkNode(BaseNode):
                         event="ddp_send_slow",
                         target=self._target,
                         send_ms=round(send_ms, 2),
-                        payload_bytes=len(payload.data) if hasattr(payload, 'data') else 0,
+                        payload_bytes=int(np.asarray(send_data).size),
                     )
             except OSError as e:
                 if self._ctx:
@@ -178,6 +195,90 @@ class DdpSinkNode(BaseNode):
                         target=self._target,
                         error=str(e),
                     )
+
+    def _run_diagnostics(
+        self,
+        send_data: Any,
+        payload_count: int | None,
+        payload_channels: int | None,
+    ) -> None:
+        if self._ctx is None:
+            return
+
+        now = time.perf_counter()
+        should_log = (now - self._last_diag_log_t) >= 1.0
+
+        arr = np.asarray(send_data)
+        if arr.size == 0:
+            return
+
+        if np.issubdtype(arr.dtype, np.floating):
+            finite = np.isfinite(arr)
+            non_finite = int(arr.size - int(finite.sum()))
+            min_val = float(np.nanmin(arr))
+            max_val = float(np.nanmax(arr))
+            clipped = np.clip(arr, 0.0, 1.0)
+            byte_data = (clipped * 255.0).astype(np.uint8)
+            below0 = int((arr < 0.0).sum())
+            above1 = int((arr > 1.0).sum())
+        else:
+            non_finite = 0
+            min_val = float(arr.min())
+            max_val = float(arr.max())
+            if arr.dtype == np.uint8:
+                byte_data = arr
+            else:
+                byte_data = arr.astype(np.uint8)
+            below0 = 0
+            above1 = 0
+
+        byte_data = byte_data.ravel()
+        if byte_data.size == 0:
+            return
+
+        checksum = zlib.crc32(memoryview(byte_data)) & 0xFFFFFFFF
+        white_bytes = int((byte_data == 255).sum())
+        zero_bytes = int((byte_data == 0).sum())
+        white_ratio = white_bytes / float(byte_data.size)
+
+        delta_mean: float | None = None
+        if self._prev_byte_data is not None and self._prev_byte_data.size == byte_data.size:
+            delta = np.abs(byte_data.astype(np.int16) - self._prev_byte_data.astype(np.int16))
+            delta_mean = float(delta.mean())
+
+        suspicious = False
+        if non_finite > 0:
+            suspicious = True
+        if below0 > 0 or above1 > 0:
+            suspicious = True
+        if white_ratio > 0.90:
+            suspicious = True
+        if delta_mean is not None and delta_mean > 40.0:
+            suspicious = True
+
+        if suspicious or should_log:
+            self._ctx.logger.info(
+                event="ddp_frame_diag",
+                target=self._target,
+                bytes=int(byte_data.size),
+                checksum=int(checksum),
+                prev_checksum=int(self._prev_checksum) if self._prev_checksum is not None else None,
+                count=payload_count,
+                channels=payload_channels,
+                min=round(min_val, 6),
+                max=round(max_val, 6),
+                non_finite=int(non_finite),
+                below0=int(below0),
+                above1=int(above1),
+                white_ratio=round(white_ratio, 4),
+                zero_ratio=round(zero_bytes / float(byte_data.size), 4),
+                delta_mean=round(delta_mean, 4) if delta_mean is not None else None,
+                suspicious=bool(suspicious),
+            )
+            self._last_diag_log_t = now
+
+        self._prev_checksum = checksum
+        self._prev_byte_data = byte_data
 
     @pull_rate(lambda self: self._fps)
     async def pull(self, tick: TickContext) -> None:
@@ -200,12 +301,37 @@ class DdpSinkNode(BaseNode):
         if frame is None:
             return
 
+        payload: FramePayload = frame.payload
+
+        data_obj: Any
+        if hasattr(payload, "flatten"):
+            data_obj = payload.flatten()
+        else:
+            data_obj = payload
+
+        arr = np.asarray(data_obj)
+        if arr.ndim != 1:
+            arr = arr.ravel()
+
+        if np.issubdtype(arr.dtype, np.floating):
+            byte_data = (np.clip(arr, 0.0, 1.0) * 255.0).astype(np.uint8)
+        else:
+            byte_data = arr.astype(np.uint8)
+
+        payload_count = getattr(payload, "count", None)
+        payload_channels = getattr(payload, "channels", None)
+
+        if self._max_count is not None and payload_channels is not None:
+            max_len = int(self._max_count) * int(payload_channels)
+            if max_len > 0 and byte_data.size > max_len:
+                byte_data = byte_data[:max_len]
+
         # Queue for background send (non-blocking)
         with self._payload_lock:
-            if self._pending_payload is not None:
+            if self._pending_frame is not None:
                 # Previous frame wasn't sent yet - dropping it
                 self._frames_dropped += 1
-            self._pending_payload = frame.payload
+            self._pending_frame = (byte_data, payload_count, payload_channels)
         
         # Signal the worker
         self._send_event.set()

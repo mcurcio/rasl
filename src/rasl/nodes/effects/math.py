@@ -12,10 +12,9 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import Field
 
-from rasl.engine.base_node import BaseNode
-from rasl.engine.frame import ArrayPayload, Frame
-from rasl.engine.node import NodeContext
-from rasl.engine.ports import PortGroup, PortSpec
+from rasl.engine.nodes import BaseNode, NodeContext
+from rasl.engine.frames import MatrixPayload, Frame
+from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.nodes.models import TransformNodeConfig
 
@@ -65,10 +64,10 @@ class MathNode(BaseNode):
         clamp: bool = Field(True, description="Clamp output to [0, 1]")
 
     inputs = PortGroup.inputs(
-        a=PortSpec(accepts="array"),
-        b=PortSpec(accepts="array"),
+        a=InputPortSpec(MatrixPayload),
+        b=InputPortSpec(MatrixPayload),
     )
-    outputs = PortGroup.outputs(out=PortSpec(accepts="array"))
+    outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)
@@ -136,7 +135,7 @@ class MathNode(BaseNode):
         if self._clamp:
             result = np.clip(result, 0.0, 1.0)
 
-        await ctx.emit("out", frame.with_payload(ArrayPayload(result)))
+        await ctx.emit("out", frame.with_payload(MatrixPayload(result)))
 
     def _apply_operation(
         self, a: NDArray[np.float32], b: NDArray[np.float32]

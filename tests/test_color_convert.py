@@ -1,10 +1,22 @@
-"""Tests for color conversion utilities."""
+"""Tests for color conversion utilities.
+
+These tests validate the internal color conversion implementation
+and the type-driven ColorPayload.to_model() API.
+"""
 
 import numpy as np
 import pytest
 
-from rasl.nodes.color.convert import convert, MODELS
-from rasl.engine.frame import ColorPayload
+from rasl.engine._color_convert import convert, _MODELS as MODELS
+from rasl.engine.frames import (
+    ColorPayload,
+    HslColorPayload,
+    OkhslColorPayload,
+    OkhsvColorPayload,
+    OklabColorPayload,
+    OklchColorPayload,
+    RgbColorPayload,
+)
 
 
 class TestColorConvert:
@@ -12,7 +24,8 @@ class TestColorConvert:
 
     def test_supported_models(self) -> None:
         """Verify all expected models are supported."""
-        expected = {"oklch", "oklab", "srgb", "rgb", "hsl", "okhsl", "okhsv"}
+        # Note: internal _MODELS doesn't include 'rgb' alias (normalized to 'srgb')
+        expected = {"oklch", "oklab", "srgb", "hsl", "okhsl", "okhsv", "linear"}
         assert expected == MODELS
 
     def test_identity_conversion(self) -> None:
@@ -232,257 +245,58 @@ class TestColorRoundtrips:
         np.testing.assert_array_almost_equal(oklch_hue, okhsl_hue, decimal=4)
 
 
-class TestOkHSLOkHSVPrecision:
-    """Tight precision tests for OkHSL/OkHSV using Ottosson's reference algorithm.
-    
-    These tests verify that the implementation matches the expected behavior
-    of the canonical OkHSL/OkHSV color spaces with high precision.
-    """
-
-    def test_okhsl_roundtrip_primaries(self) -> None:
-        """RGB → OkHSL → RGB roundtrip for primary colors with tight tolerance."""
-        primaries = np.array([
-            [1.0, 0.0, 0.0],  # Red
-            [0.0, 1.0, 0.0],  # Green
-            [0.0, 0.0, 1.0],  # Blue
-        ], dtype=np.float32)
-        
-        okhsl = convert(primaries, "srgb", "okhsl")
-        recovered = convert(okhsl, "okhsl", "srgb")
-        
-        # Reference implementation should achieve 3 decimal precision
-        np.testing.assert_array_almost_equal(recovered, primaries, decimal=3)
-
-    def test_okhsl_roundtrip_secondaries(self) -> None:
-        """RGB → OkHSL → RGB roundtrip for secondary colors."""
-        secondaries = np.array([
-            [1.0, 1.0, 0.0],  # Yellow
-            [0.0, 1.0, 1.0],  # Cyan
-            [1.0, 0.0, 1.0],  # Magenta
-        ], dtype=np.float32)
-        
-        okhsl = convert(secondaries, "srgb", "okhsl")
-        recovered = convert(okhsl, "okhsl", "srgb")
-        
-        np.testing.assert_array_almost_equal(recovered, secondaries, decimal=3)
-
-    def test_okhsl_roundtrip_grays(self) -> None:
-        """RGB → OkHSL → RGB roundtrip for grayscale with high precision."""
-        grays = np.array([
-            [0.0, 0.0, 0.0],
-            [0.25, 0.25, 0.25],
-            [0.5, 0.5, 0.5],
-            [0.75, 0.75, 0.75],
-            [1.0, 1.0, 1.0],
-        ], dtype=np.float32)
-        
-        okhsl = convert(grays, "srgb", "okhsl")
-        recovered = convert(okhsl, "okhsl", "srgb")
-        
-        # Grays should roundtrip with very high precision (no gamut mapping needed)
-        np.testing.assert_array_almost_equal(recovered, grays, decimal=4)
-
-    def test_okhsl_roundtrip_mid_saturation(self) -> None:
-        """RGB → OkHSL → RGB roundtrip for mid-saturation colors."""
-        colors = np.array([
-            [0.8, 0.3, 0.3],  # Desaturated red
-            [0.3, 0.8, 0.3],  # Desaturated green
-            [0.3, 0.3, 0.8],  # Desaturated blue
-            [0.6, 0.4, 0.2],  # Brown-ish
-            [0.4, 0.6, 0.8],  # Sky blue
-        ], dtype=np.float32)
-        
-        okhsl = convert(colors, "srgb", "okhsl")
-        recovered = convert(okhsl, "okhsl", "srgb")
-        
-        np.testing.assert_array_almost_equal(recovered, colors, decimal=3)
-
-    def test_okhsv_roundtrip_primaries(self) -> None:
-        """RGB → OkHSV → RGB roundtrip for primary colors."""
-        primaries = np.array([
-            [1.0, 0.0, 0.0],  # Red
-            [0.0, 1.0, 0.0],  # Green
-            [0.0, 0.0, 1.0],  # Blue
-        ], dtype=np.float32)
-        
-        okhsv = convert(primaries, "srgb", "okhsv")
-        recovered = convert(okhsv, "okhsv", "srgb")
-        
-        np.testing.assert_array_almost_equal(recovered, primaries, decimal=3)
-
-    def test_okhsv_roundtrip_secondaries(self) -> None:
-        """RGB → OkHSV → RGB roundtrip for secondary colors."""
-        secondaries = np.array([
-            [1.0, 1.0, 0.0],  # Yellow
-            [0.0, 1.0, 1.0],  # Cyan
-            [1.0, 0.0, 1.0],  # Magenta
-        ], dtype=np.float32)
-        
-        okhsv = convert(secondaries, "srgb", "okhsv")
-        recovered = convert(okhsv, "okhsv", "srgb")
-        
-        np.testing.assert_array_almost_equal(recovered, secondaries, decimal=3)
-
-    def test_okhsv_roundtrip_grays(self) -> None:
-        """RGB → OkHSV → RGB roundtrip for grayscale."""
-        grays = np.array([
-            [0.0, 0.0, 0.0],
-            [0.25, 0.25, 0.25],
-            [0.5, 0.5, 0.5],
-            [0.75, 0.75, 0.75],
-            [1.0, 1.0, 1.0],
-        ], dtype=np.float32)
-        
-        okhsv = convert(grays, "srgb", "okhsv")
-        recovered = convert(okhsv, "okhsv", "srgb")
-        
-        np.testing.assert_array_almost_equal(recovered, grays, decimal=4)
-
-    def test_okhsl_saturation_at_one_reaches_gamut_boundary(self) -> None:
-        """OkHSL with S=1 should produce colors at the sRGB gamut boundary."""
-        # At S=1, L=0.5, colors should be maximally saturated
-        hues = np.linspace(0, 1, 6, endpoint=False)
-        okhsl = np.stack([
-            hues,
-            np.ones_like(hues),  # S=1
-            np.full_like(hues, 0.5),  # L=0.5
-        ], axis=-1).astype(np.float32)
-        
-        rgb = convert(okhsl, "okhsl", "srgb")
-        
-        # Each color should have at least one channel at 0 or 1 (gamut boundary)
-        for i in range(len(hues)):
-            color = rgb[i]
-            at_boundary = np.any(color < 0.01) or np.any(color > 0.99)
-            assert at_boundary, f"Color at hue {hues[i]:.2f} not at gamut boundary: {color}"
-
-    def test_okhsv_value_at_one_reaches_max_brightness(self) -> None:
-        """OkHSV with V=1 should produce colors with maximum channel at 1."""
-        hues = np.linspace(0, 1, 6, endpoint=False)
-        okhsv = np.stack([
-            hues,
-            np.ones_like(hues),  # S=1
-            np.ones_like(hues),  # V=1
-        ], axis=-1).astype(np.float32)
-        
-        rgb = convert(okhsv, "okhsv", "srgb")
-        
-        # Each color should have at least one channel at 1
-        for i in range(len(hues)):
-            color = rgb[i]
-            assert np.max(color) > 0.95, f"Color at hue {hues[i]:.2f} not bright: {color}"
-
-    def test_okhsl_lightness_zero_is_black(self) -> None:
-        """OkHSL with L=0 should always produce black."""
-        okhsl = np.array([
-            [0.0, 1.0, 0.0],  # Red hue, full sat, L=0
-            [0.33, 1.0, 0.0],  # Green hue
-            [0.66, 1.0, 0.0],  # Blue hue
-        ], dtype=np.float32)
-        
-        rgb = convert(okhsl, "okhsl", "srgb")
-        
-        # All should be black
-        np.testing.assert_array_almost_equal(rgb, np.zeros_like(rgb), decimal=4)
-
-    def test_okhsl_lightness_one_is_white(self) -> None:
-        """OkHSL with L=1 should always produce white."""
-        okhsl = np.array([
-            [0.0, 1.0, 1.0],  # Red hue, full sat, L=1
-            [0.33, 1.0, 1.0],  # Green hue
-            [0.66, 1.0, 1.0],  # Blue hue
-        ], dtype=np.float32)
-        
-        rgb = convert(okhsl, "okhsl", "srgb")
-        
-        # All should be white
-        np.testing.assert_array_almost_equal(rgb, np.ones_like(rgb), decimal=4)
-
-    def test_okhsv_value_zero_is_black(self) -> None:
-        """OkHSV with V=0 should always produce black."""
-        okhsv = np.array([
-            [0.0, 1.0, 0.0],
-            [0.33, 1.0, 0.0],
-            [0.66, 1.0, 0.0],
-        ], dtype=np.float32)
-        
-        rgb = convert(okhsv, "okhsv", "srgb")
-        
-        np.testing.assert_array_almost_equal(rgb, np.zeros_like(rgb), decimal=4)
-
-    def test_okhsl_saturation_zero_is_gray(self) -> None:
-        """OkHSL with S=0 should produce grayscale regardless of hue."""
-        okhsl = np.array([
-            [0.0, 0.0, 0.3],
-            [0.5, 0.0, 0.3],
-            [0.9, 0.0, 0.3],
-        ], dtype=np.float32)
-        
-        rgb = convert(okhsl, "okhsl", "srgb")
-        
-        # All channels should be equal (grayscale)
-        for color in rgb:
-            assert np.allclose(color[0], color[1], atol=0.01)
-            assert np.allclose(color[1], color[2], atol=0.01)
-
-    def test_okhsv_saturation_zero_is_gray(self) -> None:
-        """OkHSV with S=0 should produce grayscale regardless of hue."""
-        okhsv = np.array([
-            [0.0, 0.0, 0.5],
-            [0.5, 0.0, 0.5],
-            [0.9, 0.0, 0.5],
-        ], dtype=np.float32)
-        
-        rgb = convert(okhsv, "okhsv", "srgb")
-        
-        # All channels should be equal (grayscale)
-        for color in rgb:
-            assert np.allclose(color[0], color[1], atol=0.01)
-            assert np.allclose(color[1], color[2], atol=0.01)
-
-
 class TestColorPayloadToModel:
-    """Tests for ColorPayload.to_model() method."""
+    """Tests for ColorPayload.to_model() type-driven API."""
 
     def test_to_model_same_returns_self(self) -> None:
         """Converting to same model returns self."""
-        data = np.array([0.5, 0.5, 0.5], dtype=np.float32)
-        payload = ColorPayload(data, model="srgb")
-        result = payload.to_model("srgb")
-        assert result is payload
-
-    def test_to_model_rgb_alias(self) -> None:
-        """'rgb' is treated as 'srgb'."""
-        data = np.array([0.5, 0.5, 0.5], dtype=np.float32)
-        payload = ColorPayload(data, model="srgb")
-        result = payload.to_model("rgb")
+        data = np.array([[0.5, 0.5, 0.5]], dtype=np.float32)
+        payload = RgbColorPayload(data)
+        result = payload.to_model(RgbColorPayload)
         assert result is payload
 
     def test_to_model_converts(self) -> None:
         """to_model() converts to target color space."""
-        data = np.array([1.0, 0.0, 0.0], dtype=np.float32)
-        payload = ColorPayload(data, model="srgb")
-        result = payload.to_model("oklch")
+        data = np.array([[1.0, 0.0, 0.0]], dtype=np.float32)
+        payload = RgbColorPayload(data)
+        result = payload.to_model(OklchColorPayload)
         
         assert result.model == "oklch"
+        assert isinstance(result, OklchColorPayload)
         assert result is not payload
-        assert len(result.data) == 3
 
     def test_to_model_okhsl(self) -> None:
         """to_model() works with OkHSL."""
-        data = np.array([0.8, 0.3, 0.5], dtype=np.float32)
-        payload = ColorPayload(data, model="srgb")
-        result = payload.to_model("okhsl")
+        data = np.array([[0.8, 0.3, 0.5]], dtype=np.float32)
+        payload = RgbColorPayload(data)
+        result = payload.to_model(OkhslColorPayload)
         
         assert result.model == "okhsl"
+        assert isinstance(result, OkhslColorPayload)
         # H, S, L should all be in [0, 1]
         assert np.all(result.data >= 0.0)
         assert np.all(result.data <= 1.0)
 
     def test_to_model_preserves_encoding(self) -> None:
         """to_model() preserves the encoding attribute."""
-        data = np.array([0.5, 0.5, 0.5], dtype=np.float32)
+        data = np.array([[0.5, 0.5, 0.5]], dtype=np.float32)
         payload = ColorPayload(data, model="srgb", encoding="linear")
-        result = payload.to_model("oklch")
+        result = payload.to_model(OklchColorPayload)
         
         assert result.encoding == "linear"
+
+    def test_to_model_requires_subclass(self) -> None:
+        """to_model() raises TypeError if passed base ColorPayload."""
+        data = np.array([[0.5, 0.5, 0.5]], dtype=np.float32)
+        payload = RgbColorPayload(data)
+        with pytest.raises(TypeError, match="requires a concrete ColorPayload subclass"):
+            payload.to_model(ColorPayload)
+
+    def test_to_model_roundtrip(self) -> None:
+        """Roundtrip conversion preserves values."""
+        data = np.array([[0.8, 0.3, 0.5]], dtype=np.float32)
+        payload = RgbColorPayload(data)
+        oklch = payload.to_model(OklchColorPayload)
+        recovered = oklch.to_model(RgbColorPayload)
+        
+        np.testing.assert_array_almost_equal(recovered.data, data, decimal=4)

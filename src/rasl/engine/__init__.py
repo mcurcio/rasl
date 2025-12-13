@@ -11,6 +11,10 @@ processing graph:
 - GraphBuilder: Builder for constructing and validating graphs
 - Registry: Node and payload type registration
 
+Subpackages:
+- frames: Frame and payload types (FramePayload, MatrixPayload, ColorPayload, etc.)
+- nodes: Node abstractions (Node protocol, NodeContext, BaseNode)
+
 Example:
     >>> from rasl.engine import Frame, GraphBuilder
     >>> from rasl.nodes import SacnSourceNode, UniversePatchTransform
@@ -22,30 +26,44 @@ Example:
     >>> plan = builder.build()
 """
 
-from .base_node import BaseNode
-from .frame import (
-    ArrayPayload,
+# Import from new packages (preferred)
+from .frames import (
+    BoolPayload,
     ColorPayload,
     Frame,
     FramePayload,
     HslColorPayload,
+    LinearRgbColorPayload,
+    MatrixPayload,
     Metadata,
     OklabColorPayload,
     OklchColorPayload,
+    OkhslColorPayload,
+    OkhsvColorPayload,
     PayloadDescriptor,
     RgbColorPayload,
 )
+from .nodes import (
+    BaseNode,
+    EmitCallable,
+    InjectCallable,
+    Node,
+    NodeContext,
+    StartTaskCallable,
+    get_inputs,
+    get_outputs,
+)
 from .graph import CycleWarning, Edge, ExecutionPlan, GraphBuilder
-from .node import EmitCallable, InjectCallable, Node, NodeContext, StartTaskCallable, get_inputs, get_outputs
 from .ports import (
     EMPTY_PORTS,
     AcceptsSpec,
     BoundPortGroup,
-    ChannelSpec,
+    CountSpec,
     InputPort,
+    InputPortSpec,
     OutputPort,
+    OutputPortSpec,
     PortGroup,
-    PortSpec,
 )
 from .registry import (
     ensure_nodes_loaded,
@@ -61,45 +79,57 @@ from .registry import (
 from .tick import TickContext, pull_rate
 
 __all__ = [
+    # Port types
     "AcceptsSpec",
-    "ArrayPayload",
-    "BaseNode",
     "BoundPortGroup",
-    "ChannelSpec",
-    "ColorPayload",
-    "CycleWarning",
-    "Edge",
-    "EmitCallable",
+    "CountSpec",
     "EMPTY_PORTS",
-    "ensure_nodes_loaded",
-    "ExecutionPlan",
-    "export_node_schemas",
+    "InputPort",
+    "InputPortSpec",
+    "OutputPort",
+    "OutputPortSpec",
+    "PortGroup",
+    # Payload types
+    "BoolPayload",
+    "MatrixPayload",
+    "ColorPayload",
+    "RgbColorPayload",
+    "HslColorPayload",
+    "OklchColorPayload",
+    "OklabColorPayload",
+    "OkhslColorPayload",
+    "OkhsvColorPayload",
+    "LinearRgbColorPayload",
+    # Core frame
     "Frame",
     "FramePayload",
+    "Metadata",
+    "PayloadDescriptor",
+    # Node types
+    "BaseNode",
+    "Node",
+    "NodeContext",
+    "EmitCallable",
+    "InjectCallable",
+    "StartTaskCallable",
     "get_inputs",
+    "get_outputs",
+    # Graph
+    "CycleWarning",
+    "Edge",
+    "ExecutionPlan",
+    "GraphBuilder",
+    # Registry
+    "ensure_nodes_loaded",
+    "export_node_schemas",
     "get_node_class",
     "get_node_registry",
-    "get_outputs",
     "get_payload_type",
-    "GraphBuilder",
-    "HslColorPayload",
-    "InjectCallable",
-    "InputPort",
     "list_node_types",
-    "OklabColorPayload",
-    "OklchColorPayload",
     "list_payload_types",
-    "Metadata",
-    "Node",
     "node",
-    "NodeContext",
-    "OutputPort",
     "payload",
-    "PayloadDescriptor",
-    "PortGroup",
-    "PortSpec",
+    # Tick
     "pull_rate",
-    "RgbColorPayload",
-    "StartTaskCallable",
     "TickContext",
 ]

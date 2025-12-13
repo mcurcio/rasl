@@ -18,31 +18,32 @@ from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
-from rasl.engine.base_node import BaseNode
-from rasl.engine.frame import (
+from rasl.engine.nodes import BaseNode
+from rasl.engine.frames import (
     ColorPayload,
     Frame,
     HslColorPayload,
     LinearRgbColorPayload,
+    MatrixPayload,
     OkhslColorPayload,
     OkhsvColorPayload,
     OklabColorPayload,
     OklchColorPayload,
     RgbColorPayload,
 )
-from rasl.engine.node import NodeContext
-from rasl.engine.ports import PortGroup, PortSpec
+from rasl.engine.nodes import NodeContext
+from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext
 from rasl.nodes.models import TransformNodeConfig
 
-from .convert import DEFAULT_MODEL, convert
+DEFAULT_MODEL: str = "oklch"
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
 # Map model names to payload classes
-PAYLOAD_CLASSES: dict[str, type[ColorPayload]] = {
+FRAME_CLASSES: dict[str, type[ColorPayload]] = {
     "oklch": OklchColorPayload,
     "oklab": OklabColorPayload,
     "okhsl": OkhslColorPayload,
@@ -87,8 +88,8 @@ class ColorNode(BaseNode):
         model: ColorModel = DEFAULT_MODEL  # type: ignore[assignment]
 
     # Class-level ports
-    inputs = PortGroup.inputs(color=PortSpec(accepts=("array", "color")))
-    outputs = PortGroup.outputs(color=PortSpec(accepts="color"))
+    inputs = PortGroup.inputs(color=InputPortSpec((MatrixPayload, ColorPayload)))
+    outputs = PortGroup.outputs(color=OutputPortSpec(ColorPayload))
 
     def __init__(self, config: Config) -> None:
         """Initialize the ColorNode.
@@ -99,7 +100,7 @@ class ColorNode(BaseNode):
         super().__init__(config)
         # Normalize "rgb" alias to "srgb" for internal use
         self._model = "srgb" if config.model == "rgb" else config.model
-        self._payload_cls = PAYLOAD_CLASSES.get(self._model, OklchColorPayload)
+        self._frame_cls = FRAME_CLASSES.get(self._model, OklchColorPayload)
 
     async def pull(self, tick: TickContext) -> None:
         """Read input, convert color model, write output."""
@@ -120,12 +121,11 @@ class ColorNode(BaseNode):
             data = np.asarray(payload, dtype=np.float32)
             encoding = "srgb"
 
-        # Convert if needed
-        if src_model == self._model:
-            out_data = data
+        # Convert via payload API (type-driven)
+        if isinstance(payload, ColorPayload):
+            out_payload = payload if isinstance(payload, self._frame_cls) else payload.to_model(self._frame_cls)
         else:
-            out_data = convert(data, src_model, self._model)
+            tmp = ColorPayload(np.asarray(payload, dtype=np.float32), model=src_model, encoding=encoding)
+            out_payload = tmp.to_model(self._frame_cls)
 
-        # Write with appropriate payload type
-        out_payload = self._payload_cls(out_data, encoding=encoding)
         self.outputs.color.write(frame.with_payload(out_payload))

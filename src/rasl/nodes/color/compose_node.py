@@ -15,13 +15,19 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import Field, field_validator
 
-from rasl.engine.base_node import BaseNode
-from rasl.engine.frame import ArrayPayload, ColorPayload, Frame, HslColorPayload, RgbColorPayload
-from rasl.engine.graph import Edge
-from rasl.engine.node import NodeContext
-from rasl.engine.ports import PortGroup, PortSpec
+from rasl.engine.nodes import BaseNode
+from rasl.engine.frames import (
+    ColorPayload,
+    Frame,
+    FramePayload,
+    HslColorPayload,
+    MatrixPayload,
+    RgbColorPayload,
+)
+from rasl.engine.nodes import NodeContext
+from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.engine.registry import node
-from rasl.engine.tick import TickContext
+from rasl.engine.tick import TickContext, pull_rate
 from rasl.nodes.models import TransformNodeConfig
 
 
@@ -99,7 +105,7 @@ class ComposeNode(BaseNode):
 
     # Class-level defaults (overridden per-instance in __init__)
     inputs = PortGroup.inputs()
-    outputs = PortGroup.outputs(out=PortSpec(accepts="array"))
+    outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)
@@ -112,7 +118,7 @@ class ComposeNode(BaseNode):
 
         # Override class-level inputs with instance-specific ports
         self.inputs = PortGroup.inputs(
-            **{name: PortSpec(accepts="array", channels=None) for name in self._port_names}
+            **{name: InputPortSpec(MatrixPayload, count=None) for name in self._port_names}
         )
 
         # Runtime state - use configured output_channels if provided
@@ -132,65 +138,100 @@ class ComposeNode(BaseNode):
                     f"Port '{port_name}' has no connection and no fill value"
                 )
 
+    def _compose_matrix(
+        self,
+        count: int,
+        buffers: dict[str, NDArray[np.float32] | None],
+    ) -> NDArray[np.float32]:
+        out = np.zeros((count, self._num_ports), dtype=np.float32)
+        for i, name in enumerate(self._port_names):
+            if name in self._fills:
+                out[:, i] = self._fills[name]
+                continue
+
+            buf = buffers.get(name)
+            if buf is None:
+                continue
+
+            b = np.asarray(buf, dtype=np.float32)
+            if b.ndim == 1:
+                b = b.reshape(-1, 1)
+            if b.ndim != 2:
+                continue
+
+            copy_len = min(b.shape[0], count)
+            if copy_len > 0:
+                out[:copy_len, i] = b[:copy_len, 0]
+
+        return out
+
+    def _make_payload(self, data: NDArray[np.float32]):
+        output_type = self._output_type
+        if output_type == "hsl":
+            return HslColorPayload(data)
+        if output_type == "rgb":
+            return RgbColorPayload(data)
+        if output_type in ("oklch", "oklab", "okhsl", "okhsv"):
+            return ColorPayload(data, model=output_type)
+        return MatrixPayload(data)
+
     async def pull(self, tick: TickContext) -> None:
         """Read all input ports, interleave data, write output."""
-        # Read all inputs and determine length
         buffers: dict[str, NDArray[np.float32] | None] = {}
-        length: int | None = self._resolved_length
+        count: int | None = self._resolved_length
 
         for port_name in self._port_names:
             port = self.inputs.get(port_name)
             if port is None:
+                buffers[port_name] = None
                 continue
-            
+
             frame = port.read()
             if frame is not None:
                 data = np.asarray(frame.payload, dtype=np.float32)
                 buffers[port_name] = data
-                if length is None:
-                    length = len(data)
+                if count is None:
+                    count = len(data)
                 self._last_frame = frame
             else:
                 buffers[port_name] = None
 
-        if length is None:
-            # No data and no configured output_channels
+        if count is None:
             return
 
-        self._resolved_length = length
+        self._resolved_length = count
 
-        # Build interleaved output
-        out = np.zeros(length * self._num_ports, dtype=np.float32)
+        out = self._compose_matrix(count, buffers)
+        payload = self._make_payload(out)
 
-        for i, name in enumerate(self._port_names):
-            if name in self._fills:
-                # Constant fill value
-                out[i :: self._num_ports] = self._fills[name]
-            elif buffers.get(name) is not None:
-                # Connected data
-                buf = buffers[name]
-                assert buf is not None
-                copy_len = min(len(buf), length)
-                out[i :: self._num_ports][:copy_len] = buf[:copy_len]
-            # else: leave as zeros
-
-        # Create appropriate payload type based on config
-        output_type = self._output_type
-        if output_type == "hsl":
-            out_payload = HslColorPayload(out)
-        elif output_type == "rgb":
-            out_payload = RgbColorPayload(out)
-        elif output_type in ("oklch", "oklab", "okhsl", "okhsv"):
-            out_payload = ColorPayload(out, model=output_type)
-        else:
-            out_payload = ArrayPayload(out)
-
-        # Use last received frame as template
         if self._last_frame:
-            self.outputs.out.write(self._last_frame.with_payload(out_payload))
+            self.outputs.out.write(self._last_frame.with_payload(payload))
         else:
-            self.outputs.out.write(Frame(
-                topic=f"compose.{self.id}",
-                timestamp=tick.wall_time,
-                payload=out_payload,
-            ))
+            self.outputs.out.write(
+                Frame(
+                    topic=f"compose.{self.id}",
+                    timestamp=tick.wall_time,
+                    payload=payload,
+                )
+            )
+
+    async def handle(self, port: str, frame: Frame, ctx: NodeContext) -> None:
+        """Push-style handler using same composition logic as pull()."""
+        if port not in self._port_names:
+            return
+
+        data = np.asarray(frame.payload, dtype=np.float32)
+        count = len(data)
+        if count <= 0:
+            return
+
+        self._resolved_length = count
+
+        buffers: dict[str, NDArray[np.float32] | None] = {name: None for name in self._port_names}
+        buffers[port] = data
+
+        out = self._compose_matrix(count, buffers)
+        payload = self._make_payload(out)
+
+        out_frame = frame.with_payload(payload)
+        await ctx.emit("out", out_frame)

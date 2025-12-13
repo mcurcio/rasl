@@ -4,17 +4,17 @@ import warnings
 
 import pytest
 
-from rasl.engine.frame import ArrayPayload, Frame
+from rasl.engine.frames import MatrixPayload, Frame
 from rasl.engine.graph import CycleWarning, Edge, ExecutionPlan, GraphBuilder
-from rasl.engine.node import NodeContext
-from rasl.engine.ports import PortGroup, PortSpec
+from rasl.engine.nodes import NodeContext
+from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
 
 
 class MockSourceNode:
     """Mock source node for testing."""
 
     # Source: no inputs, single output
-    outputs = PortGroup(output=PortSpec(accepts=ArrayPayload))
+    outputs = PortGroup.outputs(output=OutputPortSpec(MatrixPayload))
 
     def __init__(self, node_id: str) -> None:
         """Initialize mock source node."""
@@ -36,8 +36,8 @@ class MockSourceNode:
 class MockTransformNode:
     """Mock transform node for testing."""
 
-    inputs = PortGroup(input=PortSpec(accepts=ArrayPayload))
-    outputs = PortGroup(output=PortSpec(accepts=ArrayPayload))
+    inputs = PortGroup.inputs(input=InputPortSpec(MatrixPayload))
+    outputs = PortGroup.outputs(output=OutputPortSpec(MatrixPayload))
 
     def __init__(self, node_id: str) -> None:
         """Initialize mock transform node."""
@@ -59,7 +59,7 @@ class MockTransformNode:
 class MockSinkNode:
     """Mock sink node for testing."""
 
-    inputs = PortGroup(input=PortSpec(accepts=ArrayPayload))
+    inputs = PortGroup.inputs(input=InputPortSpec(MatrixPayload))
     # Sink: no outputs
 
     def __init__(self, node_id: str) -> None:

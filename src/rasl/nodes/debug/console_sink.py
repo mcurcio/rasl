@@ -15,10 +15,9 @@ from typing import Optional
 import numpy as np
 from pydantic import Field
 
-from rasl.engine.base_node import BaseNode
-from rasl.engine.frame import Frame
-from rasl.engine.node import NodeContext
-from rasl.engine.ports import PortGroup, PortSpec
+from rasl.engine.nodes import BaseNode, NodeContext
+from rasl.engine.frames import ColorPayload, Frame, MatrixPayload
+from rasl.engine.ports import InputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext, pull_rate
 from rasl.nodes.models import SinkNodeConfig
@@ -50,7 +49,7 @@ class ConsoleSinkNode(BaseNode):
     class Config(SinkNodeConfig):
         """Configuration for ConsoleSinkNode."""
 
-        input_port: str = Field("input", description="Input port name")
+        input_port: str = Field("dmx", description="Input port name")
         max_channels: int = Field(16, ge=1, le=512, description="Max channels to display")
         as_bytes: bool = Field(True, description="Display as 0-255 bytes instead of 0.0-1.0")
         fps: float = Field(30.0, ge=1.0, le=120.0, description="Frame rate to drive scheduler")
@@ -63,7 +62,9 @@ class ConsoleSinkNode(BaseNode):
         self._input_port = config.input_port
 
         # Build dynamic input port
-        self.inputs = PortGroup.inputs(**{self._input_port: PortSpec(accepts="array")})
+        self.inputs = PortGroup.inputs(
+            **{self._input_port: InputPortSpec((MatrixPayload, ColorPayload))}
+        )
 
         self._max_channels = config.max_channels
         self._as_bytes = config.as_bytes
@@ -100,24 +101,13 @@ class ConsoleSinkNode(BaseNode):
             return
 
         self._counter += 1
-
-        # Get payload data
-        data = np.asarray(frame.payload, dtype=np.float32)
-        display_data = data[: self._max_channels]
-
-        if self._as_bytes:
-            display_values = (np.clip(display_data, 0.0, 1.0) * 255).astype(np.uint8).tolist()
-        else:
-            display_values = [round(float(v), 3) for v in display_data]
-
         log_data = {
             "event": "console_sink_frame",
             "label": self._label,
             "frame_count": self._counter,
             "tick": tick.tick,
             "t": round(tick.t, 3),
-            "channels": len(data),
-            "data": display_values,
+            "data": frame.payload,
         }
 
         if self._include_metadata and frame.metadata:

@@ -63,7 +63,6 @@ class TestParseConfig:
                 input_port dmx;
                 max_channels 24;
                 as_bytes true;
-                every_n 5;
             }
         }
         """
@@ -74,7 +73,6 @@ class TestParseConfig:
         assert node._input_port == "dmx"
         assert node._max_channels == 24
         assert node._as_bytes is True
-        assert node._every_n == 5
 
     def test_parse_sacn_sink_requires_target_host(self):
         """Test that SacnSink requires target_host."""
@@ -88,46 +86,6 @@ class TestParseConfig:
         """
         with pytest.raises(ConfigError, match="target_host"):
             parse_config(config)
-
-    def test_parse_universe_patch_requires_segments(self):
-        """Test that UniversePatch requires at least one segment."""
-        config = """
-        rasl {
-            node UniversePatch patch {
-                output_port out;
-            }
-        }
-        """
-        with pytest.raises(ConfigError, match="segments"):
-            parse_config(config)
-
-    def test_parse_universe_patch_with_segments(self):
-        """Test parsing UniversePatch with segments."""
-        config = """
-        rasl {
-            node UniversePatch patch {
-                output_port universe0;
-                segment {
-                    source_universe 1;
-                    source_channel 1;
-                    length 150;
-                    target_channel 1;
-                }
-                segment {
-                    source_universe 1;
-                    source_channel 1;
-                    length 150;
-                    target_channel 151;
-                }
-            }
-        }
-        """
-        plan = parse_config(config)
-
-        assert "patch" in plan.nodes
-        node = plan.nodes["patch"]
-        assert len(node._segments) == 2
-        assert node._output_port == "universe0"
 
     def test_parse_connections(self):
         """Test parsing edge connections (inside node blocks)."""

@@ -1,11 +1,6 @@
-"""Color conversion utilities for RASL.
+"""Color domain utilities.
 
-DEPRECATED: This module is deprecated. Import from rasl.nodes.color instead.
+ Color conversion is owned by payload types.
+ """
 
-This module re-exports from rasl.nodes.color for backward compatibility.
-"""
-
-# Re-export from new location for backward compatibility
-from rasl.nodes.color.convert import DEFAULT_MODEL, MODELS, convert
-
-__all__ = ["DEFAULT_MODEL", "MODELS", "convert"]
+__all__: list[str] = []

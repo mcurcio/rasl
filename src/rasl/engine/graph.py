@@ -13,13 +13,16 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple, Type
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Type
 
 from rasl.config.connect_parser import ResolvedSlice
+import time
 
-from .frame import FramePayload
-from .node import Node, get_inputs, get_outputs
-from .ports import PortSpec
+import numpy as np
+
+from rasl.engine.frames import Frame, FramePayload, MatrixPayload
+from rasl.engine.nodes import Node, get_inputs, get_outputs
+from .ports import InputPort, InputPortSpec, OutputPortSpec
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +80,10 @@ class Edge:
     target_slice: Optional[ResolvedSlice] = None
     """Optional channel slice on the target port (None = full port)."""
 
+    repeat: int = 1
+
+    repeat_until: int | None = None
+
 
 @dataclass(slots=True)
 class ExecutionPlan:
@@ -109,6 +116,8 @@ class ExecutionPlan:
 
     topological_order: Tuple[str, ...]
     """Node IDs in valid execution order (sources first, sinks last)."""
+
+    input_programs: Dict[Tuple[str, str], "InputPortProgram"] = field(default_factory=dict)
 
     def describe(self) -> Dict[str, Any]:
         """Serialize the execution plan to a JSON-compatible dictionary.
@@ -152,6 +161,228 @@ class ExecutionPlan:
             "edges": edges_desc,
             "topological_order": list(self.topological_order),
         }
+
+
+@dataclass(slots=True)
+class CopySliceOp:
+    source: str
+    source_port: str
+    is_back_edge: bool
+    src_start: int
+    src_end: int
+    dst_start: int
+    dst_end: int
+
+    def required_rows(self, src_rows: int) -> int:
+        if self.dst_end >= 0:
+            return self.dst_end
+        src_len = (self.src_end - self.src_start) if self.src_end >= 0 else (src_rows - self.src_start)
+        if src_len < 0:
+            src_len = 0
+        return self.dst_start + src_len
+
+    def populate(self, dst: np.ndarray, src: np.ndarray) -> None:
+        src_rows = int(src.shape[0])
+        src_end = self.src_end if self.src_end >= 0 else src_rows
+        if src_end < self.src_start:
+            return
+        src_view = src[self.src_start:src_end, :]
+        if src_view.size == 0:
+            return
+        dst_rows = int(dst.shape[0])
+        dst_end = self.dst_end if self.dst_end >= 0 else dst_rows
+        if dst_end < self.dst_start:
+            return
+        max_len = max(0, min(dst_end, dst_rows) - self.dst_start)
+        if max_len <= 0:
+            return
+        copy_len = min(int(src_view.shape[0]), max_len)
+        if copy_len <= 0:
+            return
+        cols = min(int(dst.shape[1]), int(src_view.shape[1]))
+        dst[self.dst_start : self.dst_start + copy_len, :cols] = src_view[:copy_len, :cols]
+
+
+@dataclass(slots=True)
+class RepeatSliceOp:
+    source: str
+    source_port: str
+    is_back_edge: bool
+    src_start: int
+    src_end: int
+    dst_start: int
+    dst_end: int
+    repeat: int
+    repeat_until: int | None
+
+    def required_rows(self, src_rows: int) -> int:
+        if self.dst_end >= 0:
+            return self.dst_end
+        if self.repeat_until is not None:
+            return self.dst_start + int(self.repeat_until)
+        src_len = (self.src_end - self.src_start) if self.src_end >= 0 else (src_rows - self.src_start)
+        if src_len < 0:
+            src_len = 0
+        return self.dst_start + (src_len * int(self.repeat))
+
+    def populate(self, dst: np.ndarray, src: np.ndarray) -> None:
+        src_rows = int(src.shape[0])
+        src_end = self.src_end if self.src_end >= 0 else src_rows
+        if src_end < self.src_start:
+            return
+        src_view = src[self.src_start:src_end, :]
+        if src_view.size == 0:
+            return
+
+        dst_rows = int(dst.shape[0])
+        dst_end = self.dst_end if self.dst_end >= 0 else dst_rows
+        dst_end = min(dst_end, dst_rows)
+        if dst_end <= self.dst_start:
+            return
+
+        window = dst_end - self.dst_start
+        if window <= 0:
+            return
+
+        if self.repeat_until is not None:
+            total = min(window, int(self.repeat_until))
+            if total <= 0:
+                return
+            rep = (total + int(src_view.shape[0]) - 1) // int(src_view.shape[0])
+        else:
+            rep = int(self.repeat)
+            total = min(window, int(src_view.shape[0]) * rep)
+
+        cols = min(int(dst.shape[1]), int(src_view.shape[1]))
+        src_block = src_view[:, :cols]
+        block_rows = int(src_block.shape[0])
+        if block_rows <= 0:
+            return
+
+        for i in range(rep):
+            base = self.dst_start + (i * block_rows)
+            if base >= dst_end:
+                break
+            end = min(base + block_rows, self.dst_start + total, dst_end)
+            copy_len = end - base
+            if copy_len > 0:
+                dst[base:end, :cols] = src_block[:copy_len, :]
+
+
+EdgeOp = CopySliceOp | RepeatSliceOp
+
+
+# Module-level profiling state (outside dataclass to avoid mutable default issues)
+_ipp_profile_enabled: bool = False
+_ipp_profile_stats: dict = {}  # {buffer_key: {resolve_ms, asarray_ms, buffer_ms, copy_ms, total_ms, count}}
+
+
+@dataclass(slots=True)
+class InputPortProgram:
+    target: InputPort
+    buffer_key: Tuple[str, str]
+    fixed_rows: int | None
+    fixed_cols: int | None
+    passthrough: Tuple[str, str] | None
+    passthrough_is_back_edge: bool
+    ops: Tuple[EdgeOp, ...]
+
+    @staticmethod
+    def enable_profiling(enabled: bool = True) -> None:
+        global _ipp_profile_enabled, _ipp_profile_stats
+        _ipp_profile_enabled = enabled
+        if enabled:
+            _ipp_profile_stats.clear()
+
+    @staticmethod
+    def get_profile_stats() -> dict:
+        return dict(_ipp_profile_stats)
+
+    def populate(
+        self,
+        tick: int,
+        resolve: Callable[[str, str, bool, int], Frame | None],
+        ensure_buffer: Callable[[Tuple[str, str], int, int], np.ndarray],
+    ) -> Frame | None:
+        if self.passthrough is not None:
+            src_node, src_port = self.passthrough
+            return resolve(src_node, src_port, self.passthrough_is_back_edge, tick)
+
+        profile = _ipp_profile_enabled
+        if profile:
+            t0 = time.perf_counter()
+            resolve_time = 0.0
+            asarray_time = 0.0
+
+        first: Frame | None = None
+        rows = int(self.fixed_rows) if self.fixed_rows is not None else 0
+        cols = int(self.fixed_cols) if self.fixed_cols is not None else 1
+        sources: list[tuple[EdgeOp, np.ndarray]] = []
+
+        for op in self.ops:
+            if profile:
+                t_resolve = time.perf_counter()
+            frame = resolve(op.source, op.source_port, op.is_back_edge, tick)
+            if profile:
+                resolve_time += time.perf_counter() - t_resolve
+
+            if frame is None or not hasattr(frame.payload, "data"):
+                continue
+            if first is None:
+                first = frame
+
+            if profile:
+                t_asarray = time.perf_counter()
+            src = np.asarray(frame.payload.data, dtype=np.float32)
+            if profile:
+                asarray_time += time.perf_counter() - t_asarray
+
+            if src.ndim == 1:
+                src = src.reshape(-1, 1)
+            if src.ndim != 2:
+                continue
+            rows = max(rows, op.required_rows(int(src.shape[0])))
+            if self.fixed_cols is None:
+                cols = max(cols, int(src.shape[1]))
+            sources.append((op, src))
+
+        if first is None or rows <= 0 or cols <= 0:
+            return None
+
+        if profile:
+            t_buffer = time.perf_counter()
+        buf = ensure_buffer(self.buffer_key, rows, cols)
+        view = buf[:rows, :cols]
+        view.fill(0.0)
+        if profile:
+            buffer_time = time.perf_counter() - t_buffer
+            t_copy = time.perf_counter()
+
+        for op, src in sources:
+            op.populate(view, src)
+
+        if profile:
+            copy_time = time.perf_counter() - t_copy
+            total_time = time.perf_counter() - t0
+
+            key = self.buffer_key
+            stats = _ipp_profile_stats.get(key)
+            if stats is None:
+                stats = {"resolve_ms": 0.0, "asarray_ms": 0.0, "buffer_ms": 0.0, "copy_ms": 0.0, "total_ms": 0.0, "count": 0}
+                _ipp_profile_stats[key] = stats
+            stats["resolve_ms"] += resolve_time * 1000
+            stats["asarray_ms"] += asarray_time * 1000
+            stats["buffer_ms"] += buffer_time * 1000
+            stats["copy_ms"] += copy_time * 1000
+            stats["total_ms"] += total_time * 1000
+            stats["count"] += 1
+
+        return Frame(
+            topic=first.topic,
+            timestamp=first.timestamp,
+            payload=MatrixPayload(view),
+            metadata=first.metadata,
+        )
 
 
 class CycleWarning(UserWarning):
@@ -230,6 +461,8 @@ class GraphBuilder:
         target_port: str,
         source_slice: Optional[ResolvedSlice] = None,
         target_slice: Optional[ResolvedSlice] = None,
+        repeat: int = 1,
+        repeat_until: int | None = None,
     ) -> None:
         """Create an edge connecting two node ports.
 
@@ -276,10 +509,14 @@ class GraphBuilder:
 
         src_spec = src_outputs.get(source_port)
         tgt_spec = tgt_inputs.get(target_port)
+        if src_spec is None or tgt_spec is None:
+            raise ValueError("Port lookup failed")
+        src_port_spec = src_spec.spec
+        tgt_port_spec = tgt_spec.spec
 
         # Type compatibility check
-        src_type = self._get_primary_type(src_spec)
-        if src_type is not None and not tgt_spec.accepts_payload_type(src_type):
+        src_type = self._get_primary_type(src_port_spec)
+        if src_type is not None and not tgt_port_spec.accepts_payload_type(src_type):
             raise TypeError(
                 f"Type mismatch: {source}.{source_port} emits {src_type.__name__}, "
                 f"but {target}.{target_port} does not accept it"
@@ -287,8 +524,8 @@ class GraphBuilder:
 
         # Validate slice compatibility if both are specified with fixed lengths
         if source_slice is not None and target_slice is not None:
-            src_len = source_slice.length(src_spec.channels)
-            tgt_len = target_slice.length(tgt_spec.channels)
+            src_len = source_slice.length(src_port_spec.fixed_count)
+            tgt_len = target_slice.length(tgt_port_spec.fixed_count)
             if src_len is not None and tgt_len is not None and src_len != tgt_len:
                 raise ValueError(
                     f"Slice length mismatch: {source}.{source_port}[{source_slice.start}:{source_slice.end}] "
@@ -304,6 +541,8 @@ class GraphBuilder:
                 target_port,
                 source_slice,
                 target_slice,
+                repeat,
+                repeat_until,
             )
         )
 
@@ -397,13 +636,39 @@ class GraphBuilder:
                 target_port, _ = tgt_inputs.get_default()
                 target_slice_base = None
 
+            # If repeat is specified without explicit source/target slicing, treat it as
+            # an implicit repeat of the entire upstream frame. The runtime will expand
+            # the payload based on its (channels, elements) at runtime.
+            if (
+                (desc.repeat > 1 or desc.repeat_until is not None)
+                and source_ref.slice_ is None
+                and target_slice_base is None
+            ):
+                self.connect(
+                    source_node_id,
+                    source_port,
+                    target_node_id,
+                    target_port,
+                    None,
+                    None,
+                    repeat=desc.repeat,
+                    repeat_until=desc.repeat_until,
+                )
+                continue
+
+            if desc.repeat_until is not None:
+                raise ValueError(
+                    "repeat_until is only supported for implicit repeat connections "
+                    "(no source or target slicing)"
+                )
+
             # Determine source slice and length for repeat
             source_slice = source_ref.slice_
             if source_slice and source_slice.end is not None:
                 slice_length = source_slice.end - source_slice.start
-            elif src_spec.channels is not None:
+            elif src_spec.spec.fixed_count is not None:
                 # No slice specified - use full port channel count
-                slice_length = src_spec.channels
+                slice_length = src_spec.spec.fixed_count
                 # Create implicit full-port slice for repeat offset calculation
                 if desc.repeat > 1:
                     source_slice = ResolvedSlice(0, slice_length)
@@ -433,9 +698,10 @@ class GraphBuilder:
                     target_port,
                     source_slice,
                     target_slice,
+                    repeat=1,
                 )
 
-    def _get_primary_type(self, spec: PortSpec) -> Type[FramePayload] | None:
+    def _get_primary_type(self, spec: OutputPortSpec) -> Type[FramePayload] | None:
         """Extract the primary output type from a port spec.
 
         Args:
@@ -545,6 +811,134 @@ class GraphBuilder:
 
         return tuple(order), cycles
 
+    def _find_back_edges(self, adjacency: Dict[str, List[Edge]]) -> Set[Tuple[str, str, str, str]]:
+        visited: Set[str] = set()
+        in_stack: Set[str] = set()
+        back_edges: Set[Tuple[str, str, str, str]] = set()
+
+        def dfs(node_id: str) -> None:
+            visited.add(node_id)
+            in_stack.add(node_id)
+
+            for edge in adjacency.get(node_id, []):
+                tgt = edge.target
+                if tgt in in_stack:
+                    back_edges.add((edge.source, edge.source_port, edge.target, edge.target_port))
+                elif tgt not in visited:
+                    dfs(tgt)
+
+            in_stack.remove(node_id)
+
+        for node_id in adjacency:
+            if node_id not in visited:
+                dfs(node_id)
+
+        return back_edges
+
+    def _compile_input_programs(
+        self,
+        incoming_by_node: Dict[str, List[Edge]],
+        back_edges: Set[Tuple[str, str, str, str]],
+    ) -> Dict[Tuple[str, str], InputPortProgram]:
+        programs: Dict[Tuple[str, str], InputPortProgram] = {}
+
+        for target_node_id, edges in incoming_by_node.items():
+            node = self._nodes[target_node_id]
+            inputs = get_inputs(node)
+
+            by_port: Dict[str, List[Edge]] = {}
+            for e in edges:
+                by_port.setdefault(e.target_port, []).append(e)
+
+            for port_name, port_edges in by_port.items():
+                port = inputs.get(port_name)
+                if port is None or not isinstance(port, InputPort):
+                    continue
+
+                fixed_rows = port.spec.fixed_count
+
+                fixed_cols: int | None = None
+                resolved = port.spec.resolve_payload_types()
+                if resolved:
+                    comps = [getattr(t, "components", None) for t in resolved]
+                    if comps and all((c is not None and c == comps[0]) for c in comps):
+                        fixed_cols = int(comps[0])
+
+                passthrough: Tuple[str, str] | None = None
+                passthrough_is_back = False
+                ops: List[EdgeOp] = []
+
+                if len(port_edges) == 1:
+                    e = port_edges[0]
+                    if (
+                        e.source_slice is None
+                        and e.target_slice is None
+                        and e.repeat <= 1
+                        and e.repeat_until is None
+                    ):
+                        passthrough = (e.source, e.source_port)
+                        passthrough_is_back = (
+                            (e.source, e.source_port, e.target, e.target_port) in back_edges
+                        )
+                        programs[(target_node_id, port_name)] = InputPortProgram(
+                            target=port,
+                            buffer_key=(target_node_id, port_name),
+                            fixed_rows=fixed_rows,
+                            fixed_cols=fixed_cols,
+                            passthrough=passthrough,
+                            passthrough_is_back_edge=passthrough_is_back,
+                            ops=(),
+                        )
+                        continue
+
+                for e in port_edges:
+                    is_back = (e.source, e.source_port, e.target, e.target_port) in back_edges
+
+                    src_start = e.source_slice.start if e.source_slice else 0
+                    src_end = e.source_slice.end if (e.source_slice and e.source_slice.end is not None) else -1
+
+                    dst_start = e.target_slice.start if e.target_slice else 0
+                    dst_end = e.target_slice.end if (e.target_slice and e.target_slice.end is not None) else -1
+
+                    if e.repeat > 1 or e.repeat_until is not None:
+                        ops.append(
+                            RepeatSliceOp(
+                                source=e.source,
+                                source_port=e.source_port,
+                                is_back_edge=is_back,
+                                src_start=src_start,
+                                src_end=src_end,
+                                dst_start=dst_start,
+                                dst_end=dst_end,
+                                repeat=int(e.repeat),
+                                repeat_until=e.repeat_until,
+                            )
+                        )
+                    else:
+                        ops.append(
+                            CopySliceOp(
+                                source=e.source,
+                                source_port=e.source_port,
+                                is_back_edge=is_back,
+                                src_start=src_start,
+                                src_end=src_end,
+                                dst_start=dst_start,
+                                dst_end=dst_end,
+                            )
+                        )
+
+                programs[(target_node_id, port_name)] = InputPortProgram(
+                    target=port,
+                    buffer_key=(target_node_id, port_name),
+                    fixed_rows=fixed_rows,
+                    fixed_cols=fixed_cols,
+                    passthrough=None,
+                    passthrough_is_back_edge=False,
+                    ops=tuple(ops),
+                )
+
+        return programs
+
     def build(self, allow_cycles: bool = True) -> ExecutionPlan:
         """Validate the graph and compile it into an ExecutionPlan.
 
@@ -592,8 +986,12 @@ class GraphBuilder:
             if hasattr(node, "validate_connections"):
                 node.validate_connections(incoming_by_node[node_id])
 
+        back_edges = self._find_back_edges(adjacency)
+        input_programs = self._compile_input_programs(incoming_by_node, back_edges)
+
         return ExecutionPlan(
             nodes=self._nodes.copy(),
             adjacency=adjacency,
             topological_order=order,
+            input_programs=input_programs,
         )

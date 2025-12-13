@@ -15,6 +15,7 @@ import argparse
 import json
 import signal
 import sys
+import traceback
 from pathlib import Path
 from typing import Optional
 
@@ -23,6 +24,7 @@ import structlog
 
 from rasl import __version__
 from rasl.config import load_config
+from rasl.config.directive import Directive
 from rasl.engine.graph import ExecutionPlan
 from rasl.runtime import UnifiedScheduler
 
@@ -41,6 +43,25 @@ structlog.configure(
 )
 
 logger = structlog.get_logger()
+
+
+def _get_ui_settings(config_path: Path) -> tuple[bool, str, int]:
+    """Return (enabled, host, port) from top-level `ui {}` config block."""
+    root = Directive.from_file(config_path)
+    ui = root.find_one("ui")
+    if not ui:
+        return False, "127.0.0.1", 8080
+
+    host = "127.0.0.1"
+    port = 8080
+
+    for child in ui.block:
+        if child.keyword == "host" and child.args:
+            host = str(child.args[0])
+        elif child.keyword == "port" and child.args:
+            port = int(child.args[0])
+
+    return True, host, port
 
 
 def _create_parser() -> argparse.ArgumentParser:
@@ -87,6 +108,11 @@ def _create_parser() -> argparse.ArgumentParser:
         default="127.0.0.1",
         metavar="HOST",
         help="Host for web API server (default: 127.0.0.1)",
+    )
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="Enable detailed profiling of graph execution",
     )
     return parser
 
@@ -177,16 +203,37 @@ def main(args: Optional[list[str]] = None) -> int:
         return 0
 
     scheduler = UnifiedScheduler(plan)
+    
+    if parsed.profile:
+        scheduler.enable_profiling(True)
+        logger.info("profiling_enabled")
+    
     logger.info("starting_scheduler")
+
+    ui_enabled, ui_host, ui_port = _get_ui_settings(config_path)
+
+    api_host: Optional[str] = None
+    api_port: Optional[int] = None
+    if parsed.api_port is not None:
+        api_host = parsed.api_host
+        api_port = parsed.api_port
+    elif ui_enabled:
+        api_host = ui_host
+        api_port = ui_port
 
     try:
         anyio.run(
             _run_with_shutdown,
             scheduler,
             plan,
-            parsed.api_host,
-            parsed.api_port,
+            api_host,
+            api_port,
         )
+    except BaseExceptionGroup as eg:
+        logger.error("runtime_error", error=str(eg))
+        for sub in eg.exceptions:
+            traceback.print_exception(sub, file=sys.stderr)
+        return 1
     except KeyboardInterrupt:
         logger.info("interrupted")
     except Exception as e:

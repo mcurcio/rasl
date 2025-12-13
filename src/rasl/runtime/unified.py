@@ -18,16 +18,16 @@ import gc
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import anyio
 import numpy as np
 import structlog
 
-from rasl.config.connect_parser import ResolvedSlice
-from rasl.engine.frame import ArrayPayload, Frame
-from rasl.engine.graph import Edge, ExecutionPlan
-from rasl.engine.node import Node, NodeContext, get_inputs, get_outputs
+from rasl.engine.frames import Frame
+from rasl.engine.graph import Edge, ExecutionPlan, InputPortProgram
+from typing import Any
+from rasl.engine.nodes import Node, NodeContext, get_inputs, get_outputs
 from rasl.engine.ports import InputPort, OutputPort, PortGroup
 from rasl.engine.tick import TickContext
 from rasl.runtime.monitor import NodeMonitor
@@ -130,6 +130,9 @@ class TimingStats:
     
     # Current tick trace (for detailed logging)
     current_trace: Optional[TickTrace] = None
+    
+    # Populate profiling
+    profile_populate: bool = False
 
 
 class UnifiedScheduler:
@@ -184,9 +187,11 @@ class UnifiedScheduler:
             for edge in edges:
                 self._incoming[edge.target].append(edge)
 
-        # Pre-allocate buffers for sliced edges
+        self._input_programs_by_node: Dict[str, List[InputPortProgram]] = defaultdict(list)
+        for (target_node_id, _), program in plan.input_programs.items():
+            self._input_programs_by_node[target_node_id].append(program)
+
         self._port_buffers: Dict[Tuple[str, str], np.ndarray] = {}
-        self._setup_slice_buffers()
 
         # Runtime state (populated in run())
         self._node_runtimes: Dict[str, NodeRuntime] = {}
@@ -199,6 +204,17 @@ class UnifiedScheduler:
         for sink_id, hz in self._rate_drivers.items():
             self._timing.sink_target_interval[sink_id] = 1.0 / hz
             self._timing.pull_duration_samples[sink_id] = deque(maxlen=100)
+
+        # GC optimization: disable automatic GC during tick execution
+        self._gc_disabled_during_tick = False
+        self._gc_interval_ticks = 100  # Run GC every N ticks
+
+    def enable_profiling(self, enabled: bool = True) -> None:
+        """Enable detailed profiling of populate() and node execution."""
+        self._timing.profile_populate = enabled
+        InputPortProgram.enable_profiling(enabled)
+        if enabled:
+            logger.info("profiling_enabled")
 
     def _find_rate_drivers(self) -> Dict[str, float]:
         """Find all nodes with @pull_rate decorated pull() methods."""
@@ -280,7 +296,8 @@ class UnifiedScheduler:
                     back_edges.add(
                         (edge.source, edge.source_port, edge.target, edge.target_port)
                     )
-                elif edge.target not in visited:
+
+                if edge.target not in visited:
                     dfs(edge.target)
 
             in_stack.remove(node_id)
@@ -303,33 +320,31 @@ class UnifiedScheduler:
             edge.target_port,
         ) in self._back_edges
 
-    def _setup_slice_buffers(self) -> None:
-        """Pre-allocate buffers for edges with channel slicing."""
-        for source, edges in self._plan.adjacency.items():
-            for edge in edges:
-                if edge.source_slice is not None or edge.target_slice is not None:
-                    key = (edge.target, edge.target_port)
-                    if key in self._port_buffers:
-                        continue
+    def _ensure_port_buffer(self, key: tuple[str, str], rows: int, cols: int) -> np.ndarray:
+        buf = self._port_buffers.get(key)
+        if buf is None:
+            buf = np.zeros((rows, cols), dtype=np.float32)
+            self._port_buffers[key] = buf
+            return buf
 
-                    # Determine buffer size
-                    node = self._plan.nodes[edge.target]
-                    inputs = get_inputs(node)
-                    port_spec = inputs.get(edge.target_port)
-                    buffer_size = port_spec.channels if port_spec and port_spec.channels else 0
+        if buf.shape[0] < rows or buf.shape[1] < cols:
+            new_buf = np.zeros(
+                (max(rows, buf.shape[0]), max(cols, buf.shape[1])),
+                dtype=np.float32,
+            )
+            new_buf[: buf.shape[0], : buf.shape[1]] = buf
+            buf = new_buf
+            self._port_buffers[key] = buf
+        return buf
 
-                    # Check if edge specifies larger range
-                    if edge.target_slice:
-                        if edge.target_slice.end:
-                            buffer_size = max(buffer_size, edge.target_slice.end)
-                        elif edge.source_slice and edge.source_slice.end:
-                            src_len = edge.source_slice.end - edge.source_slice.start
-                            buffer_size = max(
-                                buffer_size, edge.target_slice.start + src_len
-                            )
+    def _resolve_frame(self, node_id: str, port: str, is_back_edge: bool, tick: int) -> Frame | None:
+        if is_back_edge:
+            return self._previous_outputs.get((node_id, port))
 
-                    if buffer_size > 0:
-                        self._port_buffers[key] = np.zeros(buffer_size, dtype=np.float32)
+        frame = self._frame_cache.get((node_id, port, tick))
+        if frame is None:
+            frame = self._previous_outputs.get((node_id, port))
+        return frame
 
     @property
     def monitor(self) -> NodeMonitor:
@@ -429,6 +444,15 @@ class UnifiedScheduler:
                 _inject=make_inject(node_id),
             )
 
+            async def _emit(port: str, frame: Frame) -> None:
+                out = outputs.get(port) if outputs else None
+                if out is None:
+                    return
+                if isinstance(out, OutputPort):
+                    out.write(frame)
+
+            ctx.emit = _emit
+
             runtime = NodeRuntime(
                 node=node,
                 bound_inputs=inputs,
@@ -444,6 +468,11 @@ class UnifiedScheduler:
 
     async def _shutdown_nodes(self) -> None:
         """Stop all nodes gracefully."""
+        # Re-enable GC before shutdown
+        if self._gc_disabled_during_tick:
+            gc.enable()
+            self._gc_disabled_during_tick = False
+        
         for node_id in reversed(self._plan.topological_order):
             runtime = self._node_runtimes.get(node_id)
             if runtime:
@@ -479,6 +508,7 @@ class UnifiedScheduler:
 
             # Sleep until target time (or wake early if push pending)
             now = time.monotonic()
+            gc_ran_this_cycle = False
             while now < target_time:
                 sleep_duration = target_time - now
 
@@ -486,6 +516,13 @@ class UnifiedScheduler:
                     # Wake early for push work, but still yield to event loop
                     await anyio.sleep(0)
                     break
+
+                # Run GC during sleep if we have enough time budget (>25ms remaining)
+                # and haven't run it this cycle yet. Use 25ms threshold to ensure
+                # GC completes before the next tick even if it takes 15-20ms.
+                if not gc_ran_this_cycle and sleep_duration > 0.025:
+                    gc.collect(0)  # Only gen0 for speed
+                    gc_ran_this_cycle = True
 
                 # Sleep in small chunks to check for push events and allow cancellation
                 await anyio.sleep(min(sleep_duration, 0.005))
@@ -518,7 +555,7 @@ class UnifiedScheduler:
                     gc_counts = gc.get_count()
                     gc_stats = gc.get_stats()
                     gc_info = None
-                    if latency_ms > 50:  # Only check GC for significant stalls
+                    if latency_ms > 20:  # Check GC for stalls >20ms
                         gc_info = {
                             "gen0": gc_stats[0].get("collections", 0),
                             "gen1": gc_stats[1].get("collections", 0),
@@ -532,7 +569,13 @@ class UnifiedScheduler:
                         latency_ms=round(latency_ms, 2),
                         sinks=list(slot.sinks),
                         gc_info=gc_info,
+                        prev_tick_duration_ms=round(self._timing.latency_samples[-2], 2) if len(self._timing.latency_samples) > 1 else None,
                     )
+
+                # Disable GC during tick execution to prevent jitter
+                if not self._gc_disabled_during_tick:
+                    gc.disable()
+                    self._gc_disabled_during_tick = True
 
                 # Execute scheduled pulls
                 for sink_id in slot.sinks:
@@ -581,6 +624,38 @@ class UnifiedScheduler:
         gc_delta = gc_collections - stats.gc_collections
         stats.gc_collections = gc_collections
         
+        # Per-node timing stats (always report all nodes when profiling)
+        node_stats = {}
+        for node_id, samples in stats.node_duration_samples.items():
+            if samples:
+                avg_ms = sum(samples) / len(samples)
+                max_ms = max(samples)
+                # When profiling, report all nodes; otherwise only slow ones
+                if stats.profile_populate or avg_ms > 0.5 or max_ms > 2.0:
+                    node_stats[node_id] = {
+                        "avg_ms": round(avg_ms, 3),
+                        "max_ms": round(max_ms, 3),
+                    }
+        
+        # Populate profiling stats
+        populate_stats = None
+        if stats.profile_populate:
+            raw_stats = InputPortProgram.get_profile_stats()
+            if raw_stats:
+                populate_stats = {}
+                for key, s in raw_stats.items():
+                    if s["count"] > 0:
+                        populate_stats[f"{key[0]}.{key[1]}"] = {
+                            "avg_total_ms": round(s["total_ms"] / s["count"], 3),
+                            "avg_resolve_ms": round(s["resolve_ms"] / s["count"], 3),
+                            "avg_asarray_ms": round(s["asarray_ms"] / s["count"], 3),
+                            "avg_buffer_ms": round(s["buffer_ms"] / s["count"], 3),
+                            "avg_copy_ms": round(s["copy_ms"] / s["count"], 3),
+                            "count": s["count"],
+                        }
+                # Clear stats for next period
+                InputPortProgram.enable_profiling(True)
+        
         logger.info(
             "timing_report",
             total_ticks=stats.total_ticks,
@@ -590,6 +665,8 @@ class UnifiedScheduler:
             max_latency_ms=round(stats.max_latency_ms, 2),
             gc_collections=gc_delta,
             sink_warnings=sink_stats if sink_stats else None,
+            node_stats=node_stats if node_stats else None,
+            populate_stats=populate_stats,
         )
 
     async def _pull_sink(self, sink_id: str, target_time: float = 0.0) -> None:
@@ -671,38 +748,20 @@ class UnifiedScheduler:
         runtime = self._node_runtimes[node_id]
         node = runtime.node
 
-        # First, pull all upstream nodes and populate inputs
+        # First, pull all upstream nodes (non back-edge), so frames exist in cache.
         for edge in self._incoming[node_id]:
             if self._is_back_edge(edge):
-                # Use previous tick's output for back-edges
-                frame = self._previous_outputs.get((edge.source, edge.source_port))
-            else:
-                # Pull upstream
-                await self._pull_node(edge.source, tick)
-                # Get upstream's output from cache
-                frame = self._frame_cache.get((edge.source, edge.source_port, tick.tick))
-                
-                # For push sources, use _previous_outputs if not in tick cache
-                # (push sources inject frames asynchronously, not via pull)
-                if frame is None:
-                    frame = self._previous_outputs.get((edge.source, edge.source_port))
+                continue
+            await self._pull_node(edge.source, tick)
 
-            # Apply slicing if needed
-            if frame and (edge.source_slice or edge.target_slice):
-                slice_start = time.perf_counter()
-                frame = self._apply_slice(edge, frame)
-                slice_ms = (time.perf_counter() - slice_start) * 1000
-                
-                # Record slice timing if significant
-                if slice_ms > 0.1 and self._timing.current_trace:
-                    self._timing.current_trace.add_slice(
-                        edge.source, edge.target, slice_ms
-                    )
-
-            # Set on input port
-            port = runtime.bound_inputs.get(edge.target_port)
-            if port and isinstance(port, InputPort):
-                port._set_frame(frame)
+        # Populate each input port using compiled programs.
+        for program in self._input_programs_by_node.get(node_id, []):
+            frame = program.populate(
+                tick=tick.tick,
+                resolve=self._resolve_frame,
+                ensure_buffer=self._ensure_port_buffer,
+            )
+            program.target._set_frame(frame)
 
         # Execute node's pull
         pull_start = time.perf_counter()
@@ -737,69 +796,6 @@ class UnifiedScheduler:
                     self._frame_cache[(node_id, output_port.name, tick.tick)] = frame
                     self._previous_outputs[(node_id, output_port.name)] = frame
 
-    def _apply_slice(self, edge: Edge, frame: Frame) -> Frame:
-        """Apply channel slicing to a frame."""
-        if not hasattr(frame.payload, "data"):
-            return frame
-
-        source_data = frame.payload.data
-
-        # If no slicing needed, return as-is
-        if edge.source_slice is None and edge.target_slice is None:
-            return frame
-
-        # Determine source range
-        if edge.source_slice:
-            src_start = edge.source_slice.start
-            src_end = edge.source_slice.end if edge.source_slice.end else len(source_data)
-        else:
-            src_start = 0
-            src_end = len(source_data)
-
-        # Extract source slice
-        sliced_data = source_data[src_start:src_end]
-
-        # If target slice specifies a range, we may need to place data at offset
-        if edge.target_slice and edge.target_slice.start > 0:
-            # Need to create a buffer and place data at offset
-            buffer_key = (edge.target, edge.target_port)
-            
-            # Determine buffer size
-            if edge.target_slice.end:
-                buffer_size = edge.target_slice.end
-            else:
-                buffer_size = edge.target_slice.start + len(sliced_data)
-
-            if buffer_key in self._port_buffers:
-                target_buffer = self._port_buffers[buffer_key]
-                # Resize if needed
-                if len(target_buffer) < buffer_size:
-                    target_buffer = np.zeros(buffer_size, dtype=np.float32)
-                    self._port_buffers[buffer_key] = target_buffer
-            else:
-                target_buffer = np.zeros(buffer_size, dtype=np.float32)
-                self._port_buffers[buffer_key] = target_buffer
-
-            # Copy sliced data to target offset
-            tgt_start = edge.target_slice.start
-            copy_len = min(len(sliced_data), len(target_buffer) - tgt_start)
-            if copy_len > 0:
-                target_buffer[tgt_start : tgt_start + copy_len] = sliced_data[:copy_len]
-
-            return Frame(
-                topic=frame.topic,
-                timestamp=frame.timestamp,
-                payload=ArrayPayload(target_buffer.copy()),
-                metadata=frame.metadata,
-            )
-        else:
-            # Just return the sliced data
-            return Frame(
-                topic=frame.topic,
-                timestamp=frame.timestamp,
-                payload=ArrayPayload(sliced_data.copy()),
-                metadata=frame.metadata,
-            )
 
     async def _process_push_events(self) -> None:
         """Process all pending push events."""

@@ -3,7 +3,7 @@
 import pytest
 
 from rasl.nodes.models import SourceNodeConfig, TransformNodeConfig
-from rasl.engine.base_node import BaseNode
+from rasl.engine.nodes import BaseNode
 from rasl.engine.registry import (
     get_node_class,
     get_node_registry,
@@ -178,16 +178,18 @@ class TestBuiltinPayloads:
     """Tests for built-in payload registration."""
 
     def test_array_payload_registered(self):
-        """Test that ArrayPayload is registered when frame module is imported."""
+        """Test that 'array' payload type is registered when frame module is imported."""
         # Just import frame - don't reload as that breaks class identity
-        import rasl.engine.frame  # noqa: F401
+        import rasl.engine.frames  # noqa: F401
 
         assert get_payload_type("array") is not None
 
     def test_color_payloads_registered(self):
         """Test that color payloads are registered."""
-        import rasl.engine.frame  # noqa: F401
+        import rasl.engine.frames  # noqa: F401
 
         assert get_payload_type("color") is not None
-        assert get_payload_type("rgb") is not None
-        assert get_payload_type("hsl") is not None
+        assert get_payload_type("rgb") is None
+        assert get_payload_type("hsl") is None
+        assert get_payload_type("color:rgb") is not None
+        assert get_payload_type("color:hsl") is not None

@@ -70,31 +70,6 @@ class TestEdgeWithSlices:
 class TestConfigParserWithSlices:
     """Tests for config parsing with channel slices."""
 
-    def test_parse_sliced_connect(self):
-        """Test parsing connect with channel slices."""
-        config = """
-        rasl {
-            node SineSource sine {
-                output_channels 512;
-            }
-            node ConsoleSink console {
-                input_port dmx;
-            }
-            connect sine[0:100] console.dmx[0:100];
-        }
-        """
-        plan = parse_config(config)
-
-        # Check that the edge has slice info
-        assert len(plan.adjacency["sine"]) == 1
-        edge = plan.adjacency["sine"][0]
-        assert edge.source == "sine"
-        assert edge.source_port == "dmx"  # Default port
-        assert edge.source_slice == ResolvedSlice(0, 100)
-        assert edge.target == "console"
-        assert edge.target_port == "dmx"
-        assert edge.target_slice == ResolvedSlice(0, 100)
-
     def test_parse_nested_sliced_connect(self):
         """Test parsing nested connect with channel slices."""
         config = """
@@ -140,3 +115,63 @@ class TestConfigParserWithSlices:
         # Second edge
         assert edges[1].source_slice == ResolvedSlice(0, 100)
         assert edges[1].target_slice == ResolvedSlice(100, 200)
+
+
+class TestRepeatWithoutSlices:
+    def test_parse_repeat_without_slices_creates_single_edge_with_repeat(self):
+        config = """
+        rasl {
+            node literal src matrix [[1,2,3]];
+            node ConsoleSink sink {
+                fps 1;
+                connect src {
+                    repeat 3;
+                }
+            }
+        }
+        """
+        plan = parse_config(config)
+
+        edges = plan.adjacency["src"]
+        assert len(edges) == 1
+        assert edges[0].source_slice is None
+        assert edges[0].target_slice is None
+        assert edges[0].repeat == 3
+
+    def test_parse_repeat_until_without_slices_creates_single_edge(self):
+        config = """
+        rasl {
+            node literal src matrix [[1,2,3]];
+            node ConsoleSink sink {
+                fps 1;
+                connect src {
+                    repeat_until 10;
+                }
+            }
+        }
+        """
+        plan = parse_config(config)
+
+        edges = plan.adjacency["src"]
+        assert len(edges) == 1
+        assert edges[0].source_slice is None
+        assert edges[0].target_slice is None
+        assert edges[0].repeat == 1
+        assert edges[0].repeat_until == 10
+
+    def test_repeat_until_with_slices_raises(self):
+        config = """
+        rasl {
+            node SineSource wave {
+                output_channels 512;
+            }
+            node ConsoleSink sink {
+                fps 1;
+                connect wave[0:100] {
+                    repeat_until 200;
+                }
+            }
+        }
+        """
+        with pytest.raises(ValueError, match="repeat_until is only supported"):
+            parse_config(config)

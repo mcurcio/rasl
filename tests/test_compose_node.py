@@ -5,9 +5,9 @@ import pytest
 
 from rasl.config.directive import Directive
 from rasl.config.loader import _extract_config_dict
-from rasl.engine.frame import ArrayPayload, Frame
+from rasl.engine.frames import MatrixPayload, Frame
 from rasl.engine.graph import Edge, GraphBuilder
-from rasl.engine.ports import PortSpec
+from rasl.engine.ports import InputPortSpec
 from rasl.nodes.color.compose_node import ComposeNode
 
 
@@ -88,9 +88,10 @@ class TestComposeNodePorts:
         node = ComposeNode(config)
 
         for port_name in ["a", "b"]:
-            spec = node.inputs.get(port_name)
-            assert spec is not None
-            assert spec.is_variable
+            port = node.inputs.get(port_name)
+            spec = InputPortSpec(MatrixPayload, count=None)
+            # Variable-length ports have no fixed channel count
+            assert port.count is None
 
     def test_has_single_output_port(self) -> None:
         """Node has single 'out' output port."""
@@ -190,7 +191,7 @@ class TestComposeNodeHandle:
         frame = Frame(
             topic="test",
             timestamp=0.0,
-            payload=ArrayPayload(hue_data),
+            payload=MatrixPayload(hue_data),
         )
 
         await compose_node.handle("hue", frame, ctx)  # type: ignore
@@ -198,10 +199,9 @@ class TestComposeNodeHandle:
         assert len(emitted) == 1
         out = np.asarray(emitted[0].payload, dtype=np.float32)
 
-        # Expected: [h0, s0, l0, h1, s1, l1, h2, s2, l2]
-        # = [0.1, 1.0, 0.5, 0.2, 1.0, 0.5, 0.3, 1.0, 0.5]
+        # Expected: shape (count, 3) with columns [hue, saturation, lightness]
         expected = np.array(
-            [0.1, 1.0, 0.5, 0.2, 1.0, 0.5, 0.3, 1.0, 0.5],
+            [[0.1, 1.0, 0.5], [0.2, 1.0, 0.5], [0.3, 1.0, 0.5]],
             dtype=np.float32,
         )
         np.testing.assert_array_almost_equal(out, expected)
@@ -220,7 +220,7 @@ class TestComposeNodeHandle:
         frame = Frame(
             topic="test",
             timestamp=0.0,
-            payload=ArrayPayload(np.array([1.0], dtype=np.float32)),
+            payload=MatrixPayload(np.array([1.0], dtype=np.float32)),
         )
 
         await compose_node.handle("unknown_port", frame, ctx)  # type: ignore

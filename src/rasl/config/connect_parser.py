@@ -16,6 +16,7 @@ Examples:
 from __future__ import annotations
 
 import re
+import warnings
 from dataclasses import dataclass
 from typing import Optional
 
@@ -279,6 +280,11 @@ def parse_connect(source: str) -> ParsedConnect:
             dest_slice=ResolvedSlice(start=0, end=3),
         )
     """
+    warnings.warn(
+        "rasl.config.connect_parser.parse_connect is deprecated; use rasl.config.connection.parse_port_ref instead",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if not source or not source.strip():
         raise ConnectParseError("Empty connect directive")
 
@@ -327,6 +333,11 @@ def parse_connect_batch(sources: list[str]) -> list[ParsedConnect]:
         ConnectParseError: If any directive fails to parse.
             The error message includes the index of the failing directive.
     """
+    warnings.warn(
+        "rasl.config.connect_parser.parse_connect_batch is deprecated; use rasl.config.connection.parse_port_ref instead",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     results: list[ParsedConnect] = []
     errors: list[str] = []
 

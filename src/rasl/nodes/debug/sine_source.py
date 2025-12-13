@@ -14,10 +14,9 @@ import anyio
 import numpy as np
 from pydantic import Field
 
-from rasl.engine.base_node import BaseNode
-from rasl.engine.frame import ArrayPayload, Frame
-from rasl.engine.node import NodeContext
-from rasl.engine.ports import PortGroup, PortSpec
+from rasl.engine.nodes import BaseNode, NodeContext
+from rasl.engine.frames import MatrixPayload, Frame
+from rasl.engine.ports import OutputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.nodes.models import SourceNodeConfig
 
@@ -51,7 +50,7 @@ class SineSourceNode(BaseNode):
         offset: float = Field(0.5, ge=0.0, le=1.0, description="DC offset")
         topic: str | None = Field(None, description="Optional topic override")
 
-    outputs = PortGroup.outputs(dmx=PortSpec(accepts="array"))
+    outputs = PortGroup.outputs(dmx=OutputPortSpec(MatrixPayload))
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)
@@ -74,15 +73,18 @@ class SineSourceNode(BaseNode):
             t = now - t0
             phase = 2.0 * math.pi * self._frequency_hz * t
             value = self._offset + self._amplitude * math.sin(phase)
-            payload = np.full(self._channels, value, dtype=np.float32)
-            payload = np.clip(payload, 0.0, 1.0)
+            out_port = self.outputs.dmx
+            buf = out_port.acquire(self._channels)
+            payload = np.asarray(buf, dtype=np.float32)
+            payload[: self._channels, 0] = float(value)
+            np.clip(payload, 0.0, 1.0, out=payload)
             frame = Frame(
                 topic=self._topic,
                 timestamp=now,
-                payload=ArrayPayload(payload),
+                payload=MatrixPayload(payload[: self._channels, :1]),
                 metadata=dict(self._metadata),
             )
-            await ctx.emit("dmx", frame)
+            out_port.commit(frame)
             await anyio.sleep(interval)
 
     async def handle(self, port: str, frame: Frame, ctx: NodeContext) -> None:

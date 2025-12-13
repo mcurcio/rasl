@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import contextlib
 import time
+import warnings
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
@@ -24,9 +25,9 @@ import structlog
 from anyio.streams.memory import MemoryObjectReceiveStream
 
 from rasl.config.connect_parser import ResolvedSlice
-from rasl.engine.frame import ArrayPayload, Frame
+from rasl.engine.frames import Frame, MatrixPayload
 from rasl.engine.graph import Edge, ExecutionPlan
-from rasl.engine.node import Node, NodeContext, get_inputs
+from rasl.engine.nodes import Node, NodeContext, get_inputs
 from rasl.runtime.monitor import NodeMonitor, NodeStats
 
 logger = structlog.get_logger()
@@ -143,6 +144,11 @@ class Runtime:
                 nodes, edges, and topological ordering.
             config: Optional RuntimeConfig for tuning behavior.
         """
+        warnings.warn(
+            "rasl.runtime.scheduler.Runtime is deprecated; use rasl.runtime.unified.UnifiedScheduler instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._plan: ExecutionPlan = plan
         self._config: RuntimeConfig = config or RuntimeConfig()
         self._monitor: NodeMonitor = NodeMonitor()
@@ -171,7 +177,7 @@ class Runtime:
             inputs = get_inputs(node)
             port_spec = inputs.get(target_port)
             # Determine buffer size from port spec or max target slice end
-            buffer_size = port_spec.channels if port_spec.channels else 0
+            buffer_size = port_spec.count if port_spec.count else 0
             # Check if any edge specifies a larger target range
             for edge in edges:
                 if edge.target_slice:
@@ -272,7 +278,7 @@ class Runtime:
 
                                     # Create a new frame with the buffered data
                                     # We send on every write for simplicity
-                                    sliced_payload = ArrayPayload(port_buffer.data.copy())
+                                    sliced_payload = MatrixPayload(port_buffer.data.copy())
                                     sliced_frame = Frame(
                                         topic=frame.topic,
                                         timestamp=frame.timestamp,

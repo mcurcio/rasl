@@ -16,10 +16,9 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import Field
 
-from rasl.engine.base_node import BaseNode
-from rasl.engine.frame import ArrayPayload, Frame
-from rasl.engine.node import NodeContext
-from rasl.engine.ports import PortGroup, PortSpec
+from rasl.engine.nodes import BaseNode, NodeContext
+from rasl.engine.frames import MatrixPayload, Frame
+from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext
 from rasl.nodes.models import SourceNodeConfig
@@ -135,10 +134,10 @@ class WaveformNode(BaseNode):
 
     # Class-level ports
     inputs = PortGroup.inputs(
-        phase=PortSpec(accepts="array"),  # Per-channel phase offsets [0, 1]
-        speed=PortSpec(accepts="array"),  # Per-channel speed multipliers
+        phase=InputPortSpec(MatrixPayload),  # Per-channel phase offsets [0, 1]
+        speed=InputPortSpec(MatrixPayload),  # Per-channel speed multipliers
     )
-    outputs = PortGroup.outputs(out=PortSpec(accepts="array"))
+    outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)
@@ -185,12 +184,15 @@ class WaveformNode(BaseNode):
         # Generate waveform
         values = self._apply_shape(phase)
 
-        # Write to output port
-        self.outputs.out.write(
+        out_port = self.outputs.out
+        buf = out_port.acquire(self._channels)
+        arr = np.asarray(buf, dtype=np.float32)
+        arr[: self._channels, 0] = values[: self._channels]
+        out_port.commit(
             Frame(
                 topic=self._topic,
                 timestamp=tick.wall_time,
-                payload=ArrayPayload(values),
+                payload=MatrixPayload(arr[: self._channels, :1]),
                 metadata=dict(self._metadata),
             )
         )

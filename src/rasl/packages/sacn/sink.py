@@ -14,10 +14,9 @@ import numpy as np
 import sacn
 from pydantic import Field
 
-from rasl.engine.base_node import BaseNode
-from rasl.engine.frame import Frame
-from rasl.engine.node import NodeContext
-from rasl.engine.ports import PortGroup, PortSpec
+from rasl.engine.nodes import BaseNode, NodeContext
+from rasl.engine.frames import Frame, MatrixPayload
+from rasl.engine.ports import InputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.nodes.models import SinkNodeConfig
 
@@ -67,7 +66,7 @@ class SacnSinkNode(BaseNode):
         self._input_port = config.input_port
 
         # Build dynamic input port
-        self.inputs = PortGroup.inputs(**{self._input_port: PortSpec(accepts="array")})
+        self.inputs = PortGroup.inputs(dmx=InputPortSpec(MatrixPayload))
 
         # Strongly-typed config access
         self._target_host = config.target_host

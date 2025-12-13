@@ -23,7 +23,7 @@ import warnings
 from typing import TYPE_CHECKING, Type, TypeVar
 
 if TYPE_CHECKING:
-    from .base_node import BaseNode
+    from .nodes import BaseNode
 
 T = TypeVar("T")
 
@@ -183,6 +183,11 @@ def ensure_nodes_loaded() -> None:
         return
     _initialized = True
 
+    # Load built-in nodes first (deferred to avoid circular imports)
+    from rasl.nodes import _register_all_nodes
+    _register_all_nodes()
+
+    # Then load any external plugins via entry points
     try:
         from importlib.metadata import entry_points
     except ImportError:

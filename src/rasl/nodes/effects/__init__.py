@@ -8,13 +8,13 @@ This package contains nodes for generating animated effects:
 """
 
 from .math import MathNode
-from .seeded_random import SeededRandomNode
+from .cron import CronNode
 from .twinkle import TwinkleEffectNode
 from .waveform import WaveformNode
 
 __all__ = [
+    "CronNode",
     "MathNode",
-    "SeededRandomNode",
     "TwinkleEffectNode",
     "WaveformNode",
 ]

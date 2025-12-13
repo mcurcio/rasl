@@ -46,11 +46,14 @@ class ConnectionDescriptor:
         source: Raw source string (e.g., "upstream", "upstream.port", "upstream[0:100]").
         target: Raw target string (e.g., "pixels", "pixels[0:]"), or None for default.
         repeat: Number of times to repeat this connection.
+        repeat_until: If set, repeat the upstream payload until it reaches at least
+            this many elements (computed at runtime based on payload shape).
     """
 
     source: str
     target: str | None
     repeat: int = 1
+    repeat_until: int | None = None
 
 
 @dataclass(frozen=True)
@@ -166,4 +169,19 @@ def parse_connect_directive(directive: "Directive") -> ConnectionDescriptor:
     if repeat_dir and repeat_dir.args:
         repeat = int(repeat_dir.args[0])
 
-    return ConnectionDescriptor(source=source, target=target, repeat=repeat)
+    repeat_until: int | None = None
+    repeat_until_dir = directive.find_one("repeat_until")
+    if repeat_until_dir and repeat_until_dir.args:
+        repeat_until = int(repeat_until_dir.args[0])
+        if repeat_until < 0:
+            raise ValueError(f"repeat_until must be non-negative, got {repeat_until}")
+
+    if repeat_until is not None and repeat > 1:
+        raise ValueError("connect cannot specify both repeat and repeat_until")
+
+    return ConnectionDescriptor(
+        source=source,
+        target=target,
+        repeat=repeat,
+        repeat_until=repeat_until,
+    )

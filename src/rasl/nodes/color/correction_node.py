@@ -27,10 +27,9 @@ from typing import TYPE_CHECKING
 import numpy as np
 from pydantic import Field
 
-from rasl.engine.base_node import BaseNode
-from rasl.engine.frame import ColorPayload, Frame, RgbColorPayload
-from rasl.engine.node import NodeContext
-from rasl.engine.ports import PortGroup, PortSpec
+from rasl.engine.nodes import BaseNode, NodeContext
+from rasl.engine.frames import ColorPayload, Frame, MatrixPayload, RgbColorPayload
+from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext
 from rasl.nodes.models import TransformNodeConfig
@@ -116,8 +115,8 @@ class ColorCorrectionNode(BaseNode):
         b_offset: float = Field(0.0, ge=-0.5, le=0.5, description="Blue channel offset")
 
     # Class-level ports
-    inputs = PortGroup.inputs(input=PortSpec(accepts=("array", "color")))
-    outputs = PortGroup.outputs(out=PortSpec(accepts="color"))
+    inputs = PortGroup.inputs(input=InputPortSpec((MatrixPayload, ColorPayload)))
+    outputs = PortGroup.outputs(out=OutputPortSpec(ColorPayload))
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)
@@ -154,7 +153,7 @@ class ColorCorrectionNode(BaseNode):
             src_model = payload.model
             data = payload.data.copy()
         else:
-            # Assume sRGB if we get a plain ArrayPayload
+            # Assume sRGB if we get a plain MatrixFrame
             src_model = "srgb"
             data = np.asarray(payload, dtype=np.float32).copy()
 
@@ -199,7 +198,7 @@ class ColorCorrectionNode(BaseNode):
         
         # Flatten back to 1D
         output_data = rgb.reshape(-1).astype(np.float32)
-        
+
         # Output as sRGB (gamma already applied)
         output_payload = RgbColorPayload(output_data)
         self.outputs.out.write(frame.with_payload(output_payload))

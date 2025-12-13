@@ -237,19 +237,59 @@ def parse_config(config_text: str) -> ExecutionPlan:
             raise ConfigError("Node directive requires a name", line=directive.line)
 
         # Parse node syntax variants
-        if len(args) == 1:
+        node_type = args[0]
+        
+        # Special handling for literal nodes:
+        # node literal <name> <kind>:<subtype> <literal_value...>;
+        if node_type in ("literal", "Literal", "LiteralNode"):
+            if len(args) < 4:
+                raise ConfigError(
+                    "literal node requires: node literal <name> <kind:subtype> <value>;",
+                    line=directive.line,
+                )
+            node_id = args[1]
+            type_spec = args[2]
+            # Rejoin remaining args as the literal value string
+            literal_value = " ".join(args[3:])
+            
+            # Parse type_spec (e.g., "color:hsl" -> kind="color", subtype="hsl")
+            if ":" in type_spec:
+                payload_kind, payload_subtype = type_spec.split(":", 1)
+            else:
+                payload_kind = type_spec
+                payload_subtype = None
+            
+            extra_args = {
+                "payload_kind": payload_kind,
+                "payload_subtype": payload_subtype,
+                "literal_value": literal_value,
+            }
+        elif len(args) == 1:
             node_id = args[0]
             type_directive = directive.find_one("type")
             if not type_directive or not type_directive.args:
                 raise ConfigError(f"Node '{node_id}' requires 'type' directive", line=directive.line)
             node_type = type_directive.args[0]
-            extra_args: dict[str, str] = {}
+            extra_args = {}
         elif len(args) == 2:
-            node_type = args[0]
             node_id = args[1]
             extra_args = {}
+        elif node_type in ("cron",):
+            # node cron <name> <field1> [field2 ... field5];
+            # Missing trailing fields are treated as "*" by the node.
+            if len(args) < 3:
+                raise ConfigError(
+                    "cron node requires: node cron <name> <field1> [field2 ... field5];",
+                    line=directive.line,
+                )
+            if len(args) > 7:
+                raise ConfigError(
+                    f"cron node supports 1-5 fields, got {len(args) - 2}",
+                    line=directive.line,
+                )
+            node_id = args[1]
+            extra_args = {"schedule": list(args[2:])}
         elif len(args) == 3:
-            node_type = args[0]
             node_id = args[1]
             if node_type in ("Color", "ColorNode"):
                 extra_args = {"model": args[2]}
@@ -277,9 +317,6 @@ def parse_config(config_text: str) -> ExecutionPlan:
     # Third pass: resolve connection descriptors into edges
     for node_id in node_directives:
         builder.resolve_node_connections(node_id)
-
-    # Note: Top-level connect directives are not supported.
-    # All connections must be declared within node blocks.
 
     return builder.build()
 

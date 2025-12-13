@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RASL UI</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+  <script src="https://unpkg.com/graphql-ws@6.0.6/umd/graphql-ws.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">RASL</div>
+    <div class="spacer"></div>
+    <button id="refresh" class="button">Refresh</button>
+    <div class="ws">
+      <span class="ws-dot" id="wsDot"></span>
+      <span class="ws-label" id="wsLabel">WS: disconnected</span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel graph-panel">
+      <div class="panel-header">
+        <div class="panel-title">Graph</div>
+        <div class="panel-subtitle" id="graphSummary"></div>
+      </div>
+      <div id="cy" class="cy"></div>
+    </section>
+
+    <aside class="panel inspector">
+      <div class="panel-header">
+        <div class="panel-title">Inspector</div>
+        <div class="panel-subtitle" id="selectedSubtitle">No selection</div>
+      </div>
+
+      <div class="inspector-body">
+        <div class="section">
+          <div class="section-title">Node</div>
+          <div class="kv">
+            <div class="k">id</div><div class="v mono" id="nodeId">-</div>
+            <div class="k">type</div><div class="v" id="nodeType">-</div>
+            <div class="k">inputs</div><div class="v mono" id="nodeInputs">-</div>
+            <div class="k">outputs</div><div class="v mono" id="nodeOutputs">-</div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Metrics</div>
+          <div class="kv">
+            <div class="k">handles</div><div class="v mono" id="mHandles">-</div>
+            <div class="k">avg_ms</div><div class="v mono" id="mAvg">-</div>
+            <div class="k">success</div><div class="v mono" id="mSuccess">-</div>
+            <div class="k">last_error</div><div class="v mono" id="mError">-</div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Connections</div>
+          <pre class="mono pre" id="edges">-</pre>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
