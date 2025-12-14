@@ -4,6 +4,9 @@ Working agreement for collaborating with Cascade in this repo.
 
 ## Collaboration preferences
 
+- **Brainstorming cadence**
+  - When we are ideating / brainstorming, keep responses concise and optimize for quick back-and-forth.
+
 - **Opinions vs decisions**
   - I will offer **opinions and options**.
   - I will not present choices as “decided” unless you explicitly ask me to decide.
@@ -11,6 +14,7 @@ Working agreement for collaborating with Cascade in this repo.
 - **Specificity & intent**
   - I will ask targeted clarifying questions when requirements are ambiguous.
   - I will avoid lingering or guessing your intentions; when in doubt, I will present explicit assumptions and ask you to confirm.
+  - If a request specifies *interfaces* (ports/config) but leaves *runtime semantics* underspecified (e.g., timing, edge cases, shape rules, default behaviors), I will **pause implementation** and ask for clarification rather than inventing defaults.
 
 - **No implicit semantic changes**
   - I will not change node semantics, runtime semantics, config semantics, or payload contracts “implicitly”.

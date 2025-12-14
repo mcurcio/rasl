@@ -207,6 +207,6 @@ class CronNode(BaseNode):
             topic=self._topic,
             timestamp=tick.wall_time,
             payload=BoolPayload(self._buf.copy()),
-            metadata=dict(self._metadata),
+            metadata=self._metadata,
         )
         self.outputs.out.write(frame)

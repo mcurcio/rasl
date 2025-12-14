@@ -105,6 +105,7 @@ class TimingStats:
     # Per-sink tracking
     sink_last_pull: Dict[str, float] = field(default_factory=dict)
     sink_target_interval: Dict[str, float] = field(default_factory=dict)
+    sink_last_target_time: Dict[str, float] = field(default_factory=dict)
     
     # Latency tracking (rolling window)
     latency_samples: deque = field(default_factory=lambda: deque(maxlen=100))
@@ -170,8 +171,9 @@ class UnifiedScheduler:
         self._push_queue: deque[PushedFrame] = deque()
         self._has_pending_push = False
 
-        # Frame cache (per-tick): (node_id, port_name, tick) -> Frame
-        self._frame_cache: Dict[Tuple[str, str, int], Frame] = {}
+        # Frame cache (per-tick): (node_id, port_name) -> Frame
+        # Cleared at the start of each tick, so no tick component is needed.
+        self._frame_cache: Dict[Tuple[str, str], Frame] = {}
 
         # Previous outputs for back-edge handling: (node_id, port_name) -> Frame
         self._previous_outputs: Dict[Tuple[str, str], Frame] = {}
@@ -179,7 +181,7 @@ class UnifiedScheduler:
         # Cycle detection
         self._back_edges = self._find_back_edges()
         self._in_progress: Set[str] = set()
-        self._pulled_this_tick: Set[Tuple[str, int]] = set()
+        self._pulled_this_tick: Set[str] = set()
 
         # Build reverse adjacency: target_node -> list of incoming edges
         self._incoming: Dict[str, List[Edge]] = defaultdict(list)
@@ -208,6 +210,13 @@ class UnifiedScheduler:
         # GC optimization: disable automatic GC during tick execution
         self._gc_disabled_during_tick = False
         self._gc_interval_ticks = 100  # Run GC every N ticks
+
+        self._last_tick_was_push_interrupted = False
+        self._last_tick_slot_index: int | None = None
+        self._last_tick_slot_time_offset: float | None = None
+        self._last_tick_target_time: float | None = None
+        self._last_tick_dispatch_time: float | None = None
+        self._last_tick_latency_ms: float | None = None
 
     def enable_profiling(self, enabled: bool = True) -> None:
         """Enable detailed profiling of populate() and node execution."""
@@ -341,7 +350,7 @@ class UnifiedScheduler:
         if is_back_edge:
             return self._previous_outputs.get((node_id, port))
 
-        frame = self._frame_cache.get((node_id, port, tick))
+        frame = self._frame_cache.get((node_id, port))
         if frame is None:
             frame = self._previous_outputs.get((node_id, port))
         return frame
@@ -509,12 +518,14 @@ class UnifiedScheduler:
             # Sleep until target time (or wake early if push pending)
             now = time.monotonic()
             gc_ran_this_cycle = False
+            push_interrupted = False
             while now < target_time:
                 sleep_duration = target_time - now
 
                 if self._has_pending_push and sleep_duration > 0.001:
                     # Wake early for push work, but still yield to event loop
                     await anyio.sleep(0)
+                    push_interrupted = True
                     break
 
                 # Run GC during sleep if we have enough time budget (>25ms remaining)
@@ -578,6 +589,12 @@ class UnifiedScheduler:
                     self._gc_disabled_during_tick = True
 
                 # Execute scheduled pulls
+                self._last_tick_was_push_interrupted = push_interrupted
+                self._last_tick_slot_index = slot_index
+                self._last_tick_slot_time_offset = float(slot.time_offset)
+                self._last_tick_target_time = float(target_time)
+                self._last_tick_dispatch_time = float(now)
+                self._last_tick_latency_ms = float(latency_ms)
                 for sink_id in slot.sinks:
                     await self._pull_sink(sink_id, target_time)
 
@@ -682,15 +699,47 @@ class UnifiedScheduler:
             if target_interval > 0:
                 interval_error_ms = (actual_interval - target_interval) * 1000
                 # Log if frame interval is significantly off (>20% deviation)
-                if abs(interval_error_ms) > target_interval * 200:  # 200ms = 20% of 1s
-                    logger.warning(
-                        "frame_interval_jitter",
-                        sink=sink_id,
-                        actual_interval_ms=round(actual_interval * 1000, 2),
-                        target_interval_ms=round(target_interval * 1000, 2),
-                        error_ms=round(interval_error_ms, 2),
-                    )
+                threshold_ms = target_interval * 200
+                if abs(interval_error_ms) > threshold_ms:  # 200ms = 20% of 1s
+                    last_target = self._timing.sink_last_target_time.get(sink_id)
+                    scheduled_interval_ms: float | None = None
+                    scheduled_error_ms: float | None = None
+                    if last_target is not None and target_time:
+                        scheduled_interval_ms = (target_time - last_target) * 1000
+                        scheduled_error_ms = scheduled_interval_ms - (target_interval * 1000)
+
+                    common = {
+                        "sink": sink_id,
+                        "actual_interval_ms": round(actual_interval * 1000, 2),
+                        "target_interval_ms": round(target_interval * 1000, 2),
+                        "error_ms": round(interval_error_ms, 2),
+                        "threshold_ms": round(threshold_ms, 2),
+                        "tick": self._tick,
+                        "slot_index": self._last_tick_slot_index,
+                        "slot_time_offset_ms": round(float(self._last_tick_slot_time_offset or 0.0) * 1000, 3)
+                        if self._last_tick_slot_time_offset is not None
+                        else None,
+                        "target_time_delta_ms": round((now - target_time) * 1000, 3) if target_time else None,
+                        "tick_latency_ms": round(float(self._last_tick_latency_ms or 0.0), 3)
+                        if self._last_tick_latency_ms is not None
+                        else None,
+                        "push_interrupted_sleep": self._last_tick_was_push_interrupted,
+                        "push_queue_len": len(self._push_queue),
+                        "scheduled_interval_ms": round(float(scheduled_interval_ms), 2)
+                        if scheduled_interval_ms is not None
+                        else None,
+                        "scheduled_error_ms": round(float(scheduled_error_ms), 2)
+                        if scheduled_error_ms is not None
+                        else None,
+                    }
+
+                    if interval_error_ms > 0:
+                        logger.warning("frame_interval_late", **common)
+                    else:
+                        logger.info("frame_interval_early", **common)
         self._timing.sink_last_pull[sink_id] = now
+        if target_time:
+            self._timing.sink_last_target_time[sink_id] = float(target_time)
 
         # Build tick context
         dt = now - runtime.last_invoke_time
@@ -740,9 +789,9 @@ class UnifiedScheduler:
     async def _pull_node(self, node_id: str, tick: TickContext) -> None:
         """Recursively pull a node after pulling its upstream."""
         # Check if already pulled this tick
-        if (node_id, tick.tick) in self._pulled_this_tick:
+        if node_id in self._pulled_this_tick:
             return
-        self._pulled_this_tick.add((node_id, tick.tick))
+        self._pulled_this_tick.add(node_id)
 
         node_start = time.perf_counter()
         runtime = self._node_runtimes[node_id]
@@ -793,7 +842,7 @@ class UnifiedScheduler:
             if isinstance(output_port, OutputPort) and output_port.was_written:
                 frame = output_port._consume()
                 if frame:
-                    self._frame_cache[(node_id, output_port.name, tick.tick)] = frame
+                    self._frame_cache[(node_id, output_port.name)] = frame
                     self._previous_outputs[(node_id, output_port.name)] = frame
 
 
@@ -811,9 +860,7 @@ class UnifiedScheduler:
             for output_port in runtime.bound_outputs:
                 if isinstance(output_port, OutputPort) and output_port.name == pushed.port:
                     # Cache the pushed frame
-                    self._frame_cache[
-                        (pushed.node_id, pushed.port, self._tick)
-                    ] = pushed.frame
+                    self._frame_cache[(pushed.node_id, pushed.port)] = pushed.frame
                     self._previous_outputs[(pushed.node_id, pushed.port)] = pushed.frame
                     break
 

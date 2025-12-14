@@ -1,0 +1,12 @@
+[package]
+name = "rasl-nodes"
+description = "Built-in node library for RASL"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rasl-core = { path = "../rasl-core" }
+thiserror = "1.0"
+ndarray = "0.16"
+palette = "0.7"
+tracing = "0.1"

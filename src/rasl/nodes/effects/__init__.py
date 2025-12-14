@@ -9,11 +9,13 @@ This package contains nodes for generating animated effects:
 
 from .math import MathNode
 from .cron import CronNode
+from .crossfade import CrossfadeNode
 from .twinkle import TwinkleEffectNode
 from .waveform import WaveformNode
 
 __all__ = [
     "CronNode",
+    "CrossfadeNode",
     "MathNode",
     "TwinkleEffectNode",
     "WaveformNode",
