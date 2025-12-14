@@ -193,7 +193,7 @@ class WaveformNode(BaseNode):
                 topic=self._topic,
                 timestamp=tick.wall_time,
                 payload=MatrixPayload(arr[: self._channels, :1]),
-                metadata=dict(self._metadata),
+                metadata=self._metadata,
             )
         )
 

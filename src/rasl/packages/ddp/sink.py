@@ -13,13 +13,11 @@ Protocol reference: http://www.3waylabs.com/ddp/
 from __future__ import annotations
 
 import asyncio
-import threading
 import time
 from typing import Any, Optional
 
 import zlib
 
-import anyio
 import numpy as np
 from pydantic import Field, field_validator
 
@@ -71,6 +69,10 @@ class DdpSinkNode(BaseNode):
             ge=1,
             description="Maximum number of elements to send (e.g. pixels).",
         )
+        push_every_packet: bool = Field(
+            False,
+            description="Send DDP_PUSH flag on every packet (instead of only the last packet).",
+        )
 
         # Computed field for interval in seconds
         _interval_s: float = 0.05
@@ -105,16 +107,10 @@ class DdpSinkNode(BaseNode):
         self._interval_s = config.get_interval_s()
         self._fps = 1.0 / self._interval_s
         self._max_count = config.max_count
+        self._push_every_packet = bool(config.push_every_packet)
 
         self._client: Optional[DDPClient] = None
         self._ctx: Optional[NodeContext] = None
-        
-        # Background worker state
-        self._pending_frame: Optional[tuple[np.ndarray, int | None, int | None]] = None
-        self._payload_lock = threading.Lock()
-        self._send_event = threading.Event()
-        self._worker_thread: Optional[threading.Thread] = None
-        self._shutdown = False
         
         # Stats
         self._frames_sent = 0
@@ -126,19 +122,10 @@ class DdpSinkNode(BaseNode):
         self._last_diag_log_t: float = 0.0
 
     async def start(self, ctx: NodeContext) -> None:
-        """Initialize DDP client and start background worker."""
+        """Initialize DDP client."""
         self._ctx = ctx
         self._client = DDPClient(self._target)
-        self._client.connect()
-        
-        # Start background send worker
-        self._shutdown = False
-        self._worker_thread = threading.Thread(
-            target=self._send_worker,
-            name=f"ddp-send-{self._target}",
-            daemon=True,
-        )
-        self._worker_thread.start()
+        self._client.connect(blocking=False)
         
         ctx.logger.info(
             event="ddp_sink_started",
@@ -146,55 +133,6 @@ class DdpSinkNode(BaseNode):
             fps=self._fps,
             input_port=self._input_port,
         )
-
-    def _send_worker(self) -> None:
-        """Background worker that sends the latest frame.
-        
-        This runs in a dedicated thread to avoid blocking the async event loop.
-        If a new frame arrives while sending, the old pending frame is dropped
-        (natural backpressure for slow networks).
-        """
-        while not self._shutdown:
-            # Wait for a frame to send
-            if not self._send_event.wait(timeout=0.1):
-                continue
-            
-            self._send_event.clear()
-            
-            # Grab the pending payload
-            with self._payload_lock:
-                pending = self._pending_frame
-                self._pending_frame = None
-            
-            if pending is None:
-                continue
-
-            send_data, payload_count, payload_channels = pending
-            
-            # Send it
-            try:
-                send_start = time.perf_counter()
-                if self._client:
-                    self._run_diagnostics(send_data, payload_count, payload_channels)
-                    self._client.send(send_data)
-                send_ms = (time.perf_counter() - send_start) * 1000
-                self._frames_sent += 1
-                
-                # Log warning if DDP send takes too long
-                if send_ms > 10.0 and self._ctx:
-                    self._ctx.logger.warning(
-                        event="ddp_send_slow",
-                        target=self._target,
-                        send_ms=round(send_ms, 2),
-                        payload_bytes=int(np.asarray(send_data).size),
-                    )
-            except OSError as e:
-                if self._ctx:
-                    self._ctx.logger.error(
-                        event="ddp_send_error",
-                        target=self._target,
-                        error=str(e),
-                    )
 
     def _run_diagnostics(
         self,
@@ -282,12 +220,7 @@ class DdpSinkNode(BaseNode):
 
     @pull_rate(lambda self: self._fps)
     async def pull(self, tick: TickContext) -> None:
-        """Pull upstream and queue frame for background send.
-        
-        This method never blocks on network I/O. It simply updates the
-        pending payload and signals the background worker. If the worker
-        is still sending the previous frame, this frame will replace it
-        (frame dropping for backpressure).
+        """Pull upstream and send data via non-blocking UDP.
         """
         if self._client is None:
             return
@@ -326,27 +259,44 @@ class DdpSinkNode(BaseNode):
             if max_len > 0 and byte_data.size > max_len:
                 byte_data = byte_data[:max_len]
 
-        # Queue for background send (non-blocking)
-        with self._payload_lock:
-            if self._pending_frame is not None:
-                # Previous frame wasn't sent yet - dropping it
+        byte_data = np.ascontiguousarray(byte_data).ravel()
+        if byte_data.size == 0:
+            return
+
+        try:
+            send_start = time.perf_counter()
+            self._run_diagnostics(byte_data, payload_count, payload_channels)
+            next_offset = self._client.send_nonblocking(
+                byte_data,
+                start_offset=0,
+                push_every_packet=bool(self._push_every_packet),
+            )
+            send_ms = (time.perf_counter() - send_start) * 1000
+
+            if next_offset == 0:
+                self._frames_sent += 1
+            else:
+                # Could not send the full frame this tick.
                 self._frames_dropped += 1
-            self._pending_frame = (byte_data, payload_count, payload_channels)
-        
-        # Signal the worker
-        self._send_event.set()
+
+            if send_ms > 10.0 and self._ctx:
+                self._ctx.logger.warning(
+                    event="ddp_send_slow",
+                    target=self._target,
+                    send_ms=round(send_ms, 2),
+                    payload_bytes=int(byte_data.size),
+                    next_offset=int(next_offset),
+                )
+        except OSError as e:
+            if self._ctx:
+                self._ctx.logger.error(
+                    event="ddp_send_error",
+                    target=self._target,
+                    error=str(e),
+                )
 
     async def stop(self, ctx: NodeContext) -> None:
-        """Stop background worker and close DDP client."""
-        # Signal shutdown
-        self._shutdown = True
-        self._send_event.set()  # Wake worker to exit
-        
-        # Wait for worker to finish
-        if self._worker_thread is not None:
-            self._worker_thread.join(timeout=1.0)
-            self._worker_thread = None
-        
+        """Close DDP client."""
         if self._client is not None:
             self._client.close()
             self._client = None

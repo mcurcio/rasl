@@ -82,7 +82,7 @@ class SineSourceNode(BaseNode):
                 topic=self._topic,
                 timestamp=now,
                 payload=MatrixPayload(payload[: self._channels, :1]),
-                metadata=dict(self._metadata),
+                metadata=self._metadata,
             )
             out_port.commit(frame)
             await anyio.sleep(interval)

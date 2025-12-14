@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from types import MappingProxyType
 from typing import Any, Optional
 
 import numpy as np
@@ -106,7 +107,7 @@ class SacnSourceNode(BaseNode):
                 topic=f"sacn.universe.{packet.universe}",
                 timestamp=timestamp,
                 payload=MatrixPayload(slots),
-                metadata={k: v for k, v in metadata.items() if v is not None},
+                metadata=MappingProxyType({k: v for k, v in metadata.items() if v is not None}),
             )
             # Write to output port - scheduler handles caching and wakeup
             self.outputs.dmx.write(frame)

@@ -53,6 +53,7 @@ def _register_all_nodes() -> None:
     """
     # Effect nodes
     from .effects.cron import CronNode
+    from .effects.crossfade import CrossfadeNode
     from .effects.math import MathNode
     from .effects.seeded_random import SeededRandomNode
     from .effects.twinkle import TwinkleEffectNode
@@ -83,6 +84,9 @@ def _register_all_nodes() -> None:
 def __getattr__(name: str):
     """Lazy import for attribute access (for backward compatibility)."""
     # Effect nodes
+    if name == "CrossfadeNode":
+        from .effects.crossfade import CrossfadeNode
+        return CrossfadeNode
     if name == "MathNode":
         from .effects.math import MathNode
         return MathNode
@@ -138,6 +142,7 @@ __all__ = [
     "TransformNodeConfig",
     # Effect nodes
     "CronNode",
+    "CrossfadeNode",
     "MathNode",
     "SeededRandomNode",
     "TwinkleEffectNode",

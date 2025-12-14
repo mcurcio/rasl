@@ -36,9 +36,12 @@ Example:
 from __future__ import annotations
 
 from abc import ABC
+from types import MappingProxyType
 from typing import TYPE_CHECKING, ClassVar, Sequence, Type
 
 from rasl.config.connection import ConnectionDescriptor, parse_connect_directive
+
+from ..frames.frame import EMPTY_METADATA
 
 if TYPE_CHECKING:
     from ..frames import Frame
@@ -112,7 +115,8 @@ class BaseNode(ABC):
             config: Validated configuration instance.
         """
         self.id = config.id
-        self._metadata = dict(config.metadata)
+        md = dict(config.metadata)
+        self._metadata = EMPTY_METADATA if not md else MappingProxyType(md)
         self._connection_descriptors = []
 
     def parse_connect_directives(self, directive: "Directive") -> None:

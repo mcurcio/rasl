@@ -7,6 +7,7 @@ a normalized payload flowing through the node graph.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any, Mapping, MutableMapping
 
 from .base import FramePayload
@@ -14,6 +15,13 @@ from .base import FramePayload
 
 Metadata = Mapping[str, Any]
 """Type alias for frame metadata dictionaries."""
+
+
+EMPTY_METADATA: Metadata = MappingProxyType({})
+
+
+def _empty_metadata() -> Metadata:
+    return EMPTY_METADATA
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,7 +67,7 @@ class Frame:
     payload: FramePayload
     """Normalized channel data as MatrixFrame with values in [0.0, 1.0]."""
 
-    metadata: Metadata = field(default_factory=dict)
+    metadata: Metadata = field(default_factory=_empty_metadata)
     """Arbitrary key-value pairs providing frame context."""
 
     def with_payload(self, payload: FramePayload) -> Frame:

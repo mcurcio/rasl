@@ -168,6 +168,6 @@ class LiteralNode(BaseNode):
             topic=self._topic,
             timestamp=time.monotonic(),
             payload=self._payload,
-            metadata=dict(self._metadata),
+            metadata=self._metadata,
         )
         self.outputs.out.write(frame)
