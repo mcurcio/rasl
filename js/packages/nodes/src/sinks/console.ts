@@ -10,6 +10,7 @@ import {
   InputPortSpec,
   type ITickContext,
   type NodeContext,
+  type ILogger,
   node,
   pullRate,
 } from '@rasl/engine';
@@ -19,6 +20,11 @@ export interface IConsoleSinkConfig {
   fps?: number;
   format?: 'compact' | 'full' | 'hex';
   maxValues?: number;
+
+  // Config keys used by existing RASL configs
+  max_channels?: number;
+  as_bytes?: boolean;
+  include_metadata?: boolean;
 }
 
 @node('ConsoleSink', 'Console')
@@ -30,41 +36,95 @@ export class ConsoleSink extends BaseNode {
   private readonly _fps: number;
   private readonly _format: 'compact' | 'full' | 'hex';
   private readonly _maxValues: number;
+  private readonly _asBytes: boolean;
+  private readonly _includeMetadata: boolean;
+  private _logger: ILogger | null = null;
 
   constructor(config: IConsoleSinkConfig) {
     super(config);
     this._fps = config.fps ?? 30;
     this._format = config.format ?? 'compact';
-    this._maxValues = config.maxValues ?? 10;
+    this._maxValues = config.maxValues ?? config.max_channels ?? 10;
+    this._asBytes = config.as_bytes ?? false;
+    this._includeMetadata = config.include_metadata ?? false;
   }
 
   override async start(ctx: NodeContext): Promise<void> {
+    this._logger = ctx.logger;
     ctx.logger.info(`ConsoleSink '${this.id}' started at ${this._fps} FPS`);
   }
 
-  @pullRate(30) // Will be overridden by config
+  @pullRate((self: unknown) => (self as ConsoleSink)._fps)
   override async pull(tick: ITickContext): Promise<void> {
     const inPort = this.inputs.get('in');
     const frame = inPort ? (inPort as unknown as { read: () => Frame | null }).read() : null;
     if (!frame) return;
 
     const payload = frame.payload as MatrixPayload;
+    if (this._logger) {
+      this._logger.debug(payload.describe(), 'ConsoleSink payload');
+    }
     const data = payload.flatten();
 
     let output: string;
-    switch (this._format) {
-      case 'hex':
-        output = this._formatHex(data);
-        break;
-      case 'full':
-        output = this._formatFull(data);
-        break;
-      case 'compact':
-      default:
-        output = this._formatCompact(data);
+    const isColor =
+      (payload as unknown as { model?: unknown }).model !== undefined || payload.describe().domain === 'color';
+
+    if (isColor) {
+      output = this._formatColor(payload);
+    } else {
+      switch (this._format) {
+        case 'hex':
+          output = this._formatHex(data);
+          break;
+        case 'full':
+          output = this._formatFull(data);
+          break;
+        case 'compact':
+        default:
+          output = this._formatCompact(data);
+      }
     }
 
-    console.log(`[${this.id}] t=${tick.t.toFixed(2)}s ${output}`);
+    const meta = this._includeMetadata ? { topic: frame.topic, ts: frame.timestamp } : undefined;
+    if (meta) {
+      this._logger?.info(meta, `[${this.id}] t=${tick.t.toFixed(2)}s ${output}`);
+    } else {
+      this._logger?.info(`[${this.id}] t=${tick.t.toFixed(2)}s ${output}`);
+    }
+  }
+
+  private _formatColor(payload: MatrixPayload): string {
+    const data = payload.flatten();
+    const channels = payload.channels;
+    const count = payload.count;
+
+    if (channels < 3 || data.length < 3) return this._formatCompact(data);
+
+    const limit = Math.min(count, this._maxValues);
+    const parts: string[] = [];
+
+    for (let i = 0; i < limit; i++) {
+      const r = data[i * channels] ?? 0;
+      const g = data[i * channels + 1] ?? 0;
+      const b = data[i * channels + 2] ?? 0;
+
+      if (this._asBytes) {
+        const rr = Math.max(0, Math.min(255, Math.round(r * 255)));
+        const gg = Math.max(0, Math.min(255, Math.round(g * 255)));
+        const bb = Math.max(0, Math.min(255, Math.round(b * 255)));
+        parts.push(
+          `#${rr.toString(16).padStart(2, '0')}${gg.toString(16).padStart(2, '0')}${bb
+            .toString(16)
+            .padStart(2, '0')}`
+        );
+      } else {
+        parts.push(`[${r.toFixed(3)}, ${g.toFixed(3)}, ${b.toFixed(3)}]`);
+      }
+    }
+
+    const suffix = count > limit ? ` ... (${count} total)` : '';
+    return `[${parts.join(', ')}${suffix}]`;
   }
 
   private _formatCompact(data: Float32Array): string {

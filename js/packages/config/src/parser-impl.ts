@@ -11,6 +11,7 @@ import {
   type ICstDirective,
   type ISourceSpan,
 } from './cst.js';
+import { createAstDirectives } from './ast-directives.js';
 import type { IParseResult, IParseError, IParseConfig } from './parser.js';
 
 /**
@@ -217,6 +218,7 @@ export function parseImpl(source: string, _config?: IParseConfig): IParseResult 
   if (lexResult.errors.length > 0) {
     return {
       cst: null,
+      ast: null,
       errors: lexResult.errors,
       warnings: [],
       source,
@@ -229,6 +231,7 @@ export function parseImpl(source: string, _config?: IParseConfig): IParseResult 
   if (errors.length > 0) {
     return {
       cst,
+      ast: createAstDirectives(cst),
       errors,
       warnings,
       source,
@@ -236,6 +239,7 @@ export function parseImpl(source: string, _config?: IParseConfig): IParseResult 
   }
   return {
     cst,
+    ast: createAstDirectives(cst),
     errors: [],
     warnings,
     source,

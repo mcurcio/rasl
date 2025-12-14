@@ -7,11 +7,14 @@ import type { Frame } from '../frame.js';
 /**
  * Logger interface for node logging.
  */
+export type LogFields = Record<string, unknown>;
+
 export interface ILogger {
-  debug(message: string, ...args: unknown[]): void;
-  info(message: string, ...args: unknown[]): void;
-  warn(message: string, ...args: unknown[]): void;
-  error(message: string, ...args: unknown[]): void;
+  trace(a0: unknown, ...args: unknown[]): void;
+  debug(a0: unknown, ...args: unknown[]): void;
+  info(a0: unknown, ...args: unknown[]): void;
+  warn(a0: unknown, ...args: unknown[]): void;
+  error(a0: unknown, ...args: unknown[]): void;
 }
 
 /**

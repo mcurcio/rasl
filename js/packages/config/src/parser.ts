@@ -9,6 +9,7 @@
 
 import type { ICstDocument } from './cst.js';
 import { parseImpl } from './parser-impl.js';
+import type { IAstDirectiveDocument } from './ast-directives.js';
 
 /**
  * Parse error with location information.
@@ -39,6 +40,14 @@ export interface IParseResult {
    * Concrete Syntax Tree (preserves all source info for round-tripping).
    */
   cst: ICstDocument | null;
+
+  /**
+   * Abstract Syntax Tree facade over the CST (semantic convenience).
+   *
+   * This is a virtual view over the CST; edits to the AST are reflected into
+   * the underlying CST representation.
+   */
+  ast: IAstDirectiveDocument | null;
 
   /**
    * Parse errors that prevent successful parsing.

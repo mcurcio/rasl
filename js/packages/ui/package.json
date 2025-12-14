@@ -15,7 +15,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "vite",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },

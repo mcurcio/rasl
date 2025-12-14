@@ -6,6 +6,7 @@ import {
   InputPortSpec,
   type ITickContext,
   type NodeContext,
+  type ILogger,
   node,
   pullRate,
 } from '../runtime/index.js';
@@ -26,6 +27,7 @@ export class ConsoleSink extends BaseNode {
   private readonly _fps: number;
   private readonly _format: 'compact' | 'full' | 'hex';
   private readonly _maxValues: number;
+  private _logger: ILogger | null = null;
 
   constructor(config: IConsoleSinkConfig) {
     super(config);
@@ -35,6 +37,7 @@ export class ConsoleSink extends BaseNode {
   }
 
   override async start(ctx: NodeContext): Promise<void> {
+    this._logger = ctx.logger;
     ctx.logger.info(`ConsoleSink '${this.id}' started at ${this._fps} FPS`);
   }
 
@@ -60,7 +63,7 @@ export class ConsoleSink extends BaseNode {
         output = this._formatCompact(data);
     }
 
-    console.log(`[${this.id}] t=${tick.t.toFixed(2)}s ${output}`);
+    this._logger?.info(`[${this.id}] t=${tick.t.toFixed(2)}s ${output}`);
   }
 
   private _formatCompact(data: Float32Array): string {

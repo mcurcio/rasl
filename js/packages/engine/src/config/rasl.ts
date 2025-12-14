@@ -198,12 +198,15 @@ function applySnakeCaseCompatibility(obj: Record<string, unknown>): Record<strin
   return out;
 }
 
-function loadRaslFromDirective(doc: ICstDocument): { ui: IRaslUiConfig; rasl: ICstDirective | null } {
-  let rasl: ICstDirective | null = null;
+function loadGraphFromDirective(doc: ICstDocument): {
+  ui: IRaslUiConfig;
+  graph: ICstDirective | null;
+} {
+  let graph: ICstDirective | null = null;
   const ui: IRaslUiConfig = {};
 
   for (const dir of doc.children) {
-    if (dir.name === 'rasl') rasl = dir;
+    if (dir.name === 'graph') graph = dir;
     if (dir.name === 'ui' && dir.body) {
       for (const stmt of dir.body) {
         if (stmt.name === 'port') {
@@ -215,7 +218,7 @@ function loadRaslFromDirective(doc: ICstDocument): { ui: IRaslUiConfig; rasl: IC
     }
   }
 
-  return { ui, rasl };
+  return { ui, graph };
 }
 
 export function loadRaslConfigFromSource(source: string): IRaslLoadResult {
@@ -233,15 +236,15 @@ export function loadRaslConfigFromSource(source: string): IRaslLoadResult {
     return { ui: {}, builder: new GraphBuilder(), errors: [{ message: 'Failed to parse config', line: 0, column: 0 }] };
   }
 
-  const { ui, rasl } = loadRaslFromDirective(result.cst);
-  if (!rasl || !rasl.body) {
-    return { ui, builder: new GraphBuilder(), errors: [{ message: "No 'rasl' block found in configuration", line: 0, column: 0 }] };
+  const { ui, graph } = loadGraphFromDirective(result.cst);
+  if (!graph || !graph.body) {
+    return { ui, builder: new GraphBuilder(), errors: [{ message: "No 'graph' block found in configuration", line: 0, column: 0 }] };
   }
 
   const builder = new GraphBuilder();
 
   // Pass 1: instantiate nodes.
-  for (const dir of rasl.body) {
+  for (const dir of graph.body) {
     if (dir.name !== 'node') continue;
 
     // node <Type> <id> [extra...]
@@ -264,9 +267,23 @@ export function loadRaslConfigFromSource(source: string): IRaslLoadResult {
     const extra = dir.args.slice(2);
     if (extra.length > 0) {
       // RASL convention: third arg is a model discriminator for some nodes.
-      const model = parseModelArg(extra);
-      // literal uses model, Color uses model.
-      properties.model = model;
+      // Special-case literal shorthand: node literal <id> <model> <data...>;
+      if (typeName === 'literal') {
+        // Accept both "color:hsl" (one token) and "color : hsl" (three tokens)
+        // and treat remaining tokens as the literal payload data.
+        const modelTokens =
+          extra.length >= 3 && extra[1]!.type === TokenType.Colon ? extra.slice(0, 3) : extra.slice(0, 1);
+        const dataTokens = extra.slice(modelTokens.length);
+
+        properties.model = parseModelArg(modelTokens);
+        if (dataTokens.length > 0) {
+          properties.data = coerceScalar(dataTokens);
+        }
+      } else {
+        const model = parseModelArg(extra);
+        // Color uses model.
+        properties.model = model;
+      }
     }
 
     const configObj = applySnakeCaseCompatibility({ id: nodeId, ...properties, fill: fills });
@@ -283,7 +300,7 @@ export function loadRaslConfigFromSource(source: string): IRaslLoadResult {
   }
 
   // Pass 2: connect edges.
-  for (const dir of rasl.body) {
+  for (const dir of graph.body) {
     if (dir.name !== 'node') continue;
 
     const idTok = dir.args[1];

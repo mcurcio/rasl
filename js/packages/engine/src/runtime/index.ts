@@ -30,6 +30,7 @@ export {
 // Nodes
 export { BaseNode, NodeContext, getInputs, getOutputs } from './nodes/index.js';
 export type { INode } from './nodes/index.js';
+export type { ILogger, LogFields } from './nodes/index.js';
 
 // Tick context
 export { createTickContext, pullRate, getPullRate } from './tick.js';

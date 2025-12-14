@@ -13,10 +13,12 @@ import {
   getOutputs,
   getPullRate,
   createTickContext,
+  type ILogger,
 } from '../runtime/index.js';
 import type { ExecutionPlan } from '../graph/plan.js';
 import type { Edge } from '../graph/edge.js';
 import { NodeMonitor, type INodeStats } from './monitor.js';
+import { childLogger, createConsoleLogger } from '../log/index.js';
 
 /**
  * Scheduler configuration options.
@@ -33,17 +35,13 @@ export interface ISchedulerConfig {
    * Set to null to disable. Default: null.
    */
   maxConsecutiveErrors?: number | null;
-}
 
-/**
- * Simple console logger implementation.
- */
-const consoleLogger = {
-  debug: (msg: string, ...args: unknown[]) => console.debug(`[DEBUG] ${msg}`, ...args),
-  info: (msg: string, ...args: unknown[]) => console.info(`[INFO] ${msg}`, ...args),
-  warn: (msg: string, ...args: unknown[]) => console.warn(`[WARN] ${msg}`, ...args),
-  error: (msg: string, ...args: unknown[]) => console.error(`[ERROR] ${msg}`, ...args),
-};
+  /**
+   * Logger to use for scheduler + node lifecycle logs.
+   * Defaults to a simple console logger.
+   */
+  logger?: ILogger;
+}
 
 /**
  * Pull-based scheduler for executing RASL graphs.
@@ -57,6 +55,7 @@ const consoleLogger = {
 export class UnifiedScheduler {
   private readonly _plan: ExecutionPlan;
   private readonly _config: Required<ISchedulerConfig>;
+  private readonly _logger: ILogger;
   private readonly _monitor = new NodeMonitor();
   private readonly _disabledNodes = new Set<string>();
   private readonly _routes = new Map<string, Edge[]>();
@@ -69,9 +68,11 @@ export class UnifiedScheduler {
 
   constructor(plan: ExecutionPlan, config?: ISchedulerConfig) {
     this._plan = plan;
+    this._logger = config?.logger ?? createConsoleLogger();
     this._config = {
       frameBudgetMs: config?.frameBudgetMs ?? 16,
       maxConsecutiveErrors: config?.maxConsecutiveErrors ?? null,
+      logger: this._logger,
     };
 
     // Build routing table: (source_node.port) -> list of edges
@@ -83,6 +84,14 @@ export class UnifiedScheduler {
         this._routes.set(key, existing);
       }
     }
+
+    this._logger.debug(
+      {
+        nodes: plan.nodes.size,
+        edges: Array.from(plan.adjacency.values()).reduce((acc, e) => acc + e.length, 0),
+      },
+      'Scheduler initialized'
+    );
   }
 
   /**
@@ -111,12 +120,21 @@ export class UnifiedScheduler {
     this._startTime = performance.now() / 1000;
     this._tickCount = 0;
 
+    this._logger.info('Scheduler starting');
+
     try {
       // Start all nodes in topological order
       await this._startNodes();
 
       // Find sinks and their frame rates
       const sinks = this._findSinks();
+
+      this._logger.debug(
+        {
+          sinks: sinks.map((s) => ({ nodeId: s.node.id, intervalMs: s.intervalMs })),
+        },
+        'Scheduler sinks discovered'
+      );
 
       // Main loop
       while (this._running) {
@@ -129,6 +147,7 @@ export class UnifiedScheduler {
           const elapsed = (now - this._startTime) * 1000 - lastTime * 1000;
 
           if (elapsed >= intervalMs) {
+            this._logger.trace({ nodeId: node.id, t, elapsedMs: elapsed }, 'Pulling sink');
             await this._pullNode(node, t);
             this._lastNodeTime.set(node.id, t);
           }
@@ -140,6 +159,7 @@ export class UnifiedScheduler {
         await this._sleep(1);
       }
     } finally {
+      this._logger.info('Scheduler stopping');
       await this._stopNodes();
     }
   }
@@ -178,6 +198,7 @@ export class UnifiedScheduler {
       }
     } finally {
       this._running = false;
+      this._logger.info('Scheduler stopping (runFor)');
       await this._stopNodes();
     }
   }
@@ -186,6 +207,7 @@ export class UnifiedScheduler {
    * Stop the scheduler.
    */
   stop(): void {
+    this._logger.info('Scheduler stop requested');
     this._running = false;
   }
 
@@ -196,9 +218,11 @@ export class UnifiedScheduler {
 
       const ctx = this._createNodeContext(node);
       try {
+        this._logger.debug({ nodeId }, 'Starting node');
         await node.start(ctx);
+        this._logger.debug({ nodeId }, 'Node started');
       } catch (error) {
-        console.error(`Failed to start node '${nodeId}':`, error);
+        this._logger.error({ nodeId, err: error }, `Failed to start node '${nodeId}'`);
         this._disabledNodes.add(nodeId);
       }
     }
@@ -213,9 +237,11 @@ export class UnifiedScheduler {
 
       const ctx = this._createNodeContext(node);
       try {
+        this._logger.debug({ nodeId }, 'Stopping node');
         await node.stop(ctx);
+        this._logger.debug({ nodeId }, 'Node stopped');
       } catch (error) {
-        console.error(`Failed to stop node '${nodeId}':`, error);
+        this._logger.error({ nodeId, err: error }, `Failed to stop node '${nodeId}'`);
       }
     }
   }
@@ -256,14 +282,20 @@ export class UnifiedScheduler {
     // Execute this node
     const startTime = performance.now();
     try {
+      this._logger.trace({ nodeId: node.id, tick: tick.tick, t: tick.t, dt: tick.dt }, 'Pull node');
       await node.pull(tick);
       const elapsedMs = performance.now() - startTime;
       this._monitor.recordSuccess(node.id, elapsedMs);
 
       // Check frame budget
       if (this._config.frameBudgetMs > 0 && elapsedMs > this._config.frameBudgetMs) {
-        console.warn(
-          `Node '${node.id}' exceeded frame budget: ${elapsedMs.toFixed(2)}ms > ${this._config.frameBudgetMs}ms`
+        this._logger.warn(
+          {
+            nodeId: node.id,
+            elapsedMs,
+            frameBudgetMs: this._config.frameBudgetMs,
+          },
+          `Node '${node.id}' exceeded frame budget`
         );
       }
 
@@ -279,13 +311,24 @@ export class UnifiedScheduler {
       const elapsedMs = performance.now() - startTime;
       const consecutive = this._monitor.recordFailure(node.id, error as Error, elapsedMs);
 
-      console.error(`Node '${node.id}' failed:`, error);
+      this._logger.error(
+        {
+          nodeId: node.id,
+          elapsedMs,
+          consecutiveFailures: consecutive,
+          err: error,
+        },
+        `Node '${node.id}' failed`
+      );
 
       if (
         this._config.maxConsecutiveErrors !== null &&
         consecutive >= this._config.maxConsecutiveErrors
       ) {
-        console.error(`Disabling node '${node.id}' after ${consecutive} consecutive failures`);
+        this._logger.error(
+          { nodeId: node.id, consecutiveFailures: consecutive },
+          `Disabling node '${node.id}' after ${consecutive} consecutive failures`
+        );
         this._disabledNodes.add(node.id);
       }
     }
@@ -302,6 +345,15 @@ export class UnifiedScheduler {
             // Pull the source node
             const sourceNode = this._plan.nodes.get(edge.source);
             if (sourceNode && !this._disabledNodes.has(edge.source)) {
+              this._logger.trace(
+                {
+                  source: edge.source,
+                  sourcePort: edge.sourcePort,
+                  target: edge.target,
+                  targetPort: edge.targetPort,
+                },
+                'Routing edge'
+              );
               await this._pullNode(sourceNode, tick.t);
 
               // Route the frame to the input port
@@ -318,14 +370,15 @@ export class UnifiedScheduler {
   }
 
   private _createNodeContext(node: INode): NodeContext {
+    const logger = childLogger(this._logger, { nodeId: node.id });
     return new NodeContext({
       nodeId: node.id,
-      logger: consoleLogger,
+      logger,
       emit: async (port: string, frame: Frame) => {
         this._outputFrames.set(`${node.id}.${port}`, frame);
       },
       startBackground: (fn: () => Promise<void>) => {
-        fn().catch((err) => console.error(`Background task failed:`, err));
+        fn().catch((err) => logger.error({ err }, 'Background task failed'));
       },
     });
   }

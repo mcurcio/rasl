@@ -2,7 +2,8 @@
  * GraphBuilder - Assembles nodes and edges into an ExecutionPlan.
  */
 
-import { type INode, getInputs, getOutputs } from '../runtime/index.js';
+import { type INode, getInputs, getOutputs, type ILogger } from '../runtime/index.js';
+import { createConsoleLogger } from '../log/index.js';
 import { Edge, type IConnectOptions } from './edge.js';
 import { ExecutionPlan } from './plan.js';
 
@@ -25,6 +26,11 @@ export class CycleWarning extends Error {
 export class GraphBuilder {
   private readonly _nodes = new Map<string, INode>();
   private readonly _edges: Edge[] = [];
+  private readonly _logger: ILogger;
+
+  constructor(options?: { logger?: ILogger }) {
+    this._logger = options?.logger ?? createConsoleLogger();
+  }
 
   /**
    * Read-only access to registered nodes.
@@ -147,9 +153,12 @@ export class GraphBuilder {
 
     // Warn about cycles
     if (cycles.length > 0) {
-      console.warn(
+      this._logger.warn(
+        {
+          cycles: cycles.length,
+        },
         `Graph contains ${cycles.length} cycle(s). ` +
-        `Cycles may cause nodes to receive stale data on the first frame.`
+          `Cycles may cause nodes to receive stale data on the first frame.`
       );
     }
 

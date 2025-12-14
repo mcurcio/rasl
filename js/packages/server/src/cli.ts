@@ -5,22 +5,16 @@
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { UnifiedScheduler, ensureNodesLoaded, loadRaslConfigFromSource } from '@rasl/engine';
+import {
+  createEngineLogger,
+  type LogLevel,
+  UnifiedScheduler,
+  ensureNodesLoaded,
+  loadRaslConfigFromSource,
+} from '@rasl/engine';
 
 // Import nodes to register them
 import '@rasl/nodes';
-
-interface INodeDef {
-  id: string;
-  type: string;
-  properties: Record<string, unknown>;
-  connections: Array<{
-    sourceNode: string;
-    sourcePort?: string;
-    targetPort?: string;
-  }>;
-  fills: Record<string, number>;
-}
 
 // Legacy types kept local for now.
 
@@ -30,15 +24,19 @@ interface INodeDef {
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
 
-  if (args.length === 0) {
-    console.log('Usage: rasl-server <config-file>');
+  const debug = args.includes('--debug');
+  const verbose = args.includes('--verbose');
+  const filteredArgs = args.filter((a) => a !== '--debug' && a !== '--verbose');
+
+  if (filteredArgs.length === 0) {
+    console.log('Usage: rasl-server [--debug|--verbose] <config-file>');
     console.log('');
     console.log('Example:');
     console.log('  rasl-server virtual.conf');
     process.exit(1);
   }
 
-  const configPath = resolve(args[0]);
+  const configPath = resolve(filteredArgs[0]);
   console.log(`Loading config: ${configPath}`);
 
   let source: string;
@@ -67,7 +65,10 @@ async function main(): Promise<void> {
   console.log(`Built graph with ${plan.nodes.size} nodes`);
   console.log('Starting scheduler...');
 
-  const scheduler = new UnifiedScheduler(plan);
+  const level: LogLevel = verbose ? 'trace' : debug ? 'debug' : 'info';
+  const logger = createEngineLogger({ level, pretty: true, filePath: null });
+
+  const scheduler = new UnifiedScheduler(plan, { logger });
 
   // Handle graceful shutdown
   process.on('SIGINT', () => {

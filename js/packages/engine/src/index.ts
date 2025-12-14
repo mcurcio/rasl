@@ -29,6 +29,9 @@ export {
   type INodeStats,
 } from './scheduler/index.js';
 
+// Logging
+export * from './log/index.js';
+
 export {
   loadRaslConfigFromSource,
   type IRaslLoadResult,

@@ -36,3 +36,20 @@ export {
   findDirectives,
   type DirectiveVisitor,
 } from './loader.js';
+
+export {
+  createAstDirectives,
+  toAstDirectives,
+  type IAstDirective,
+  type IAstDirectiveDocument,
+  type IAstDirectiveList,
+} from './ast-directives.js';
+
+export {
+  DirectiveDelegator,
+  type IDelegatorHooks,
+  type ScopeDirectiveHandler,
+  walkScopeBody,
+  walkScopeDocument,
+  makeSyntheticDirective,
+} from './delegator.js';
