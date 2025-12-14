@@ -224,8 +224,9 @@ export class UnifiedScheduler {
     const sinks: Array<{ node: INode; intervalMs: number }> = [];
 
     for (const node of this._plan.nodes.values()) {
-      // Check if node has pull rate
-      const pullMethod = node.pull.bind(node);
+      // Check if node has pull rate - look on prototype method, not bound method
+      const proto = Object.getPrototypeOf(node);
+      const pullMethod = proto?.pull;
       const hz = getPullRate(pullMethod, node);
 
       if (hz !== null && hz > 0) {

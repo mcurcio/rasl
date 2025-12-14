@@ -1,5 +1,5 @@
 /**
- * @rasl/config - Configuration file parsing for RASL
+ * @rasl/config - Generic nginx-style configuration parsing toolkit
  */
 
 export {
@@ -8,18 +8,11 @@ export {
   type IParseResult,
   type IParseError,
   type IParseConfig,
-  type IncludeResolver,
 } from './parser.js';
 export {
   type ICstNode,
   type ICstDocument,
-  type ICstNodeBlock,
-  type ICstConnection,
-  type ICstProperty,
-  type ICstInclude,
-  type ICstFill,
-  type ICstLineComment,
-  type ICstBlockComment,
+  type ICstDirective,
   type ICstTrivia,
   type ICstTriviaItem,
   type ISourceSpan,
@@ -34,15 +27,12 @@ export {
   type ILexError,
   TokenType,
   Keywords,
-  isKeyword,
   isTrivia,
   isComment,
 } from './tokens.js';
+
 export {
-  type IAstDocument,
-  type IAstNodeDef,
-  type IAstConnection,
-  type IAstProperty,
-  type IAstInclude,
-  type ISliceSpec,
-} from './ast.js';
+  walkDirectives,
+  findDirectives,
+  type DirectiveVisitor,
+} from './loader.js';

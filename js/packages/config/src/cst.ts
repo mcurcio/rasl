@@ -1,24 +1,18 @@
 /**
- * Concrete Syntax Tree types for RASL config files.
+ * Concrete Syntax Tree types for config files.
  *
  * The CST preserves all source information including whitespace and comments,
  * enabling lossless round-tripping and precise error reporting.
  */
+
+import type { IToken } from './tokens.js';
 
 /**
  * CST node kinds.
  */
 export const CstNodeKind = {
   Document: 'document',
-  NodeBlock: 'node_block',
-  Connection: 'connection',
-  Property: 'property',
-  Identifier: 'identifier',
-  Literal: 'literal',
-  LineComment: 'line_comment',
-  BlockComment: 'block_comment',
-  Include: 'include',
-  Fill: 'fill',
+  Directive: 'directive',
   Trivia: 'trivia',
 } as const;
 export type CstNodeKind = (typeof CstNodeKind)[keyof typeof CstNodeKind];
@@ -65,78 +59,22 @@ export interface ICstNode {
  */
 export interface ICstDocument extends ICstNode {
   kind: typeof CstNodeKind.Document;
-  children: ICstNode[];
+  children: ICstDirective[];
 }
 
 /**
- * Node definition block.
- * Example: `node Waveform sine { ... }`
+ * A directive.
+ *
+ * In nginx-style syntax, both statements and blocks are directives:
+ *
+ * - Statement: `name arg1 arg2;`
+ * - Block: `name arg1 { ... }`
  */
-export interface ICstNodeBlock extends ICstNode {
-  kind: typeof CstNodeKind.NodeBlock;
-  nodeType: string;
-  nodeId: string;
-  properties: ICstProperty[];
-  connections: ICstConnection[];
-}
-
-/**
- * Connection statement.
- * Example: `connect source_node;` or `connect source_node target_port;`
- */
-export interface ICstConnection extends ICstNode {
-  kind: typeof CstNodeKind.Connection;
-  sourceNode: string;
-  sourcePort?: string;
-  targetPort?: string;
-  slice?: string;
-}
-
-/**
- * Property assignment.
- * Example: `frequency_hz 0.5;`
- */
-export interface ICstProperty extends ICstNode {
-  kind: typeof CstNodeKind.Property;
+export interface ICstDirective extends ICstNode {
+  kind: typeof CstNodeKind.Directive;
   name: string;
-  value: string | number | boolean;
-}
-
-/**
- * Include directive.
- * Example: `include "./common.conf";`
- */
-export interface ICstInclude extends ICstNode {
-  kind: typeof CstNodeKind.Include;
-  path: string;
-}
-
-/**
- * Fill statement for constant port values.
- * Example: `fill saturation 0.8;`
- */
-export interface ICstFill extends ICstNode {
-  kind: typeof CstNodeKind.Fill;
-  portName: string;
-  value: number;
-}
-
-/**
- * Line comment.
- * Example: `// this is a comment`
- */
-export interface ICstLineComment extends ICstNode {
-  kind: typeof CstNodeKind.LineComment;
-  text: string;
-}
-
-/**
- * Block comment.
- * Example: slash-star this is a comment star-slash
- */
-export interface ICstBlockComment extends ICstNode {
-  kind: typeof CstNodeKind.BlockComment;
-  text: string;
+  args: IToken[];
+  body: ICstDirective[] | null;
 }
 
 /**

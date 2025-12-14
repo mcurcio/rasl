@@ -1,17 +1,11 @@
 /**
- * Token types for RASL config lexer.
+ * Token types for config lexer.
  */
 
 /**
  * Token type enumeration.
  */
 export const TokenType = {
-  // Keywords
-  Node: 'node',
-  Connect: 'connect',
-  Fill: 'fill',
-  Include: 'include',
-
   // Literals
   Identifier: 'identifier',
   String: 'string',
@@ -29,9 +23,6 @@ export const TokenType = {
   Colon: 'colon',
   Comma: 'comma',
   Dot: 'dot',
-
-  // Operators
-  Slice: 'slice',           // [start:end]
 
   // Trivia (preserved for round-tripping)
   Whitespace: 'whitespace',
@@ -83,18 +74,6 @@ export interface ILexError {
 }
 
 /**
- * Check if a token type is a keyword.
- */
-export function isKeyword(type: TokenType): boolean {
-  return (
-    type === TokenType.Node ||
-    type === TokenType.Connect ||
-    type === TokenType.Fill ||
-    type === TokenType.Include
-  );
-}
-
-/**
  * Check if a token type is trivia (whitespace/comments).
  */
 export function isTrivia(type: TokenType): boolean {
@@ -115,12 +94,10 @@ export function isComment(type: TokenType): boolean {
 
 /**
  * Keyword lookup table.
+ *
+ * This is intentionally minimal to keep @rasl/config schema-agnostic.
  */
 export const Keywords: Record<string, TokenType> = {
-  node: TokenType.Node,
-  connect: TokenType.Connect,
-  fill: TokenType.Fill,
-  include: TokenType.Include,
   true: TokenType.Boolean,
   false: TokenType.Boolean,
 };

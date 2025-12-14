@@ -38,7 +38,7 @@ export class ConsoleSink extends BaseNode {
     ctx.logger.info(`ConsoleSink '${this.id}' started at ${this._fps} FPS`);
   }
 
-  @pullRate(30)
+  @pullRate((self: unknown) => (self as ConsoleSink)._fps)
   override async pull(tick: ITickContext): Promise<void> {
     const inPort = this.inputs.get('in');
     const frame = inPort ? (inPort as { read: () => Frame | null }).read() : null;

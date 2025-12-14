@@ -1,15 +1,14 @@
 /**
- * Parser for RASL config files.
+ * Parser for nginx-style config files.
  *
  * Supports:
- * - Round-tripping with whitespace and comment preservation
+ * - Round-tripping hooks (whitespace/comments) as a future extension
  * - Line comments (//) and block comments (/* *​/)
- * - Optional trailing semicolons (only required between directives on same line)
- * - Include directive with async resolver
+ * - Optional trailing semicolons
  */
 
 import type { ICstDocument } from './cst.js';
-import type { IAstDocument } from './ast.js';
+import { parseImpl } from './parser-impl.js';
 
 /**
  * Parse error with location information.
@@ -22,37 +21,14 @@ export interface IParseError {
 }
 
 /**
- * Include resolver function type.
- * Given an include path, returns the file contents.
- */
-export type IncludeResolver = (path: string) => Promise<string>;
-
-/**
  * Parser configuration options.
  */
 export interface IParseConfig {
-  /**
-   * Async function to resolve include directives.
-   * If not provided, includes will be recorded but not resolved.
-   */
-  includeResolver?: IncludeResolver;
-
-  /**
-   * Base path for resolving relative includes.
-   */
-  basePath?: string;
-
   /**
    * Whether to preserve trivia (whitespace/comments) in CST.
    * Default: true (for round-tripping support)
    */
   preserveTrivia?: boolean;
-
-  /**
-   * Maximum include depth to prevent circular includes.
-   * Default: 10
-   */
-  maxIncludeDepth?: number;
 }
 
 /**
@@ -63,11 +39,6 @@ export interface IParseResult {
    * Concrete Syntax Tree (preserves all source info for round-tripping).
    */
   cst: ICstDocument | null;
-
-  /**
-   * Abstract Syntax Tree (semantic structure with resolved references).
-   */
-  ast: IAstDocument | null;
 
   /**
    * Parse errors that prevent successful parsing.
@@ -93,16 +64,7 @@ export interface IParseResult {
  * @returns Parse result with CST, AST, and diagnostics
  */
 export function parse(source: string, config?: IParseConfig): IParseResult {
-  // TODO: Implement full parser
-  void config; // Suppress unused warning
-
-  return {
-    cst: null,
-    ast: null,
-    errors: [],
-    warnings: [],
-    source,
-  };
+  return parseImpl(source, config);
 }
 
 /**
@@ -114,16 +76,8 @@ export function parse(source: string, config?: IParseConfig): IParseResult {
  */
 export async function parseAsync(
   source: string,
-  config: IParseConfig & { includeResolver: IncludeResolver }
+  config?: IParseConfig
 ): Promise<IParseResult> {
-  // TODO: Implement async parsing with include resolution
   void config;
-
-  return {
-    cst: null,
-    ast: null,
-    errors: [],
-    warnings: [],
-    source,
-  };
+  return parse(source, config);
 }

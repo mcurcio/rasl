@@ -18,7 +18,9 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@rasl/config": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5.3.0",
     "vitest": "^1.0.0"
