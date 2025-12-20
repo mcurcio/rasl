@@ -6,13 +6,11 @@ A JavaScript/TypeScript implementation of RASL for building real-time animation 
 
 | Package | Description |
 |---------|-------------|
-| [@rasl/core](./packages/core) | Core types, Frame, ports, and base node abstractions |
-| [@rasl/engine](./packages/engine) | Graph builder, scheduler, and execution runtime |
-| [@rasl/nodes](./packages/nodes) | Built-in source, transform, and sink nodes |
-| [@rasl/color](./packages/color) | Color conversion (sRGB, OKLCH, OkHSL, etc.) |
+| [@rasl/engine](./packages/engine) | Runtime primitives, built-in nodes, graph builder, scheduler |
+| [@rasl/color](./packages/color) | Color conversion + color-aware nodes (Compose, Literal, corrections) |
+| [@rasl/lighting](./packages/lighting) | Network protocol nodes (sACN/E1.31, DDP) |
 | [@rasl/config](./packages/config) | Configuration parser and loader |
-| [@rasl/e131](./packages/e131) | sACN/E1.31 protocol support (Node.js only) |
-| [@rasl/ddp](./packages/ddp) | DDP protocol support (Node.js only) |
+| [@rasl/server](./packages/server) | CLI/HTTP/WebSocket control server |
 
 ## Architecture
 
@@ -46,16 +44,16 @@ pnpm test
 ## Usage
 
 ```typescript
-import { GraphBuilder, UnifiedScheduler } from '@rasl/engine';
-import { WaveformNode, ComposeNode, ColorNode } from '@rasl/nodes';
-import { DdpSink } from '@rasl/ddp';
+import { GraphBuilder, UnifiedScheduler, WaveformNode } from '@rasl/engine';
+import { ComposeNode, ColorNode } from '@rasl/color';
+import { DdpSinkNode } from '@rasl/lighting';
 
 // Build a graph
 const builder = new GraphBuilder();
 builder.addNode(new WaveformNode({ id: 'wave', shape: 'sine', frequencyHz: 0.5 }));
 builder.addNode(new ComposeNode({ id: 'color', outputType: 'oklch' }));
 builder.addNode(new ColorNode({ id: 'rgb', model: 'srgb' }));
-builder.addNode(new DdpSink({ id: 'leds', host: '192.168.1.100', fps: 30 }));
+builder.addNode(new DdpSinkNode({ id: 'leds', host: '192.168.1.100', fps: 30 }));
 
 builder.connect('wave', 'out', 'color', 'lightness');
 builder.connect('color', 'out', 'rgb', 'in');
@@ -69,8 +67,8 @@ await scheduler.run();
 
 ## Browser Support
 
-Core packages (`@rasl/core`, `@rasl/engine`, `@rasl/nodes`, `@rasl/color`) work in browsers.
-Protocol packages (`@rasl/e131`, `@rasl/ddp`) require Node.js for network access.
+Core packages (`@rasl/engine`, `@rasl/color`) work in browsers.
+Lighting protocols (`@rasl/lighting`) require Node.js for UDP network access.
 
 ## License
 
