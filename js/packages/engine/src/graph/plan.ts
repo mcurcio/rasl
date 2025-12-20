@@ -2,7 +2,7 @@
  * ExecutionPlan - Compiled graph ready for runtime execution.
  */
 
-import type { INode } from '../runtime/index.js';
+import type { INode } from '@rasl/engine';
 import type { Edge } from './edge.js';
 
 /**

@@ -11,10 +11,12 @@ from rasl.engine._color_convert import convert, _MODELS as MODELS
 from rasl.engine.frames import (
     ColorPayload,
     HslColorPayload,
+    LinearRgbColorPayload,
     OkhslColorPayload,
     OkhsvColorPayload,
     OklabColorPayload,
     OklchColorPayload,
+    Rec709RgbColorPayload,
     RgbColorPayload,
 )
 
@@ -25,7 +27,7 @@ class TestColorConvert:
     def test_supported_models(self) -> None:
         """Verify all expected models are supported."""
         # Note: internal _MODELS doesn't include 'rgb' alias (normalized to 'srgb')
-        expected = {"oklch", "oklab", "srgb", "hsl", "okhsl", "okhsv", "linear"}
+        expected = {"oklch", "oklab", "srgb", "hsl", "okhsl", "okhsv", "linear", "rec709"}
         assert expected == MODELS
 
     def test_identity_conversion(self) -> None:
@@ -127,6 +129,19 @@ class TestColorConvert:
         hues = oklch[:, 2]
         assert not np.allclose(hues[0], hues[1])
         assert not np.allclose(hues[1], hues[2])
+
+    def test_rec709_linear_roundtrip(self) -> None:
+        """Rec.709 gamma encoding roundtrips with linear RGB."""
+        linear = np.array([
+            [0.0, 0.0, 0.0],
+            [0.02, 0.1, 0.5],
+            [1.0, 0.5, 0.25],
+        ], dtype=np.float32)
+
+        rec = convert(linear, "linear", "rec709")
+        recovered = convert(rec, "rec709", "linear")
+
+        np.testing.assert_array_almost_equal(recovered, linear, decimal=4)
 
 
 class TestColorRoundtrips:
@@ -300,3 +315,17 @@ class TestColorPayloadToModel:
         recovered = oklch.to_model(RgbColorPayload)
         
         np.testing.assert_array_almost_equal(recovered.data, data, decimal=4)
+
+    def test_to_model_rec709(self) -> None:
+        """ColorPayload.to_model() converts to Rec.709 payload."""
+        linear = np.array([[0.05, 0.2, 0.7]], dtype=np.float32)
+        payload = LinearRgbColorPayload(linear)
+
+        rec709 = payload.to_model(Rec709RgbColorPayload)
+        assert rec709.model == "rec709"
+        assert isinstance(rec709, Rec709RgbColorPayload)
+        assert np.all(rec709.data >= 0.0)
+        assert np.all(rec709.data <= 1.0)
+
+        recovered = rec709.to_model(LinearRgbColorPayload)
+        np.testing.assert_array_almost_equal(recovered.data, linear, decimal=4)

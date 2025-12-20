@@ -34,3 +34,23 @@ export {
   oklabToOkhsv,
   okhsvToOklab,
 } from './spaces/okhsv.js';
+
+// Color-aware nodes
+export {
+  ColorNode,
+  type IColorConfig,
+  ColorPayload,
+} from './nodes/transforms/color.js';
+export {
+  ComposeNode,
+  type IComposeConfig,
+  ComposeOutputType,
+} from './nodes/transforms/compose.js';
+export {
+  ColorCorrectionNode,
+  type IColorCorrectionConfig,
+} from './nodes/transforms/correction.js';
+export {
+  LiteralNode,
+  type ILiteralConfig,
+} from './nodes/sources/literal.js';
