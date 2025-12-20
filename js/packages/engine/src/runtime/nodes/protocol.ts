@@ -4,10 +4,11 @@
  * Defines the Node interface that all DAG processing nodes must implement.
  */
 
+import type { InputPort, OutputPort } from '../ports/port.js';
 import type { PortGroup } from '../ports/group.js';
 import type { NodeContext } from './context.js';
 import type { ITickContext } from '../tick.js';
-import { EMPTY_PORTS } from '../ports/group.js';
+import { EMPTY_INPUTS, EMPTY_OUTPUTS } from '../ports/group.js';
 
 /**
  * Protocol defining the interface for all DAG processing nodes.
@@ -34,12 +35,12 @@ export interface INode {
   /**
    * Input ports (optional, omit for sources).
    */
-  readonly inputs?: PortGroup;
+  readonly inputs?: PortGroup<InputPort>;
 
   /**
    * Output ports (optional, omit for sinks).
    */
-  readonly outputs?: PortGroup;
+  readonly outputs?: PortGroup<OutputPort>;
 
   /**
    * Initialize the node when scheduler starts.
@@ -61,13 +62,13 @@ export interface INode {
 /**
  * Get node's input ports, defaulting to empty.
  */
-export function getInputs(node: INode): PortGroup | typeof EMPTY_PORTS {
-  return node.inputs ?? EMPTY_PORTS;
+export function getInputs(node: INode): PortGroup<InputPort> {
+  return node.inputs ?? EMPTY_INPUTS;
 }
 
 /**
  * Get node's output ports, defaulting to empty.
  */
-export function getOutputs(node: INode): PortGroup | typeof EMPTY_PORTS {
-  return node.outputs ?? EMPTY_PORTS;
+export function getOutputs(node: INode): PortGroup<OutputPort> {
+  return node.outputs ?? EMPTY_OUTPUTS;
 }

@@ -23,9 +23,10 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@rasl/engine": "workspace:*",
     "@rasl/config": "workspace:*",
-    "@rasl/nodes": "workspace:*"
+    "@rasl/color": "workspace:*",
+    "@rasl/engine": "workspace:*",
+    "@rasl/lighting": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.3.0",
