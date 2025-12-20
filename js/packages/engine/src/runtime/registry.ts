@@ -77,15 +77,6 @@ export function listPayloadTypes(): string[] {
 }
 
 /**
- * Ensure all built-in nodes are loaded.
- * Call this before using getNodeClass to ensure decorators have run.
- */
-export async function ensureNodesLoaded(): Promise<void> {
-  // Import builtins to trigger decorator registration
-  await import('../builtins/index.js');
-}
-
-/**
  * Reset registries (for testing).
  */
 export function resetRegistries(): void {
