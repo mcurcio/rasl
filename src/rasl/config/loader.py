@@ -4,7 +4,7 @@ This module provides the config loader that uses the Directive tree
 for parsing RASL graph configurations.
 
 The loader handles:
-- `rasl` block: Top-level graph container
+- `graph` block: Top-level graph container
 - `node` blocks: Dispatched to node classes for construction
 
 Nodes handle their own `connect` directives via BaseNode.parse_connect_directives().
@@ -219,16 +219,16 @@ def parse_config(config_text: str) -> ExecutionPlan:
     # Parse to Directive tree
     root = Directive.from_string(config_text)
 
-    # Find rasl block
-    rasl_directive = root.find_one("rasl")
-    if not rasl_directive:
-        raise ConfigError("No 'rasl' block found in configuration")
+    # Find graph block
+    graph_directive = root.find_one("graph")
+    if not graph_directive:
+        raise ConfigError("No 'graph' block found in configuration")
 
     builder = GraphBuilder()
     node_directives: dict[str, Directive] = {}  # Track directives for connect parsing
 
     # First pass: build all nodes
-    for directive in rasl_directive.block:
+    for directive in graph_directive.block:
         if directive.keyword != "node":
             continue
 

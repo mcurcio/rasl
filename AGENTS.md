@@ -25,6 +25,9 @@ Working agreement for collaborating with Cascade in this repo.
     - propose a migration strategy (aliases, deprecation period, tests/docs updates)
     - confirm with you before making it the default
 
+- **No aliases / deprecations / migration shims**
+  - I will not introduce aliases, deprecated exports, migration messages, or compatibility shims unless you explicitly ask.
+
 - **Scope discipline**
   - I will keep diffs minimal and tied to the request.
   - I will avoid drive-by refactors unless you ask.
