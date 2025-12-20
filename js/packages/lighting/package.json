@@ -19,7 +19,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@rasl/engine": "workspace:*"
+    "@rasl/core": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.3.0",

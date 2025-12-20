@@ -28,6 +28,19 @@ importers:
         version: 1.6.1(@types/node@20.19.27)
 
   packages/color:
+    dependencies:
+      '@rasl/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      typescript:
+        specifier: ^5.3.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.0.0
+        version: 1.6.1(@types/node@20.19.27)
+
+  packages/core:
     devDependencies:
       typescript:
         specifier: ^5.3.0
@@ -50,6 +63,9 @@ importers:
       '@rasl/config':
         specifier: workspace:*
         version: link:../config
+      '@rasl/core':
+        specifier: workspace:*
+        version: link:../core
       pino:
         specifier: ^9.0.0
         version: 9.14.0
@@ -66,25 +82,9 @@ importers:
 
   packages/lighting:
     dependencies:
-      '@rasl/engine':
+      '@rasl/core':
         specifier: workspace:*
-        version: link:../engine
-    devDependencies:
-      typescript:
-        specifier: ^5.3.0
-        version: 5.9.3
-      vitest:
-        specifier: ^1.0.0
-        version: 1.6.1(@types/node@20.19.27)
-
-  packages/nodes:
-    dependencies:
-      '@rasl/color':
-        specifier: workspace:*
-        version: link:../color
-      '@rasl/engine':
-        specifier: workspace:*
-        version: link:../engine
+        version: link:../core
     devDependencies:
       typescript:
         specifier: ^5.3.0
@@ -95,15 +95,21 @@ importers:
 
   packages/server:
     dependencies:
+      '@rasl/color':
+        specifier: workspace:*
+        version: link:../color
       '@rasl/config':
         specifier: workspace:*
         version: link:../config
+      '@rasl/core':
+        specifier: workspace:*
+        version: link:../core
       '@rasl/engine':
         specifier: workspace:*
         version: link:../engine
-      '@rasl/nodes':
+      '@rasl/lighting':
         specifier: workspace:*
-        version: link:../nodes
+        version: link:../lighting
     devDependencies:
       typescript:
         specifier: ^5.3.0

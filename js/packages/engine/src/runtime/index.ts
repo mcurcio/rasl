@@ -21,7 +21,8 @@ export {
   InputPort,
   OutputPort,
   PortGroup,
-  EMPTY_PORTS,
+  EMPTY_INPUTS,
+  EMPTY_OUTPUTS,
   type CountSpec,
   type AcceptsSpec,
   type ProducesSpec,
@@ -44,6 +45,5 @@ export {
   getPayloadType,
   listNodeTypes,
   listPayloadTypes,
-  ensureNodesLoaded,
   resetRegistries,
 } from './registry.js';
