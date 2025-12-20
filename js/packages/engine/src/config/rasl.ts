@@ -1,7 +1,7 @@
 import { parse, type ICstDirective, type ICstDocument, type IToken, TokenType } from '@rasl/config';
 import { GraphBuilder } from '../graph/builder.js';
 import type { IConnectOptions, IResolvedSlice } from '../graph/edge.js';
-import { getNodeClass } from '../runtime/registry.js';
+import { getNodeClass } from '@rasl/engine';
 
 export interface IRaslConfigError {
   message: string;
@@ -296,7 +296,8 @@ export function loadRaslConfigFromSource(source: string): IRaslLoadResult {
     }
 
     // Store connects on directive for pass 2 via a side table.
-    (dir as unknown as { __raslConnects?: typeof connects }).__raslConnects = connects;
+    const nodeDir = dir as typeof dir & { __raslConnects?: typeof connects };
+    nodeDir.__raslConnects = connects;
   }
 
   // Pass 2: connect edges.
@@ -307,7 +308,13 @@ export function loadRaslConfigFromSource(source: string): IRaslLoadResult {
     if (!idTok || idTok.type !== TokenType.Identifier) continue;
     const targetNode = idTok.value;
 
-    const connects = (dir as unknown as { __raslConnects?: Array<{ conn: ReturnType<typeof parseConnectArgs>; options: Pick<IConnectOptions, 'repeat'> }> }).__raslConnects;
+    const nodeDir = dir as typeof dir & {
+      __raslConnects?: Array<{
+        conn: ReturnType<typeof parseConnectArgs>;
+        options: Pick<IConnectOptions, 'repeat'>;
+      }>;
+    };
+    const connects = nodeDir.__raslConnects;
     if (!connects) continue;
 
     for (const { conn, options } of connects) {

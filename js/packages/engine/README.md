@@ -22,8 +22,8 @@ pnpm add @rasl/engine
 ### Building a Graph
 
 ```typescript
-import { GraphBuilder } from '@rasl/engine';
-import { WaveformNode, ColorNode } from '@rasl/nodes';
+import { GraphBuilder, WaveformNode } from '@rasl/engine';
+import { ColorNode } from '@rasl/color';
 
 const builder = new GraphBuilder();
 

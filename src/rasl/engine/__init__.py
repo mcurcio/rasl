@@ -41,6 +41,7 @@ from .frames import (
     OkhslColorPayload,
     OkhsvColorPayload,
     PayloadDescriptor,
+    Rec709RgbColorPayload,
     RgbColorPayload,
 )
 from .nodes import (
@@ -100,6 +101,7 @@ __all__ = [
     "OkhslColorPayload",
     "OkhsvColorPayload",
     "LinearRgbColorPayload",
+    "Rec709RgbColorPayload",
     # Core frame
     "Frame",
     "FramePayload",

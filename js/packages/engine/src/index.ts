@@ -4,11 +4,9 @@
  * This package provides the execution infrastructure for RASL graphs.
  */
 
-// Runtime primitives (Frame, payloads, ports, node base/protocol, registry)
+// Runtime primitives and built-in nodes
 export * from './runtime/index.js';
-
-// Built-in nodes (minimal standard library)
-export * from './builtins/index.js';
+export * from './nodes/index.js';
 
 // Graph building
 export {

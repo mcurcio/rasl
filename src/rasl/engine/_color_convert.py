@@ -13,7 +13,9 @@ import colour
 
 colour.utilities.filter_warnings(colour_usage_warnings=False)
 
-_MODELS: frozenset[str] = frozenset({"oklch", "oklab", "srgb", "hsl", "okhsl", "okhsv", "linear"})
+_MODELS: frozenset[str] = frozenset(
+    {"oklch", "oklab", "srgb", "hsl", "okhsl", "okhsv", "linear", "rec709"}
+)
 
 
 def normalize_model(model: str) -> str:
@@ -102,6 +104,11 @@ def _try_direct_convert(
     if from_model == "srgb" and to_model == "linear":
         return _srgb_to_linear(data)
 
+    if from_model == "linear" and to_model == "rec709":
+        return _linear_to_rec709(data)
+    if from_model == "rec709" and to_model == "linear":
+        return _rec709_to_linear(data)
+
     return None
 
 
@@ -111,6 +118,9 @@ def _to_xyz(data: NDArray, model: str) -> NDArray:
             return colour.sRGB_to_XYZ(data)
         case "linear":
             return colour.RGB_to_XYZ(data, "sRGB")
+        case "rec709":
+            linear = _rec709_to_linear(data)
+            return colour.RGB_to_XYZ(linear, "sRGB")
         case "oklab":
             return colour.Oklab_to_XYZ(data)
         case "oklch":
@@ -135,6 +145,9 @@ def _from_xyz(xyz: NDArray, model: str) -> NDArray:
             return colour.XYZ_to_sRGB(xyz)
         case "linear":
             return colour.XYZ_to_RGB(xyz, "sRGB")
+        case "rec709":
+            linear = colour.XYZ_to_RGB(xyz, "sRGB")
+            return _linear_to_rec709(linear)
         case "oklab":
             return colour.XYZ_to_Oklab(xyz)
         case "oklch":
@@ -280,6 +293,22 @@ def _linear_to_srgb(linear: NDArray) -> NDArray:
         linear <= 0.0031308,
         12.92 * linear,
         1.055 * np.power(np.maximum(linear, 0), 1 / 2.4) - 0.055,
+    ).astype(np.float32)
+
+
+def _rec709_to_linear(rgb: NDArray) -> NDArray:
+    return np.where(
+        rgb <= 0.081,
+        rgb / 4.5,
+        np.power((rgb + 0.099) / 1.099, 1 / 0.45),
+    ).astype(np.float32)
+
+
+def _linear_to_rec709(linear: NDArray) -> NDArray:
+    return np.where(
+        linear <= 0.018,
+        4.5 * linear,
+        1.099 * np.power(np.maximum(linear, 0), 0.45) - 0.099,
     ).astype(np.float32)
 
 

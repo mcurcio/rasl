@@ -1,7 +1,7 @@
 """Color payload types for color signal data.
 
 This module defines ColorPayload and all color model-specific subclasses
-(RGB, HSL, OKLCH, Oklab, OkHSL, OkHSV, Linear RGB).
+(RGB, HSL, OKLCH, Oklab, OkHSL, OkHSV, Linear RGB, Rec.709 RGB).
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ class ColorPayload(MatrixPayload):
     - rgb, srgb, hsl, oklch, oklab, okhsl, okhsv: 3 channels
     - rgbw: 4 channels
     
-    Supported models: srgb, rgb, hsl, oklch, oklab, okhsl, okhsv
+    Supported models: srgb, rgb, hsl, oklch, oklab, okhsl, okhsv, linear, rec709
     """
 
     __slots__ = ("_model", "_encoding")
@@ -128,7 +128,7 @@ class ColorPayload(MatrixPayload):
 
         # Determine channels-per-pixel for known models
         model = self._model
-        if model in {"srgb", "rgb", "hsl", "oklch", "oklab", "okhsl", "okhsv", "linear"}:
+        if model in {"srgb", "rgb", "hsl", "oklch", "oklab", "okhsl", "okhsv", "linear", "rec709"}:
             channels_per_pixel = 3
         else:
             # Fallback: infer from 2D shape or treat as single-channel
@@ -365,4 +365,29 @@ class LinearRgbColorPayload(ColorPayload):
     @classmethod
     def is_compatible_with(cls, other: Type[FramePayload]) -> bool:
         """LinearRgbColorPayload accepts any MatrixPayload."""
+        return issubclass(other, MatrixPayload)
+
+
+@payload("color:rec709")
+class Rec709RgbColorPayload(ColorPayload):
+    """Rec.709 RGB color frame - broadcast gamma response.
+
+    Rec.709 encodes linear RGB using the broadcast transfer curve:
+    - Linear segment for low intensities
+    - 0.45 power function for higher intensities
+
+    Useful for video-oriented workflows that assume Rec.709 encoding.
+    Components are R, G, B in [0, 1].
+    """
+
+    __slots__ = ()
+    components: ClassVar[int] = 3
+    model_name: ClassVar[str] = "rec709"
+
+    def __init__(self, data: NDArray[np.float32], encoding: str = "rec709") -> None:
+        super().__init__(data, model="rec709", encoding=encoding)
+
+    @classmethod
+    def is_compatible_with(cls, other: Type[FramePayload]) -> bool:
+        """Rec709RgbColorPayload accepts any MatrixPayload."""
         return issubclass(other, MatrixPayload)

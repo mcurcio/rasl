@@ -15,4 +15,4 @@ export {
 } from './spec.js';
 
 export { InputPort, OutputPort } from './port.js';
-export { PortGroup, EMPTY_PORTS } from './group.js';
+export { PortGroup, EMPTY_INPUTS, EMPTY_OUTPUTS } from './group.js';
