@@ -11,10 +11,12 @@ from rasl.engine._color_convert import convert, _MODELS as MODELS
 from rasl.engine.frames import (
     ColorPayload,
     HslColorPayload,
+    LinearRgbColorPayload,
     OkhslColorPayload,
     OkhsvColorPayload,
     OklabColorPayload,
     OklchColorPayload,
+    Rec709RgbPrimeColorPayload,
     RgbColorPayload,
 )
 
@@ -25,7 +27,16 @@ class TestColorConvert:
     def test_supported_models(self) -> None:
         """Verify all expected models are supported."""
         # Note: internal _MODELS doesn't include 'rgb' alias (normalized to 'srgb')
-        expected = {"oklch", "oklab", "srgb", "hsl", "okhsl", "okhsv", "linear"}
+        expected = {
+            "oklch",
+            "oklab",
+            "srgb",
+            "hsl",
+            "okhsl",
+            "okhsv",
+            "linear",
+            "rec709_rgb_prime",
+        }
         assert expected == MODELS
 
     def test_identity_conversion(self) -> None:
@@ -127,6 +138,31 @@ class TestColorConvert:
         hues = oklch[:, 2]
         assert not np.allclose(hues[0], hues[1])
         assert not np.allclose(hues[1], hues[2])
+
+    def test_rec709_linear_roundtrip(self) -> None:
+        """Rec.709 R′G′B′ gamma encoding roundtrips with linear RGB."""
+        linear = np.array([
+            [0.0, 0.0, 0.0],
+            [0.02, 0.1, 0.5],
+            [1.0, 0.5, 0.25],
+        ], dtype=np.float32)
+
+        rec = convert(linear, "linear", "rec709_rgb_prime")
+        recovered = convert(rec, "rec709_rgb_prime", "linear")
+
+        np.testing.assert_array_almost_equal(recovered, linear, decimal=4)
+
+    def test_rec709_scaling_matches_video_levels(self) -> None:
+        """Video code levels 16–235 map to 0–1 before transfer function."""
+        video_levels = np.array([[16 / 255, 128 / 255, 235 / 255]], dtype=np.float32)
+        linear = convert(video_levels, "rec709_rgb_prime", "linear")
+
+        # Black level should map near 0, reference white near 1
+        assert linear[0, 0] == pytest.approx(0.0, abs=1e-4)
+        assert linear[0, 2] == pytest.approx(1.0, abs=5e-3)
+
+        # Mid-point should lie between 0 and 1
+        assert 0.0 < linear[0, 1] < 1.0
 
 
 class TestColorRoundtrips:
@@ -300,3 +336,17 @@ class TestColorPayloadToModel:
         recovered = oklch.to_model(RgbColorPayload)
         
         np.testing.assert_array_almost_equal(recovered.data, data, decimal=4)
+
+    def test_to_model_rec709(self) -> None:
+        """ColorPayload.to_model() converts to Rec.709 R′G′B′ payload."""
+        linear = np.array([[0.05, 0.2, 0.7]], dtype=np.float32)
+        payload = LinearRgbColorPayload(linear)
+
+        rec709 = payload.to_model(Rec709RgbPrimeColorPayload)
+        assert rec709.model == "rec709_rgb_prime"
+        assert isinstance(rec709, Rec709RgbPrimeColorPayload)
+        assert np.all(rec709.data >= 0.0)
+        assert np.all(rec709.data <= 1.0)
+
+        recovered = rec709.to_model(LinearRgbColorPayload)
+        np.testing.assert_array_almost_equal(recovered.data, linear, decimal=4)

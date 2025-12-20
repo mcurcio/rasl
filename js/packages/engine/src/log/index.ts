@@ -4,7 +4,7 @@ import pino, {
   type Logger as PinoLogger,
   type LevelWithSilent,
 } from 'pino';
-import type { ILogger, LogFields } from '../runtime/nodes/context.js';
+import type { ILogger, LogFields } from '@rasl/engine';
 
 export type LogLevel = Exclude<LevelWithSilent, 'fatal'>;
 
@@ -75,12 +75,12 @@ export function createEngineLogger(config?: IEngineLoggerConfig): IChildLogger {
         ignore: 'pid,hostname',
       },
     });
-    streams.push({ level, stream: transport as unknown as DestinationStream });
+    streams.push({ level, stream: transport as DestinationStream });
   }
 
   if (filePath) {
     const dest = pino.destination({ dest: filePath, mkdir: true, sync: false });
-    streams.push({ level, stream: dest as unknown as DestinationStream });
+    streams.push({ level, stream: dest as DestinationStream });
   }
 
   const base =

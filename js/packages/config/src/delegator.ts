@@ -52,7 +52,7 @@ export class DirectiveDelegator<TContext> {
 
     const result = handler(directive, ctx);
     if (result && directive.body) {
-      const scope = result.scope as unknown as DirectiveDelegator<unknown>;
+      const scope = result.scope as DirectiveDelegator<unknown>;
       const childCtx = result.ctx;
       walkScopeBody(directive, scope, childCtx);
     }

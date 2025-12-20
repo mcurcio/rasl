@@ -29,6 +29,7 @@ from rasl.engine.frames import (
     OkhsvColorPayload,
     OklabColorPayload,
     OklchColorPayload,
+    Rec709RgbPrimeColorPayload,
     RgbColorPayload,
 )
 from rasl.engine.nodes import NodeContext
@@ -52,10 +53,23 @@ FRAME_CLASSES: dict[str, type[ColorPayload]] = {
     "rgb": RgbColorPayload,  # Alias
     "hsl": HslColorPayload,
     "linear": LinearRgbColorPayload,
+    "rec709": Rec709RgbPrimeColorPayload,
+    "rec709_rgb_prime": Rec709RgbPrimeColorPayload,
 }
 
 # Valid model names for config validation
-ColorModel = Literal["oklch", "oklab", "okhsl", "okhsv", "srgb", "rgb", "hsl", "linear"]
+ColorModel = Literal[
+    "oklch",
+    "oklab",
+    "okhsl",
+    "okhsv",
+    "srgb",
+    "rgb",
+    "hsl",
+    "linear",
+    "rec709",
+    "rec709_rgb_prime",
+]
 
 
 @node("ColorNode", "Color")

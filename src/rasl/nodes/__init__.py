@@ -54,7 +54,9 @@ def _register_all_nodes() -> None:
     # Effect nodes
     from .effects.cron import CronNode
     from .effects.crossfade import CrossfadeNode
+    from .effects.matrix_multiply import MatrixMultiplyNode
     from .effects.math import MathNode
+    from .effects.range_map import RangeMapNode
     from .effects.seeded_random import SeededRandomNode
     from .effects.twinkle import TwinkleEffectNode
     from .effects.waveform import WaveformNode
@@ -87,9 +89,15 @@ def __getattr__(name: str):
     if name == "CrossfadeNode":
         from .effects.crossfade import CrossfadeNode
         return CrossfadeNode
+    if name == "MatrixMultiplyNode":
+        from .effects.matrix_multiply import MatrixMultiplyNode
+        return MatrixMultiplyNode
     if name == "MathNode":
         from .effects.math import MathNode
         return MathNode
+    if name == "RangeMapNode":
+        from .effects.range_map import RangeMapNode
+        return RangeMapNode
     if name == "SeededRandomNode":
         from .effects.seeded_random import SeededRandomNode
         return SeededRandomNode
@@ -143,7 +151,9 @@ __all__ = [
     # Effect nodes
     "CronNode",
     "CrossfadeNode",
+    "MatrixMultiplyNode",
     "MathNode",
+    "RangeMapNode",
     "SeededRandomNode",
     "TwinkleEffectNode",
     "WaveformNode",
