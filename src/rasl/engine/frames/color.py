@@ -1,7 +1,7 @@
 """Color payload types for color signal data.
 
 This module defines ColorPayload and all color model-specific subclasses
-(RGB, HSL, OKLCH, Oklab, OkHSL, OkHSV, Linear RGB).
+(RGB, HSL, OKLCH, Oklab, OkHSL, OkHSV, Linear RGB, Rec.709 R′G′B′).
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ class ColorPayload(MatrixPayload):
     - rgb, srgb, hsl, oklch, oklab, okhsl, okhsv: 3 channels
     - rgbw: 4 channels
     
-    Supported models: srgb, rgb, hsl, oklch, oklab, okhsl, okhsv
+    Supported models: srgb, rgb, hsl, oklch, oklab, okhsl, okhsv, linear, rec709_rgb_prime
     """
 
     __slots__ = ("_model", "_encoding")
@@ -128,7 +128,17 @@ class ColorPayload(MatrixPayload):
 
         # Determine channels-per-pixel for known models
         model = self._model
-        if model in {"srgb", "rgb", "hsl", "oklch", "oklab", "okhsl", "okhsv", "linear"}:
+        if model in {
+            "srgb",
+            "rgb",
+            "hsl",
+            "oklch",
+            "oklab",
+            "okhsl",
+            "okhsv",
+            "linear",
+            "rec709_rgb_prime",
+        }:
             channels_per_pixel = 3
         else:
             # Fallback: infer from 2D shape or treat as single-channel
@@ -365,4 +375,27 @@ class LinearRgbColorPayload(ColorPayload):
     @classmethod
     def is_compatible_with(cls, other: Type[FramePayload]) -> bool:
         """LinearRgbColorPayload accepts any MatrixPayload."""
+        return issubclass(other, MatrixPayload)
+
+
+@payload("color:rec709_rgb_prime")
+class Rec709RgbPrimeColorPayload(ColorPayload):
+    """Rec.709 R′G′B′ color frame with limited-range scaling.
+
+    Values represent normalized digital video levels (0 ↔ code 0, 1 ↔ code 255).
+    The active video range (code values 16–235) is automatically scaled to [0, 1]
+    before the Rec.709 opto-electronic transfer function is applied, and scaled
+    back when converting from linear light.
+    """
+
+    __slots__ = ()
+    components: ClassVar[int] = 3
+    model_name: ClassVar[str] = "rec709_rgb_prime"
+
+    def __init__(self, data: NDArray[np.float32], encoding: str = "rec709_rgb_prime") -> None:
+        super().__init__(data, model="rec709_rgb_prime", encoding=encoding)
+
+    @classmethod
+    def is_compatible_with(cls, other: Type[FramePayload]) -> bool:
+        """Rec709RgbPrimeColorPayload accepts any MatrixPayload."""
         return issubclass(other, MatrixPayload)

@@ -13,7 +13,9 @@ import colour
 
 colour.utilities.filter_warnings(colour_usage_warnings=False)
 
-_MODELS: frozenset[str] = frozenset({"oklch", "oklab", "srgb", "hsl", "okhsl", "okhsv", "linear"})
+_MODELS: frozenset[str] = frozenset(
+    {"oklch", "oklab", "srgb", "hsl", "okhsl", "okhsv", "linear", "rec709_rgb_prime"}
+)
 
 
 def normalize_model(model: str) -> str:
@@ -22,6 +24,8 @@ def normalize_model(model: str) -> str:
         return "srgb"
     if model in {"linear_rgb", "linearrgb"}:
         return "linear"
+    if model in {"rec709", "rec709_rgb", "rec709rgb", "rec709_rgb_prime"}:
+        return "rec709_rgb_prime"
     if model not in _MODELS:
         raise ValueError(f"Unknown color model: {model}. Supported: {sorted(_MODELS)}")
     return model
@@ -102,6 +106,11 @@ def _try_direct_convert(
     if from_model == "srgb" and to_model == "linear":
         return _srgb_to_linear(data)
 
+    if from_model == "linear" and to_model == "rec709_rgb_prime":
+        return _linear_to_rec709_rgb_prime(data)
+    if from_model == "rec709_rgb_prime" and to_model == "linear":
+        return _rec709_rgb_prime_to_linear(data)
+
     return None
 
 
@@ -111,6 +120,9 @@ def _to_xyz(data: NDArray, model: str) -> NDArray:
             return colour.sRGB_to_XYZ(data)
         case "linear":
             return colour.RGB_to_XYZ(data, "sRGB")
+        case "rec709_rgb_prime":
+            linear = _rec709_rgb_prime_to_linear(data)
+            return colour.RGB_to_XYZ(linear, "sRGB")
         case "oklab":
             return colour.Oklab_to_XYZ(data)
         case "oklch":
@@ -135,6 +147,9 @@ def _from_xyz(xyz: NDArray, model: str) -> NDArray:
             return colour.XYZ_to_sRGB(xyz)
         case "linear":
             return colour.XYZ_to_RGB(xyz, "sRGB")
+        case "rec709_rgb_prime":
+            linear = colour.XYZ_to_RGB(xyz, "sRGB")
+            return _linear_to_rec709_rgb_prime(linear)
         case "oklab":
             return colour.XYZ_to_Oklab(xyz)
         case "oklch":
@@ -281,6 +296,50 @@ def _linear_to_srgb(linear: NDArray) -> NDArray:
         12.92 * linear,
         1.055 * np.power(np.maximum(linear, 0), 1 / 2.4) - 0.055,
     ).astype(np.float32)
+
+
+_REC709_LEVEL_MIN = 16.0 / 255.0
+_REC709_LEVEL_MAX = 235.0 / 255.0
+_REC709_LEVEL_RANGE = _REC709_LEVEL_MAX - _REC709_LEVEL_MIN
+
+
+def _rec709_video_to_encoded(rgb: NDArray) -> NDArray:
+    """Map normalized video levels (0-1 == code 0-255) to encoded Rec.709 R′."""
+    encoded = (rgb - _REC709_LEVEL_MIN) / _REC709_LEVEL_RANGE
+    return np.clip(encoded, 0.0, 1.0)
+
+
+def _encoded_to_rec709_video(encoded: NDArray) -> NDArray:
+    """Map encoded Rec.709 R′ in [0,1] back to normalized video levels."""
+    video = encoded * _REC709_LEVEL_RANGE + _REC709_LEVEL_MIN
+    return np.clip(video, 0.0, 1.0)
+
+
+def _rec709_gamma_to_linear(rgb_prime: NDArray) -> NDArray:
+    return np.where(
+        rgb_prime <= 0.081,
+        rgb_prime / 4.5,
+        np.power((rgb_prime + 0.099) / 1.099, 1 / 0.45),
+    ).astype(np.float32)
+
+
+def _linear_to_rec709_gamma(linear: NDArray) -> NDArray:
+    linear = np.clip(linear, 0.0, 1.0)
+    return np.where(
+        linear <= 0.018,
+        4.5 * linear,
+        1.099 * np.power(np.maximum(linear, 0), 0.45) - 0.099,
+    ).astype(np.float32)
+
+
+def _rec709_rgb_prime_to_linear(rgb: NDArray) -> NDArray:
+    encoded = _rec709_video_to_encoded(rgb)
+    return _rec709_gamma_to_linear(encoded)
+
+
+def _linear_to_rec709_rgb_prime(linear: NDArray) -> NDArray:
+    encoded = _linear_to_rec709_gamma(linear)
+    return _encoded_to_rec709_video(encoded)
 
 
 def _srgb_to_oklab_direct(rgb: NDArray) -> NDArray:
