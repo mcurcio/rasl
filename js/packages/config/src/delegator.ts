@@ -96,11 +96,57 @@ export function walkScopeBody<TContext>(
   scope._exitScope(owner, ctx);
 }
 
+class SyntheticDirectiveView implements IAstDirective {
+  readonly cst: IAstDirective['cst'];
+
+  private readonly _source: IAstDirective;
+  private readonly _nameToken: IToken;
+  private readonly _argsStartIndex: number;
+
+  constructor(source: IAstDirective, nameToken: IToken, argsStartIndex: number) {
+    this._source = source;
+    this._nameToken = nameToken;
+    this._argsStartIndex = argsStartIndex;
+    this.cst = source.cst;
+  }
+
+  get name(): string {
+    return this._nameToken.value;
+  }
+
+  set name(value: string) {
+    this._nameToken.value = value;
+  }
+
+  get args(): IToken[] {
+    return this._source.args.slice(this._argsStartIndex);
+  }
+
+  set args(value: IToken[]) {
+    const prefix = this._source.args.slice(0, this._argsStartIndex);
+    this._source.args = [...prefix, ...value];
+  }
+
+  get body(): IAstDirective['body'] {
+    return this._source.body;
+  }
+
+  set body(value: IAstDirective['body']) {
+    this._source.body = value;
+  }
+
+  get span(): IAstDirective['span'] {
+    return this._source.span;
+  }
+}
+
 export function makeSyntheticDirective(source: IAstDirective, nameToken: IToken, args: IToken[]): IAstDirective {
-  return {
-    ...source,
-    name: nameToken.value,
-    args,
-    body: source.body,
-  };
+  // We intentionally ignore the provided args array for storage and instead treat
+  // it as a view into the source args. This keeps the synthetic directive as a
+  // virtual facade over the underlying CST-backed source directive.
+  void args;
+
+  const idx = source.args.indexOf(nameToken);
+  const start = (idx >= 0 ? idx : 0) + 1;
+  return new SyntheticDirectiveView(source, nameToken, start);
 }

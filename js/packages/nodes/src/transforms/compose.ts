@@ -15,6 +15,8 @@ import {
   type ITickContext,
   node,
 } from '@rasl/engine';
+import { normalizeModel, type ColorModel } from '@rasl/color';
+import { ColorPayload } from './color.js';
 
 /**
  * Output type for compose node.
@@ -48,6 +50,7 @@ export class ComposeNode extends BaseNode {
   private readonly _fills: Record<string, number>;
   private readonly _numPorts: number;
   private readonly _outputType: ComposeOutputType;
+  private readonly _colorModel: ColorModel | null;
   private readonly _topic: string;
   private _resolvedLength: number | null;
 
@@ -57,6 +60,8 @@ export class ComposeNode extends BaseNode {
     this._fills = config.fill ?? {};
     this._numPorts = this._portNames.length;
     this._outputType = config.outputType ?? ComposeOutputType.Array;
+    this._colorModel =
+      this._outputType === ComposeOutputType.Array ? null : normalizeModel(this._outputType);
     this._topic = config.topic ?? `compose.${this.id}`;
     this._resolvedLength = config.outputChannels ?? null;
 
@@ -104,7 +109,7 @@ export class ComposeNode extends BaseNode {
 
     // Compose the matrix
     const out = this._composeMatrix(count, buffers);
-    const payload = new MatrixPayload(out, this._numPorts);
+    const payload = this._makePayload(out);
 
     const frame = new Frame({
       topic: this._topic,
@@ -146,5 +151,12 @@ export class ComposeNode extends BaseNode {
     }
 
     return out;
+  }
+
+  private _makePayload(data: Float32Array): MatrixPayload {
+    if (!this._colorModel) {
+      return new MatrixPayload(data, this._numPorts);
+    }
+    return new ColorPayload(data, this._numPorts, this._colorModel);
   }
 }

@@ -48,6 +48,12 @@ web_modules/
 # TypeScript cache
 *.tsbuildinfo
 
+# JS package source should remain TypeScript-only; ignore accidental TS emits
+js/packages/**/src/**/*.js
+js/packages/**/src/**/*.js.map
+js/packages/**/src/**/*.d.ts
+js/packages/**/src/**/*.d.ts.map
+
 # Optional npm cache directory
 .npm
 
