@@ -3,18 +3,16 @@
  */
 
 import {
-  type INode,
-  type InputPort,
-  type OutputPort,
-  type ITickContext,
-  NodeContext,
   Frame,
+  type ILogger,
+  type INode,
+  type ITickContext,
+  createTickContext,
   getInputs,
   getOutputs,
   getPullRate,
-  createTickContext,
-  type ILogger,
-} from '../runtime/index.js';
+  NodeContext,
+} from '@rasl/engine';
 import type { ExecutionPlan } from '../graph/plan.js';
 import type { Edge } from '../graph/edge.js';
 import { NodeMonitor, type INodeStats } from './monitor.js';
@@ -301,7 +299,7 @@ export class UnifiedScheduler {
 
       // Capture output frames
       const outputs = getOutputs(node);
-      for (const port of outputs as unknown as Iterable<OutputPort>) {
+      for (const port of outputs) {
         const frame = port._consume();
         if (frame) {
           this._outputFrames.set(`${node.id}.${port.name}`, frame);
@@ -337,7 +335,7 @@ export class UnifiedScheduler {
   private async _pullUpstream(node: INode, tick: ITickContext): Promise<void> {
     const inputs = getInputs(node);
 
-    for (const inputPort of inputs as unknown as Iterable<InputPort>) {
+    for (const inputPort of inputs) {
       // Find edges targeting this port
       for (const [, edges] of this._routes) {
         for (const edge of edges) {

@@ -26,6 +26,7 @@ from .color import (
     OkhslColorPayload,
     OkhsvColorPayload,
     LinearRgbColorPayload,
+    Rec709RgbPrimeColorPayload,
 )
 from .frame import Frame, Metadata
 
@@ -45,6 +46,7 @@ __all__ = [
     "OkhslColorPayload",
     "OkhsvColorPayload",
     "LinearRgbColorPayload",
+    "Rec709RgbPrimeColorPayload",
     # Frame
     "Frame",
     "Metadata",
