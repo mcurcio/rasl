@@ -153,7 +153,3 @@ class AstFactory {
 export function createAstDirectives(doc: ICstDocument): IAstDirectiveDocument {
   return new AstDirectiveDocument(doc);
 }
-
-export function toAstDirectives(doc: ICstDocument): IAstDirectiveDocument {
-  return createAstDirectives(doc);
-}

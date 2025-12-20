@@ -39,7 +39,6 @@ export {
 
 export {
   createAstDirectives,
-  toAstDirectives,
   type IAstDirective,
   type IAstDirectiveDocument,
   type IAstDirectiveList,
