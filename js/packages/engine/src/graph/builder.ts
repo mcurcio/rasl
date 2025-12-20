@@ -2,7 +2,7 @@
  * GraphBuilder - Assembles nodes and edges into an ExecutionPlan.
  */
 
-import { type INode, getInputs, getOutputs, type ILogger } from '../runtime/index.js';
+import { type ILogger, type INode, getInputs, getOutputs } from '@rasl/engine';
 import { createConsoleLogger } from '../log/index.js';
 import { Edge, type IConnectOptions } from './edge.js';
 import { ExecutionPlan } from './plan.js';

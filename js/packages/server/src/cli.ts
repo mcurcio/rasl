@@ -9,12 +9,13 @@ import {
   createEngineLogger,
   type LogLevel,
   UnifiedScheduler,
-  ensureNodesLoaded,
   loadRaslConfigFromSource,
 } from '@rasl/engine';
 
-// Import nodes to register them
-import '@rasl/nodes';
+// Register nodes from core + extensions
+import '@rasl/core';
+import '@rasl/color';
+import '@rasl/lighting';
 
 // Legacy types kept local for now.
 
@@ -47,7 +48,6 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  await ensureNodesLoaded();
   const load = loadRaslConfigFromSource(source);
 
   if (load.errors.length > 0) {
