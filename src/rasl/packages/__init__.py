@@ -7,6 +7,8 @@ a specific protocol or integration.
 Available packages:
     - sacn: sACN/E1.31 DMX protocol (source and sink nodes)
     - ddp: Distributed Display Protocol (sink node)
+    - govee: Govee LAN protocol (sink node)
+    - lifx: LIFX LAN protocol (sink node)
 
 These packages are optional and can be imported independently:
 
@@ -16,6 +18,6 @@ These packages are optional and can be imported independently:
 All package nodes are also re-exported from rasl.nodes for convenience.
 """
 
-from . import ddp, sacn
+from . import ddp, govee, lifx, sacn
 
-__all__ = ["ddp", "sacn"]
+__all__ = ["ddp", "govee", "lifx", "sacn"]

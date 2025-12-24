@@ -14,14 +14,13 @@ Example config:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 import numpy as np
 
-from rasl.engine.nodes import BaseNode
 from rasl.engine.frames import (
     ColorPayload,
-    Frame,
+    HsbkColorPayload,
     HslColorPayload,
     LinearRgbColorPayload,
     MatrixPayload,
@@ -29,18 +28,15 @@ from rasl.engine.frames import (
     OkhsvColorPayload,
     OklabColorPayload,
     OklchColorPayload,
+    Rec709RgbPrimeColorPayload,
     RgbColorPayload,
+    RgbwColorPayload,
 )
-from rasl.engine.nodes import NodeContext
+from rasl.engine.nodes import BaseNode
 from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext
 from rasl.nodes.models import TransformNodeConfig
-
-DEFAULT_MODEL: str = "oklch"
-
-if TYPE_CHECKING:
-    from numpy.typing import NDArray
 
 # Map model names to payload classes
 FRAME_CLASSES: dict[str, type[ColorPayload]] = {
@@ -48,14 +44,31 @@ FRAME_CLASSES: dict[str, type[ColorPayload]] = {
     "oklab": OklabColorPayload,
     "okhsl": OkhslColorPayload,
     "okhsv": OkhsvColorPayload,
+    "hsbk": HsbkColorPayload,
     "srgb": RgbColorPayload,
-    "rgb": RgbColorPayload,  # Alias
+    "rgbw": RgbwColorPayload,
+    "rgb": LinearRgbColorPayload,
     "hsl": HslColorPayload,
     "linear": LinearRgbColorPayload,
+    "rec709": Rec709RgbPrimeColorPayload,
+    "rec709_rgb_prime": Rec709RgbPrimeColorPayload,
 }
 
 # Valid model names for config validation
-ColorModel = Literal["oklch", "oklab", "okhsl", "okhsv", "srgb", "rgb", "hsl", "linear"]
+ColorModel = Literal[
+    "oklch",
+    "oklab",
+    "okhsl",
+    "okhsv",
+    "hsbk",
+    "srgb",
+    "rgbw",
+    "rgb",
+    "hsl",
+    "linear",
+    "rec709",
+    "rec709_rgb_prime",
+]
 
 
 @node("ColorNode", "Color")
@@ -63,7 +76,6 @@ class ColorNode(BaseNode):
     """Universal color space converter.
 
     Converts any input to the specified color model.
-    Default output is OKLCH (perceptually uniform, ideal for mixing).
 
     The color model can be specified as a positional argument in the config:
         node Color mixer {}           # Default: oklch output
@@ -82,10 +94,10 @@ class ColorNode(BaseNode):
         """Configuration for ColorNode.
 
         Attributes:
-            model: Target color model. Default is 'oklch'.
+            model: Target color model (required).
         """
 
-        model: ColorModel = DEFAULT_MODEL  # type: ignore[assignment]
+        model: ColorModel  # type: ignore[assignment]
 
     # Class-level ports
     inputs = PortGroup.inputs(color=InputPortSpec((MatrixPayload, ColorPayload)))
@@ -98,9 +110,15 @@ class ColorNode(BaseNode):
             config: Validated configuration with target model.
         """
         super().__init__(config)
-        # Normalize "rgb" alias to "srgb" for internal use
-        self._model = "srgb" if config.model == "rgb" else config.model
-        self._frame_cls = FRAME_CLASSES.get(self._model, OklchColorPayload)
+        self._model = config.model
+        self._frame_cls = self._frame_class_for(self._model)
+
+    @staticmethod
+    def _frame_class_for(model: str) -> type[ColorPayload]:
+        cls = FRAME_CLASSES.get(model)
+        if cls is None:
+            raise ValueError(f"Unsupported color model '{model}'")
+        return cls
 
     async def pull(self, tick: TickContext) -> None:
         """Read input, convert color model, write output."""
@@ -110,22 +128,19 @@ class ColorNode(BaseNode):
 
         payload = frame.payload
 
-        # Determine source model and data
-        if isinstance(payload, ColorPayload):
-            src_model = payload.model
-            data: NDArray[np.float32] = payload.data
-            encoding = payload.encoding
-        else:
-            # Raw array - assume sRGB
-            src_model = "srgb"
-            data = np.asarray(payload, dtype=np.float32)
-            encoding = "srgb"
+        target_frame_cls = self._frame_cls
+        target_model = self._model
 
         # Convert via payload API (type-driven)
         if isinstance(payload, ColorPayload):
-            out_payload = payload if isinstance(payload, self._frame_cls) else payload.to_model(self._frame_cls)
+            out_payload = (
+                payload if isinstance(payload, target_frame_cls) else payload.to_model(target_frame_cls)
+            )
         else:
-            tmp = ColorPayload(np.asarray(payload, dtype=np.float32), model=src_model, encoding=encoding)
-            out_payload = tmp.to_model(self._frame_cls)
+            arr = np.asarray(payload, dtype=np.float32)
+            try:
+                out_payload = target_frame_cls(arr, encoding=target_model)
+            except TypeError:
+                out_payload = target_frame_cls(arr)
 
         self.outputs.color.write(frame.with_payload(out_payload))

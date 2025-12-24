@@ -182,6 +182,12 @@ class CopySliceOp:
         return self.dst_start + src_len
 
     def populate(self, dst: np.ndarray, src: np.ndarray) -> None:
+        """Copy slice from src to dst.
+        
+        Slice indices are interpreted as element indices (rows in the matrix),
+        not scalar channel indices. For ColorPayload with 3 components, [0] means
+        the first RGB triplet, not the first scalar channel.
+        """
         src_rows = int(src.shape[0])
         src_end = self.src_end if self.src_end >= 0 else src_rows
         if src_end < self.src_start:
@@ -226,6 +232,12 @@ class RepeatSliceOp:
         return self.dst_start + (src_len * int(self.repeat))
 
     def populate(self, dst: np.ndarray, src: np.ndarray) -> None:
+        """Repeat slice from src to dst.
+        
+        Slice indices are interpreted as element indices (rows in the matrix),
+        not scalar channel indices. For ColorPayload with 3 components, [0:1]
+        repeated 3 times means repeat the first RGB triplet 3 times.
+        """
         src_rows = int(src.shape[0])
         src_end = self.src_end if self.src_end >= 0 else src_rows
         if src_end < self.src_start:

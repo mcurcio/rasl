@@ -20,12 +20,15 @@ from .matrix import MatrixPayload, BoolPayload
 from .color import (
     ColorPayload,
     RgbColorPayload,
+    RgbwColorPayload,
     HslColorPayload,
     OklchColorPayload,
     OklabColorPayload,
     OkhslColorPayload,
     OkhsvColorPayload,
     LinearRgbColorPayload,
+    Rec709RgbPrimeColorPayload,
+    HsbkColorPayload,
 )
 from .frame import Frame, Metadata
 
@@ -39,12 +42,15 @@ __all__ = [
     # Color
     "ColorPayload",
     "RgbColorPayload",
+    "RgbwColorPayload",
     "HslColorPayload",
     "OklchColorPayload",
     "OklabColorPayload",
     "OkhslColorPayload",
     "OkhsvColorPayload",
     "LinearRgbColorPayload",
+    "Rec709RgbPrimeColorPayload",
+    "HsbkColorPayload",
     # Frame
     "Frame",
     "Metadata",

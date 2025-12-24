@@ -9,7 +9,7 @@ Pull-based: Reads all input ports, interleaves data, writes output.
 
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Sequence, Type
 
 import numpy as np
 from numpy.typing import NDArray
@@ -20,13 +20,14 @@ from rasl.engine.frames import (
     ColorPayload,
     Frame,
     FramePayload,
+    HsbkColorPayload,
     HslColorPayload,
     MatrixPayload,
     RgbColorPayload,
 )
 from rasl.engine.nodes import NodeContext
 from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
-from rasl.engine.registry import node
+from rasl.engine.registry import get_payload_type, node
 from rasl.engine.tick import TickContext, pull_rate
 from rasl.nodes.models import TransformNodeConfig
 
@@ -68,7 +69,7 @@ class ComposeNode(BaseNode):
         )
         output_type: str = Field(
             default="array",
-            description="Output payload type: 'array', 'hsl', or 'rgb'",
+            description="Output payload type: 'array', 'hsl', 'rgb', 'hsbk', or any ColorPayload model",
         )
         output_channels: int | None = Field(
             default=None,
@@ -115,6 +116,7 @@ class ComposeNode(BaseNode):
         self._num_ports = len(self._port_names)
         self._output_type = config.output_type
         self._output_channels = config.output_channels
+        self._payload_cls = self._resolve_payload_cls(self._output_type)
 
         # Override class-level inputs with instance-specific ports
         self.inputs = PortGroup.inputs(
@@ -165,15 +167,35 @@ class ComposeNode(BaseNode):
 
         return out
 
+    def _resolve_payload_cls(self, name: str | None) -> Type[FramePayload]:
+        """Resolve configured output_type to a registered payload class."""
+        normalized = (name or "array").strip().lower()
+        if normalized in ("array", "matrix", ""):
+            return MatrixPayload
+
+        payload_cls = get_payload_type(normalized)
+        if payload_cls is not None:
+            return payload_cls  # type: ignore[return-value]
+
+        # Backward-compatible fallback for bare color model names (e.g., "hsl").
+        if not normalized.startswith("color:"):
+            payload_cls = get_payload_type(f"color:{normalized}")
+            if payload_cls is not None:
+                return payload_cls  # type: ignore[return-value]
+
+        raise ValueError(
+            f"ComposeNode output_type '{name}' is not a registered payload type. "
+            "Use a name from the payload registry (e.g., 'array', 'color:okhsl')."
+        )
+
     def _make_payload(self, data: NDArray[np.float32]):
-        output_type = self._output_type
-        if output_type == "hsl":
-            return HslColorPayload(data)
-        if output_type == "rgb":
-            return RgbColorPayload(data)
-        if output_type in ("oklch", "oklab", "okhsl", "okhsv"):
-            return ColorPayload(data, model=output_type)
-        return MatrixPayload(data)
+        try:
+            return self._payload_cls(data)
+        except TypeError as exc:  # pragma: no cover - defensive
+            raise TypeError(
+                f"Failed to instantiate payload '{self._payload_cls.__name__}' "
+                f"for output_type '{self._output_type}': {exc}"
+            ) from exc
 
     async def pull(self, tick: TickContext) -> None:
         """Read all input ports, interleave data, write output."""

@@ -90,8 +90,11 @@ class SacnSourceNode(BaseNode):
             
             # Normalize DMX bytes (0-255) to float32 (0.0-1.0)
             # Note: sacn library always pads dmxData to 512 bytes
-            # Use slicing in config to extract RGB data (e.g., hyperhdr[0:432])
-            slots = np.array(packet.dmxData, dtype=np.float32) / 255.0
+            # Reshape into RGB triplets for ColorPayload compatibility
+            raw = np.array(packet.dmxData, dtype=np.float32) / 255.0
+            # Truncate to nearest multiple of 3 for clean RGB grouping
+            rgb_count = len(raw) // 3
+            slots = raw[:rgb_count * 3].reshape(-1, 3)
             
             timestamp = time.monotonic()
             metadata = {

@@ -54,7 +54,11 @@ def _register_all_nodes() -> None:
     # Effect nodes
     from .effects.cron import CronNode
     from .effects.crossfade import CrossfadeNode
+    from .effects.matrix_multiply import MatrixMultiplyNode
     from .effects.math import MathNode
+    from .effects.range_map import RangeMapNode
+    from .effects.random_map import RandomMapNode
+    from .effects.smooth import SmoothNode
     from .effects.seeded_random import SeededRandomNode
     from .effects.twinkle import TwinkleEffectNode
     from .effects.waveform import WaveformNode
@@ -73,6 +77,8 @@ def _register_all_nodes() -> None:
     # Protocol nodes
     from rasl.packages.sacn import SacnSinkNode, SacnSourceNode
     from rasl.packages.ddp import DdpSinkNode
+    from rasl.packages.govee import GoveeLightNode
+    from rasl.packages.lifx import LifxSinkNode
 
 
 # NOTE: Node registration is deferred to avoid circular imports.
@@ -87,9 +93,21 @@ def __getattr__(name: str):
     if name == "CrossfadeNode":
         from .effects.crossfade import CrossfadeNode
         return CrossfadeNode
+    if name == "MatrixMultiplyNode":
+        from .effects.matrix_multiply import MatrixMultiplyNode
+        return MatrixMultiplyNode
     if name == "MathNode":
         from .effects.math import MathNode
         return MathNode
+    if name == "RangeMapNode":
+        from .effects.range_map import RangeMapNode
+        return RangeMapNode
+    if name == "RandomMapNode":
+        from .effects.random_map import RandomMapNode
+        return RandomMapNode
+    if name == "SmoothNode":
+        from .effects.smooth import SmoothNode
+        return SmoothNode
     if name == "SeededRandomNode":
         from .effects.seeded_random import SeededRandomNode
         return SeededRandomNode
@@ -131,6 +149,12 @@ def __getattr__(name: str):
     if name == "DdpSinkNode":
         from rasl.packages.ddp import DdpSinkNode
         return DdpSinkNode
+    if name == "GoveeLightNode":
+        from rasl.packages.govee import GoveeLightNode
+        return GoveeLightNode
+    if name == "LifxSinkNode":
+        from rasl.packages.lifx import LifxSinkNode
+        return LifxSinkNode
     
     raise AttributeError(f"module 'rasl.nodes' has no attribute {name!r}")
 
@@ -143,7 +167,11 @@ __all__ = [
     # Effect nodes
     "CronNode",
     "CrossfadeNode",
+    "MatrixMultiplyNode",
     "MathNode",
+    "RangeMapNode",
+    "RandomMapNode",
+    "SmoothNode",
     "SeededRandomNode",
     "TwinkleEffectNode",
     "WaveformNode",
@@ -159,4 +187,6 @@ __all__ = [
     "DdpSinkNode",
     "SacnSinkNode",
     "SacnSourceNode",
+    "GoveeLightNode",
+    "LifxSinkNode",
 ]

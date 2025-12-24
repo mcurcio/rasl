@@ -1,7 +1,7 @@
 """Color payload types for color signal data.
 
 This module defines ColorPayload and all color model-specific subclasses
-(RGB, HSL, OKLCH, Oklab, OkHSL, OkHSV, Linear RGB).
+(RGB, HSL, OKLCH, Oklab, OkHSL, OkHSV, Linear RGB, Rec.709 R′G′B′).
 """
 
 from __future__ import annotations
@@ -25,11 +25,11 @@ class ColorPayload(MatrixPayload):
     ColorPayload wraps color data with a model tag indicating the color space.
     Use `to_model()` to convert between color spaces.
     
-    Shape: [channels, elements] where channels depends on model:
-    - rgb, srgb, hsl, oklch, oklab, okhsl, okhsv: 3 channels
-    - rgbw: 4 channels
+    Shape: [elements, channels] where channels depends on model:
+    - rgb, srgb, hsl, oklch, oklab, okhsl, okhsv, linear, rec709_rgb_prime: 3 channels
+    - rgbw, hsbk: 4 channels
     
-    Supported models: srgb, rgb, hsl, oklch, oklab, okhsl, okhsv
+    Supported models: srgb, rgb, hsl, oklch, oklab, okhsl, okhsv, linear, rec709_rgb_prime, hsbk
     """
 
     __slots__ = ("_model", "_encoding")
@@ -43,7 +43,9 @@ class ColorPayload(MatrixPayload):
         model: str,
         encoding: str = "srgb",
     ) -> None:
-        super().__init__(data)
+        arr = np.asarray(data, dtype=np.float32)
+        arr = type(self)._coerce_component_shape(arr)
+        super().__init__(arr)
         object.__setattr__(self, "_model", _normalize_color_model(model))
         object.__setattr__(self, "_encoding", encoding)
 
@@ -73,12 +75,22 @@ class ColorPayload(MatrixPayload):
         if self._model == target_model and isinstance(self, target):
             return self
 
-        converted = _convert_color(self._data, self._model, target_model)
+        source_components = getattr(type(self), "components", None)
+        target_components = getattr(target, "components", None)
+        if not isinstance(source_components, int) or source_components <= 0:
+            raise ValueError(f"{type(self).__name__} must define 'components' for conversion")
+        if not isinstance(target_components, int) or target_components <= 0:
+            raise ValueError(f"{target.__name__} must define 'components' for conversion")
 
-        try:
-            return target(converted, encoding=self._encoding)
-        except TypeError:
-            return target(converted)
+        converted = _convert_color(
+            self._data,
+            self._model,
+            target_model,
+            source_components=source_components,
+            target_components=target_components,
+        )
+
+        return target(converted)
 
     def repeat(self, n: int) -> "ColorPayload":
         if n <= 1:
@@ -104,18 +116,102 @@ class ColorPayload(MatrixPayload):
         """ColorPayload accepts any MatrixPayload (will be tagged/converted)."""
         return issubclass(other, MatrixPayload)
 
-    def _channel_view(self, index: int) -> NDArray[np.float32]:
-        return self._data[:, index]
+    @classmethod
+    def _coerce_component_shape(cls, data: NDArray[np.float32]) -> NDArray[np.float32]:
+        """Ensure incoming data matches this payload's component count.
 
-    def _set_channel(self, index: int, value: Any) -> None:
-        v = np.asarray(value, dtype=np.float32)
-        if v.ndim == 0:
-            self._data[:, index] = float(v)
-            return
-        if v.ndim == 1:
-            self._data[:, index] = v
-            return
-        raise ValueError("channel assignment expects scalar or 1D array")
+        Accepts either a flat array (reshaped to [-1, components]) or a matrix
+        that already has the correct component dimension. Matrices with a single
+        channel are treated as flat data. Any other shape mismatch raises.
+        """
+
+        components = getattr(cls, "components", None)
+        if not isinstance(components, int) or components <= 0:
+            return data
+
+        if data.ndim == 1:
+            total = int(data.size)
+            if total % components != 0:
+                raise ValueError(
+                    f"{cls.__name__} expects data length divisible by {components}, got {total}"
+                )
+            return data.reshape(-1, components)
+
+        if data.ndim != 2:
+            raise ValueError(f"{cls.__name__} requires 1D or 2D data, got shape {data.shape!r}")
+
+        channels = data.shape[1]
+        if channels == components:
+            return data
+
+        if channels == 1:
+            rows = int(data.shape[0])
+            if rows % components != 0:
+                raise ValueError(
+                    f"{cls.__name__} cannot reshape data with {rows} rows into {components}-component elements"
+                )
+            return data.reshape(-1, components)
+
+        raise ValueError(
+            f"{cls.__name__} expects data with {components} components per element, "
+            f"got {channels}"
+        )
+
+
+@payload("color:hsbk")
+class HsbkColorPayload(ColorPayload):
+    """HSBK color frame for LIFX-compatible hue/sat/brightness/kelvin data.
+
+    Components (normalized 0–1 unless noted):
+        H: Hue
+        S: Saturation
+        B: Brightness/value
+        K: Kelvin normalized to the 1500K–9000K LIFX range
+    """
+
+    __slots__ = ()
+    components: ClassVar[int] = 4
+    model_name: ClassVar[str] = "hsbk"
+
+    def __init__(self, data: NDArray[np.float32], encoding: str = "hsbk") -> None:
+        super().__init__(data, model="hsbk", encoding=encoding)
+
+    @property
+    def hue(self) -> NDArray[np.float32]:
+        return self._channel_view(0)
+
+    @hue.setter
+    def hue(self, value: Any) -> None:
+        self._set_channel(0, value)
+
+    @property
+    def saturation(self) -> NDArray[np.float32]:
+        return self._channel_view(1)
+
+    @saturation.setter
+    def saturation(self, value: Any) -> None:
+        self._set_channel(1, value)
+
+    @property
+    def brightness(self) -> NDArray[np.float32]:
+        return self._channel_view(2)
+
+    @brightness.setter
+    def brightness(self, value: Any) -> None:
+        self._set_channel(2, value)
+
+    @property
+    def kelvin(self) -> NDArray[np.float32]:
+        return self._channel_view(3)
+
+    @kelvin.setter
+    def kelvin(self, value: Any) -> None:
+        self._set_channel(3, value)
+
+    @classmethod
+    def is_compatible_with(cls, other: Type[FramePayload]) -> bool:
+        return issubclass(other, MatrixPayload)
+
 
     def __repr__(self) -> str:
         data = self._data
@@ -126,12 +222,22 @@ class ColorPayload(MatrixPayload):
                 return str(iv)
             return (f"{float(v):.3f}".rstrip("0").rstrip("."))
 
-        # Determine channels-per-pixel for known models
         model = self._model
-        if model in {"srgb", "rgb", "hsl", "oklch", "oklab", "okhsl", "okhsv", "linear"}:
-            channels_per_pixel = 3
-        else:
-            # Fallback: infer from 2D shape or treat as single-channel
+        model_channels = {
+            "srgb": 3,
+            "rgb": 3,
+            "hsl": 3,
+            "oklch": 3,
+            "oklab": 3,
+            "okhsl": 3,
+            "okhsv": 3,
+            "linear": 3,
+            "rec709_rgb_prime": 3,
+            "rgbw": 4,
+            "hsbk": 4,
+        }
+        channels_per_pixel = model_channels.get(model)
+        if channels_per_pixel is None:
             if data.ndim == 2:
                 channels_per_pixel = data.shape[1]
             else:
@@ -164,10 +270,9 @@ class ColorPayload(MatrixPayload):
             f"len={total} data={data_str}>"
         )
 
-
-@payload("color:rgb")
+@payload("color:srgb")
 class RgbColorPayload(ColorPayload):
-    """RGB color frame."""
+    """sRGB color frame."""
 
     __slots__ = ()
     components: ClassVar[int] = 3
@@ -204,6 +309,26 @@ class RgbColorPayload(ColorPayload):
     def is_compatible_with(cls, other: Type[FramePayload]) -> bool:
         """RgbColorPayload accepts any MatrixPayload."""
         return issubclass(other, MatrixPayload)
+
+
+@payload("color:rgbw")
+class RgbwColorPayload(ColorPayload):
+    """RGBW color frame with dedicated white channel."""
+
+    __slots__ = ()
+    components: ClassVar[int] = 4
+    model_name: ClassVar[str] = "rgbw"
+
+    def __init__(self, data: NDArray[np.float32], encoding: str = "srgb") -> None:
+        super().__init__(data, model="rgbw", encoding=encoding)
+
+    @property
+    def white(self) -> NDArray[np.float32]:
+        return self._channel_view(3)
+
+    @white.setter
+    def white(self, value: Any) -> None:
+        self._set_channel(3, value)
 
 
 @payload("color:hsl")
@@ -365,4 +490,27 @@ class LinearRgbColorPayload(ColorPayload):
     @classmethod
     def is_compatible_with(cls, other: Type[FramePayload]) -> bool:
         """LinearRgbColorPayload accepts any MatrixPayload."""
+        return issubclass(other, MatrixPayload)
+
+
+@payload("color:rec709_rgb_prime")
+class Rec709RgbPrimeColorPayload(ColorPayload):
+    """Rec.709 R′G′B′ color frame with limited-range scaling.
+
+    Values represent normalized digital video levels (0 ↔ code 0, 1 ↔ code 255).
+    The active video range (code values 16–235) is automatically scaled to [0, 1]
+    before the Rec.709 opto-electronic transfer function is applied, and scaled
+    back when converting from linear light.
+    """
+
+    __slots__ = ()
+    components: ClassVar[int] = 3
+    model_name: ClassVar[str] = "rec709_rgb_prime"
+
+    def __init__(self, data: NDArray[np.float32], encoding: str = "rec709_rgb_prime") -> None:
+        super().__init__(data, model="rec709_rgb_prime", encoding=encoding)
+
+    @classmethod
+    def is_compatible_with(cls, other: Type[FramePayload]) -> bool:
+        """Rec709RgbPrimeColorPayload accepts any MatrixPayload."""
         return issubclass(other, MatrixPayload)

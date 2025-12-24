@@ -13,15 +13,48 @@ import colour
 
 colour.utilities.filter_warnings(colour_usage_warnings=False)
 
-_MODELS: frozenset[str] = frozenset({"oklch", "oklab", "srgb", "hsl", "okhsl", "okhsv", "linear"})
+_MODELS: frozenset[str] = frozenset(
+    {
+        "oklch",
+        "oklab",
+        "srgb",
+        "hsl",
+        "okhsl",
+        "okhsv",
+        "linear",
+        "rec709_rgb_prime",
+        "rgbw",
+        "hsbk",
+    }
+)
+
+_DEFAULT_COMPONENTS: dict[str, int] = {
+    "srgb": 3,
+    "linear": 3,
+    "rec709_rgb_prime": 3,
+    "oklab": 3,
+    "oklch": 3,
+    "okhsl": 3,
+    "okhsv": 3,
+    "hsl": 3,
+    "rgbw": 4,
+    "hsbk": 4,
+}
+
+_MIN_KELVIN = 1500.0
+_MAX_KELVIN = 9000.0
+_DEFAULT_KELVIN = 6500.0
+_KELVIN_RANGE = _MAX_KELVIN - _MIN_KELVIN
 
 
 def normalize_model(model: str) -> str:
     model = model.lower()
     if model == "rgb":
-        return "srgb"
+        return "linear"
     if model in {"linear_rgb", "linearrgb"}:
         return "linear"
+    if model in {"rec709", "rec709_rgb", "rec709rgb", "rec709_rgb_prime"}:
+        return "rec709_rgb_prime"
     if model not in _MODELS:
         raise ValueError(f"Unknown color model: {model}. Supported: {sorted(_MODELS)}")
     return model
@@ -31,6 +64,9 @@ def convert(
     data: NDArray[np.float32],
     from_model: str,
     to_model: str,
+    *,
+    source_components: int | None = None,
+    target_components: int | None = None,
 ) -> NDArray[np.float32]:
     from_model = normalize_model(from_model)
     to_model = normalize_model(to_model)
@@ -38,26 +74,89 @@ def convert(
     if from_model == to_model:
         return data
 
-    original_shape = data.shape
-    flat_data = data.reshape(-1)
+    source_components = _resolve_components(from_model, source_components)
+    target_components = _resolve_components(to_model, target_components)
 
-    if len(flat_data) % 3 != 0:
-        raise ValueError(
-            f"Color data must have length divisible by 3 (RGB triplets), got {len(flat_data)} values."
+    arr = np.asarray(data, dtype=np.float32)
+    if arr.ndim == 1:
+        total = int(arr.size)
+        if total % source_components != 0:
+            raise ValueError(
+                f"Color data must have length divisible by {source_components}, got {total} values."
+            )
+        pixels = arr.reshape(-1, source_components)
+    elif arr.ndim == 2:
+        channels = arr.shape[1]
+        if channels != source_components:
+            raise ValueError(
+                f"Expected data with {source_components} components per element, got {channels}"
+            )
+        pixels = arr
+    else:
+        raise ValueError(f"Color data must be 1D or 2D, got shape {arr.shape!r}")
+
+    count = pixels.shape[0]
+
+    if from_model == "hsbk":
+        srgb_pixels = _hsbk_to_srgb(pixels)
+        if to_model == "hsbk":
+            return pixels.reshape(count, target_components).astype(np.float32)
+        if to_model == "srgb":
+            return srgb_pixels.reshape(count, target_components).astype(np.float32)
+        if to_model == "rgbw":
+            rgbw = _srgb_to_rgbw(srgb_pixels)
+            return rgbw.reshape(count, target_components).astype(np.float32)
+        converted = convert(
+            srgb_pixels,
+            "srgb",
+            to_model,
+            source_components=3,
+            target_components=target_components,
         )
+        return converted
 
-    pixels = flat_data.reshape(-1, 3)
+    if to_model == "hsbk":
+        if from_model == "hsbk":
+            return pixels.reshape(count, target_components).astype(np.float32)
+        if from_model == "srgb":
+            srgb_pixels = pixels
+        elif from_model == "rgbw":
+            srgb_pixels = _rgbw_to_srgb(pixels)
+        else:
+            srgb_pixels = convert(
+                pixels,
+                from_model,
+                "srgb",
+                source_components=source_components,
+                target_components=3,
+            )
+        result = _srgb_to_hsbk(srgb_pixels)
+        return result.reshape(count, target_components).astype(np.float32)
 
     result = _try_direct_convert(pixels, from_model, to_model)
     if result is not None:
         result = np.clip(result, 0.0, 1.0)
-        return result.reshape(original_shape).astype(np.float32)
+        return result.reshape(count, target_components).astype(np.float32)
 
     xyz = _to_xyz(pixels, from_model)
     result = _from_xyz(xyz, to_model)
 
     result = np.clip(result, 0.0, 1.0)
-    return result.reshape(original_shape).astype(np.float32)
+    return result.reshape(count, target_components).astype(np.float32)
+
+
+def _resolve_components(model: str, override: int | None) -> int:
+    if override is not None:
+        if override <= 0:
+            raise ValueError("components override must be positive")
+        return override
+    components = _DEFAULT_COMPONENTS.get(model)
+    if components is None:
+        raise ValueError(
+            f"Conversion requires component count for model '{model}', "
+            "but no default is registered."
+        )
+    return components
 
 
 def _try_direct_convert(
@@ -102,6 +201,11 @@ def _try_direct_convert(
     if from_model == "srgb" and to_model == "linear":
         return _srgb_to_linear(data)
 
+    if from_model == "linear" and to_model == "rec709_rgb_prime":
+        return _linear_to_rec709_rgb_prime(data)
+    if from_model == "rec709_rgb_prime" and to_model == "linear":
+        return _rec709_rgb_prime_to_linear(data)
+
     return None
 
 
@@ -109,8 +213,13 @@ def _to_xyz(data: NDArray, model: str) -> NDArray:
     match model:
         case "srgb":
             return colour.sRGB_to_XYZ(data)
+        case "rgbw":
+            return colour.sRGB_to_XYZ(_rgbw_to_srgb(data))
         case "linear":
             return colour.RGB_to_XYZ(data, "sRGB")
+        case "rec709_rgb_prime":
+            linear = _rec709_rgb_prime_to_linear(data)
+            return colour.RGB_to_XYZ(linear, "sRGB")
         case "oklab":
             return colour.Oklab_to_XYZ(data)
         case "oklch":
@@ -133,8 +242,14 @@ def _from_xyz(xyz: NDArray, model: str) -> NDArray:
     match model:
         case "srgb":
             return colour.XYZ_to_sRGB(xyz)
+        case "rgbw":
+            srgb = colour.XYZ_to_sRGB(xyz)
+            return _srgb_to_rgbw(srgb)
         case "linear":
             return colour.XYZ_to_RGB(xyz, "sRGB")
+        case "rec709_rgb_prime":
+            linear = colour.XYZ_to_RGB(xyz, "sRGB")
+            return _linear_to_rec709_rgb_prime(linear)
         case "oklab":
             return colour.XYZ_to_Oklab(xyz)
         case "oklch":
@@ -281,6 +396,222 @@ def _linear_to_srgb(linear: NDArray) -> NDArray:
         12.92 * linear,
         1.055 * np.power(np.maximum(linear, 0), 1 / 2.4) - 0.055,
     ).astype(np.float32)
+
+
+_REC709_LEVEL_MIN = 16.0 / 255.0
+_REC709_LEVEL_MAX = 235.0 / 255.0
+_REC709_LEVEL_RANGE = _REC709_LEVEL_MAX - _REC709_LEVEL_MIN
+
+
+def _rec709_video_to_encoded(rgb: NDArray) -> NDArray:
+    """Map normalized video levels (0-1 == code 0-255) to encoded Rec.709 R′."""
+    encoded = (rgb - _REC709_LEVEL_MIN) / _REC709_LEVEL_RANGE
+    return np.clip(encoded, 0.0, 1.0)
+
+
+def _encoded_to_rec709_video(encoded: NDArray) -> NDArray:
+    """Map encoded Rec.709 R′ in [0,1] back to normalized video levels."""
+    video = encoded * _REC709_LEVEL_RANGE + _REC709_LEVEL_MIN
+    return np.clip(video, 0.0, 1.0)
+
+
+def _rec709_gamma_to_linear(rgb_prime: NDArray) -> NDArray:
+    return np.where(
+        rgb_prime <= 0.081,
+        rgb_prime / 4.5,
+        np.power((rgb_prime + 0.099) / 1.099, 1 / 0.45),
+    ).astype(np.float32)
+
+
+def _linear_to_rec709_gamma(linear: NDArray) -> NDArray:
+    linear = np.clip(linear, 0.0, 1.0)
+    return np.where(
+        linear <= 0.018,
+        4.5 * linear,
+        1.099 * np.power(np.maximum(linear, 0), 0.45) - 0.099,
+    ).astype(np.float32)
+
+
+def _rec709_rgb_prime_to_linear(rgb: NDArray) -> NDArray:
+    encoded = _rec709_video_to_encoded(rgb)
+    return _rec709_gamma_to_linear(encoded)
+
+
+def _linear_to_rec709_rgb_prime(linear: NDArray) -> NDArray:
+    encoded = _linear_to_rec709_gamma(linear)
+    return _encoded_to_rec709_video(encoded)
+
+
+def _rgbw_to_srgb(data: NDArray) -> NDArray:
+    return data[..., :3]
+
+
+def _srgb_to_rgbw(data: NDArray) -> NDArray:
+    zeros = np.zeros((*data.shape[:-1], 1), dtype=np.float32)
+    return np.concatenate([data, zeros], axis=-1)
+
+
+def _srgb_to_hsv(rgb: NDArray) -> NDArray:
+    rgb = np.clip(rgb, 0.0, 1.0).astype(np.float64)
+    r = rgb[..., 0]
+    g = rgb[..., 1]
+    b = rgb[..., 2]
+
+    maxc = np.max(rgb, axis=-1)
+    minc = np.min(rgb, axis=-1)
+    delta = maxc - minc
+
+    v = maxc
+    s = np.where(maxc <= 1e-10, 0.0, delta / np.maximum(maxc, 1e-10))
+
+    h = np.zeros_like(maxc)
+    mask = delta > 1e-6
+    if np.any(mask):
+        # Compute normalized color differences without pre-filtering
+        rc = (maxc - r) / np.maximum(delta, 1e-10)
+        gc = (maxc - g) / np.maximum(delta, 1e-10)
+        bc = (maxc - b) / np.maximum(delta, 1e-10)
+
+        rmask = (maxc == r) & mask
+        gmask = (maxc == g) & mask
+        bmask = (maxc == b) & mask
+
+        h[rmask] = (bc - gc)[rmask]
+        h[gmask] = (2.0 + rc - bc)[gmask]
+        h[bmask] = (4.0 + gc - rc)[bmask]
+        h = (h / 6.0) % 1.0
+
+    hsv = np.stack([h, s, v], axis=-1)
+    return hsv.astype(np.float32)
+
+
+def _hsv_to_srgb(hsv: NDArray) -> NDArray:
+    hsv = np.clip(hsv, 0.0, 1.0).astype(np.float64)
+    h = hsv[..., 0]
+    s = hsv[..., 1]
+    v = hsv[..., 2]
+
+    i = np.floor(h * 6.0).astype(np.int32)
+    f = h * 6.0 - i
+    p = v * (1.0 - s)
+    q = v * (1.0 - f * s)
+    t = v * (1.0 - (1.0 - f) * s)
+
+    i_mod = np.mod(i, 6)
+    shape = (*hsv.shape[:-1], 3)
+    rgb = np.empty(shape, dtype=np.float64)
+
+    mask0 = i_mod == 0
+    mask1 = i_mod == 1
+    mask2 = i_mod == 2
+    mask3 = i_mod == 3
+    mask4 = i_mod == 4
+    mask5 = i_mod == 5
+
+    rgb[mask0] = np.stack([v, t, p], axis=-1)[mask0]
+    rgb[mask1] = np.stack([q, v, p], axis=-1)[mask1]
+    rgb[mask2] = np.stack([p, v, t], axis=-1)[mask2]
+    rgb[mask3] = np.stack([p, q, v], axis=-1)[mask3]
+    rgb[mask4] = np.stack([t, p, v], axis=-1)[mask4]
+    rgb[mask5] = np.stack([v, p, q], axis=-1)[mask5]
+
+    achromatic = s <= 1e-6
+    if np.any(achromatic):
+        rgb[achromatic] = np.stack([v, v, v], axis=-1)[achromatic]
+
+    return np.clip(rgb, 0.0, 1.0).astype(np.float32)
+
+
+def _normalize_kelvin_channel(kelvin: NDArray | float) -> NDArray | float:
+    return np.clip((kelvin - _MIN_KELVIN) / _KELVIN_RANGE, 0.0, 1.0)
+
+
+def _denormalize_kelvin_channel(channel: NDArray | float) -> NDArray | float:
+    return np.clip(channel, 0.0, 1.0) * _KELVIN_RANGE + _MIN_KELVIN
+
+
+def _estimate_kelvin_from_srgb(rgb: NDArray) -> NDArray:
+    rgb = np.clip(rgb, 1e-5, 1.0).astype(np.float64)
+    
+    # Ensure rgb is at least 2D for colour library compatibility
+    original_shape = rgb.shape
+    if rgb.ndim == 1:
+        rgb = rgb.reshape(1, -1)
+    
+    xyz = colour.sRGB_to_XYZ(rgb)
+    xyY = colour.XYZ_to_xyY(xyz)
+    x = xyY[..., 0]
+    y = xyY[..., 1]
+
+    denom = y - 0.1858
+    valid = np.abs(denom) > 1e-6
+    n = np.where(valid, (x - 0.3320) / denom, 0.0)
+
+    kelvin = -449.0 * n**3 + 3525.0 * n**2 - 6823.3 * n + 5520.33
+    kelvin = np.where(valid, kelvin, _DEFAULT_KELVIN)
+    kelvin = np.where(np.isfinite(kelvin), kelvin, _DEFAULT_KELVIN)
+    kelvin = np.clip(kelvin, _MIN_KELVIN, _MAX_KELVIN)
+    
+    # Restore original shape if needed
+    if len(original_shape) == 1:
+        kelvin = kelvin.ravel()
+    
+    return kelvin.astype(np.float32)
+
+
+def _kelvin_to_srgb_white(kelvin: NDArray | float) -> NDArray:
+    kelvin = np.clip(kelvin, _MIN_KELVIN, _MAX_KELVIN).astype(np.float64) / 100.0
+
+    def clamp(v: NDArray) -> NDArray:
+        return np.clip(v, 0.0, 255.0)
+
+    red = np.where(
+        kelvin <= 66.0,
+        255.0,
+        clamp(329.698727446 * np.power(np.maximum(kelvin - 60.0, 1e-3), -0.1332047592)),
+    )
+
+    green = np.where(
+        kelvin <= 66.0,
+        clamp(99.4708025861 * np.log(np.maximum(kelvin, 1e-3)) - 161.1195681661),
+        clamp(288.1221695283 * np.power(np.maximum(kelvin - 60.0, 1e-3), -0.0755148492)),
+    )
+
+    blue = np.where(
+        kelvin >= 66.0,
+        255.0,
+        np.where(
+            kelvin <= 19.0,
+            0.0,
+            clamp(138.5177312231 * np.log(np.maximum(kelvin - 10.0, 1e-3)) - 305.0447927307),
+        ),
+    )
+
+    rgb = np.stack([red, green, blue], axis=-1) / 255.0
+    return np.clip(rgb, 0.0, 1.0).astype(np.float32)
+
+
+def _srgb_to_hsbk(srgb: NDArray) -> NDArray:
+    hsv = _srgb_to_hsv(srgb)
+    kelvin = _estimate_kelvin_from_srgb(srgb)
+    normalized_kelvin = _normalize_kelvin_channel(kelvin)
+    return np.concatenate([hsv, normalized_kelvin[..., None]], axis=-1).astype(np.float32)
+
+
+def _hsbk_to_srgb(hsbk: NDArray) -> NDArray:
+    h = np.clip(hsbk[..., 0], 0.0, 1.0)
+    s = np.clip(hsbk[..., 1], 0.0, 1.0)
+    v = np.clip(hsbk[..., 2], 0.0, 1.0)
+    kelvin = _denormalize_kelvin_channel(hsbk[..., 3])
+
+    hsv = np.stack([h, s, v], axis=-1)
+    rgb = _hsv_to_srgb(hsv).astype(np.float64)
+
+    neutral = np.stack([v, v, v], axis=-1)
+    kelvin_white = _kelvin_to_srgb_white(kelvin) * v[..., None]
+    blend = (1.0 - s)[..., None]
+    tinted = rgb + (kelvin_white - neutral) * blend
+    return np.clip(tinted, 0.0, 1.0).astype(np.float32)
 
 
 def _srgb_to_oklab_direct(rgb: NDArray) -> NDArray:
