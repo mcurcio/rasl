@@ -80,9 +80,27 @@ def _extract_config_dict(
             if not isinstance(existing, list):
                 result[key] = [existing, value]
             elif existing and isinstance(existing[0], list):
-                result[key].append(value)
+                existing.append(value)
             else:
                 result[key] = [existing, value]
+            if line_map is not None:
+                line_map[key] = line
+
+    def _accumulate_block(key: str, value: Any, line: int) -> None:
+        """Add nested block value to result, preserving repeats."""
+        if key not in result:
+            result[key] = value
+            if line_map is not None:
+                line_map[key] = line
+            return
+
+        existing = result[key]
+        if not isinstance(existing, list):
+            result[key] = [existing, value]
+        else:
+            result[key].append(value)
+        if line_map is not None:
+            line_map[key] = line
 
     for child in directive.block:
         if child.keyword in exclude:
@@ -91,6 +109,13 @@ def _extract_config_dict(
         if child.block:
             # Nested block
             child_dict = _extract_config_dict(child)
+            if child.args:
+                arg_values = [_coerce_value(a) for a in child.args]
+                child_dict = dict(child_dict)
+                if len(arg_values) == 1:
+                    child_dict.setdefault("id", arg_values[0])
+                else:
+                    child_dict.setdefault("_args", arg_values)
             if child.keyword == "segment":
                 result.setdefault("segments", []).append(child_dict)
             elif child.keyword == "defaults":
@@ -99,9 +124,7 @@ def _extract_config_dict(
                 # Special handling for ports block - extract as list of names
                 result["ports"] = [d.keyword for d in child.block]
             else:
-                result[child.keyword] = child_dict
-            if line_map is not None:
-                line_map[child.keyword] = child.line
+                _accumulate_block(child.keyword, child_dict, child.line)
         elif len(child.args) == 0:
             # Flag directive
             result[child.keyword] = True
