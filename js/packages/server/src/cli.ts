@@ -47,7 +47,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const load = loadRaslConfigFromSource(source);
+  const load = await loadRaslConfigFromSource(source, { path: configPath });
 
   if (load.errors.length > 0) {
     console.error('Config errors:');
