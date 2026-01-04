@@ -25,6 +25,8 @@
      - `Delegate.childrenWith(scope, childCtx)`
      - `Delegate.skipChildren()`
    - Ensure `childrenWith` carries a `DirectiveDelegator<TChildCtx>` and `TChildCtx` without casts.
+6. **Minimal registration API (optional wrapper)**
+   - Provide a thin “register directives + callbacks” API on top of `DirectiveDelegator` so minimal consumers don’t need to reason about scopes directly.
 
 ## Change strategy
 - Treat any change to default traversal or handler return shapes as a breaking change.
@@ -33,4 +35,3 @@
 ## Open questions
 - Do we need per-directive context merges (e.g., deriving child context from parent return value)?
 - Should the delegator expose a way to mutate directive arguments in-place, or should that stay outside scope?
-- Do we want a higher-level “register directives + callbacks” API as a thin wrapper over `DirectiveDelegator`, or is the delegator itself the intended minimal surface?

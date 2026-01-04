@@ -15,7 +15,10 @@
 
 ## Current decisions (confirmed)
 - **Statement termination**: newline terminates directives; semicolons are optional but required to put multiple directives on one line.
-- **No line continuation**: directive headers do not span multiple lines.
+- **No backslash line continuation**: directive headers do not use `\\` escapes.
+- **Multi-line bracket lists**: newlines are allowed within `[...]` list literals and do not terminate directives until the matching `]`.
+- **Slices are postfix**: slice/range syntax is written without whitespace as `foo[0:3]`.
+- **Blocks**: `{` must be on the same line as the directive header it opens.
 - **Strings**: support both `'` and `"` quotes.
 - **String escapes (v1)**: keep `\\`, `\n`, `\t`, `\r`, `\"`, `\'`.
 - **Round-tripping**: byte-identical `serializeCst(parse(x)) === x` is a first-class goal.
@@ -26,20 +29,17 @@
 - **`include`**: core feature; include resolution produces a **document graph** (not a single inlined document).
 - **`include` paths**: must be quoted string literals; resolver may treat them as globs.
 - **Dots**: follow nginx practice (dot is part of a “word”, not a punctuation token).
+- **Word charset**: unquoted “words” use only letters/digits/underscores/dots (no hyphens).
+- **Include glob ordering**: core sorts glob matches by `resolvedPath` ascending (lexicographic).
 - **Diagnostics**: 0-based line/column; stable diagnostic codes + human-readable messages.
 - **Public API**: keep the directive-level AST (`ast-directives`); no RASL node/connection AST in this package.
 - **Delegation**: `DirectiveDelegator` is intended as a public hook for implementors (notably for `include` processing), and should be strongly typed (avoid `unknown`/`any`).
 - **Parser generator**: adopt ANTLR4 and treat the `.g4` grammar as the shared foundation for multi-language bindings.
 
 ## Remaining decisions (need confirmation)
-- **Bracket syntax (`[...]`)**: recommendation for cross-language + RASL-compat is to support both:
-  - list literal: `[a, b, c]`
-  - slice/range literal: `[start:end]` (also allow `[:end]`, `[start:]`, `[:]`)
-  while keeping round-trip via raw tokens/lexemes.
 - **String escapes (optional v2+)**: decide whether to add common `\uXXXX`/`\xNN` style escapes, or rely on raw UTF-8 source.
   - If added, decide how they interact with byte-identical round-trip (raw lexeme must win).
-- **Glob expansion order**: require deterministic ordering of glob matches (recommended: stable lexicographic by `resolvedPath`).
-- **Header formatting**: confirm whether `{` must be on the same line as the directive header (recommended if newline terminates directives).
+- **Slice details**: confirm whether `[start:]` is allowed (recommended) and whether `[:end]` / `[:]` are allowed (currently unspecified).
 
 ## Units of work (milestones)
 
