@@ -1,17 +1,17 @@
 # @rasl/config
 
-Configuration file parsing for RASL `.conf` files.
+Configuration file parsing for nginx-style `.conf` files.
 
 ## Overview
 
-This package provides a parser for RASL configuration files, which use a custom DSL for defining node graphs. The parser produces both a Concrete Syntax Tree (CST) for lossless source representation and an Abstract Syntax Tree (AST) for semantic processing.
+This package provides a domain-agnostic parser for nginx-style configuration files. It produces a full-fidelity Concrete Syntax Tree (CST) for lossless round-tripping, plus an AST facade for convenient traversal.
 
 ## Features
 
 - **Round-tripping** - CST preserves all whitespace and comments for lossless serialization
 - **Comments** - Line comments (`//`) and block comments (`/* */`)
-- **Optional semicolons** - Trailing semicolons only required between directives on same line
-- **Include directive** - Import other config files with async resolution
+- **Optional semicolons** - Newlines terminate directives; semicolons are optional
+- **Include resolution** - Async include expansion with a document graph (no I/O in core)
 
 ## Syntax
 
@@ -52,39 +52,31 @@ node Waveform sine {
 }
 ```
 
-## Key Types
+## Key Exports
 
 ### Tokens
 
-- `TokenType` - Token type enumeration (keywords, literals, punctuation, trivia)
-- `IToken` - Token with source location
-- `isKeyword()`, `isTrivia()`, `isComment()` - Token type helpers
+- `TokenType`, `IToken` - Token model with exact source text and locations
+- `DiagnosticCode`, `IDiagnostic` - Structured diagnostics with stable codes
+- `isTrivia()`, `isComment()`, `isTerminator()` - Token helpers
 
 ### CST (Concrete Syntax Tree)
 
-- `ICstNode` - Base interface with trivia for round-tripping
-- `ICstDocument` - Root document node
-- `ICstNodeBlock` - Node definition block
-- `ICstConnection` - Connection between nodes
-- `ICstProperty` - Property assignment
-- `ICstInclude` - Include directive
-- `ICstTrivia`, `ICstTriviaItem` - Whitespace/comment preservation
-- `serializeCst()` - Serialize CST back to source text
+- `ICstDocument`, `ICstDirective` - Full-fidelity CST nodes referencing token ranges
+- `serializeCst()`, `serializeDirective()` - Byte-identical serialization helpers
+- `getDirectiveName()`, `getDirectiveArgs()` - Extract directive name/args from token ranges
 
-### AST (Abstract Syntax Tree)
+### AST facade
 
-- `IAstDocument` - Parsed document with nodes, connections, and includes
-- `IAstNodeDef` - Node definition with type and properties
-- `IAstConnection` - Resolved connection between ports
-- `IAstProperty` - Typed property value
-- `IAstInclude` - Resolved include with nested document
+- `createAst()` - Wrap a CST in a convenient traversal/edit facade
+- `IAstDocument`, `IAstDirective`, `IAstDirectiveList` - High-level directive access
+- `walkDirectives()`, `findDirectives()` - Traversal helpers
 
-### Parser
+### Parsing
 
-- `parse(source, config?)` - Synchronous parse
-- `parseAsync(source, config)` - Async parse with include resolution
-- `IParseConfig` - Parser options including `includeResolver`
-- `IParseResult` - Contains CST, AST, source, and diagnostics
+- `parse(source, config?)` - Synchronous parse to `IParseResult` (CST + diagnostics)
+- `parseAsync(source, config?)` - Async parse with include resolution to `IDocumentGraph`
+- `flattenDocumentGraph()` - Convenience view for consumers who don't need the graph
 
 ## Usage
 
@@ -94,10 +86,7 @@ node Waveform sine {
 import { parse } from '@rasl/config';
 
 const result = parse(configSource);
-if (result.errors.length === 0) {
-  console.log('Nodes:', result.ast.nodes);
-  console.log('Connections:', result.ast.connections);
-}
+console.log('Errors:', result.errors);
 ```
 
 ### With Include Resolution
@@ -107,11 +96,13 @@ import { parseAsync } from '@rasl/config';
 import { readFile } from 'fs/promises';
 import { resolve, dirname } from 'path';
 
-const result = await parseAsync(configSource, {
-  basePath: '/path/to/config',
-  includeResolver: async (path) => {
-    const fullPath = resolve(dirname(basePath), path);
-    return readFile(fullPath, 'utf-8');
+const basePath = '/path/to/config';
+const graph = await parseAsync(configSource, {
+  sourceId: basePath,
+  includeResolver: async (spec) => {
+    const fullPath = resolve(dirname(basePath), spec);
+    const source = await readFile(fullPath, 'utf-8');
+    return [{ source, resolvedPath: fullPath }];
   },
 });
 ```
