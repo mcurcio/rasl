@@ -1,5 +1,10 @@
 /**
- * Token types for config lexer.
+ * Token types for the config lexer.
+ *
+ * Key properties:
+ * - Word token includes dots (nginx-style: `server.name` is one word)
+ * - Newline is structural (terminates directives)
+ * - All trivia preserved in token stream for round-tripping
  */
 
 /**
@@ -7,28 +12,24 @@
  */
 export const TokenType = {
   // Literals
-  Identifier: 'identifier',
-  String: 'string',
-  Number: 'number',
-  Boolean: 'boolean',
+  Word: 'word',           // Identifier with dots: letters/digits/underscores/dots
+  String: 'string',       // Quoted string (single or double)
+  Number: 'number',       // Numeric literal
 
   // Punctuation
   LeftBrace: 'left_brace',
   RightBrace: 'right_brace',
   LeftBracket: 'left_bracket',
   RightBracket: 'right_bracket',
-  LeftParen: 'left_paren',
-  RightParen: 'right_paren',
   Semicolon: 'semicolon',
   Colon: 'colon',
   Comma: 'comma',
-  Dot: 'dot',
 
   // Trivia (preserved for round-tripping)
-  Whitespace: 'whitespace',
-  Newline: 'newline',
-  LineComment: 'line_comment',     // // comment
-  BlockComment: 'block_comment',   // /* comment */
+  Whitespace: 'whitespace',   // Spaces and tabs (not newlines)
+  Newline: 'newline',         // Structural: terminates directives
+  LineComment: 'line_comment',
+  BlockComment: 'block_comment',
 
   // Special
   Eof: 'eof',
@@ -37,44 +38,95 @@ export const TokenType = {
 export type TokenType = (typeof TokenType)[keyof typeof TokenType];
 
 /**
- * Token with source location.
+ * 0-based source location.
  */
-export interface IToken {
-  type: TokenType;
-  value: string;
-  span: ITokenSpan;
+export interface ISourceLocation {
+  offset: number;   // Byte offset from start of source
+  line: number;     // 0-based line number
+  column: number;   // 0-based column number
 }
 
 /**
- * Token source location.
+ * Source span with start and end locations.
  */
-export interface ITokenSpan {
-  start: number;
-  end: number;
-  line: number;
-  column: number;
+export interface ISourceSpan {
+  start: ISourceLocation;
+  end: ISourceLocation;
+}
+
+/**
+ * Token with exact source text and location.
+ */
+export interface IToken {
+  type: TokenType;
+  /** Raw source text (exact lexeme for round-tripping) */
+  text: string;
+  /** Parsed/decoded value (e.g., unescaped string content) */
+  value: string | number | boolean;
+  span: ISourceSpan;
 }
 
 /**
  * Lexer result.
  */
 export interface ILexResult {
+  /** Full token stream including trivia */
   tokens: IToken[];
-  errors: ILexError[];
+  errors: IDiagnostic[];
 }
 
 /**
- * Lexer error.
+ * Diagnostic codes for stable cross-language error identification.
  */
-export interface ILexError {
+export const DiagnosticCode = {
+  // Lexer errors (1xxx)
+  UnterminatedString: 'E1001',
+  UnterminatedBlockComment: 'E1002',
+  UnexpectedCharacter: 'E1003',
+  InvalidEscapeSequence: 'W1004',
+  InvalidNumber: 'E1005',
+
+  // Parser errors (2xxx)
+  UnexpectedToken: 'E2001',
+  ExpectedDirectiveName: 'E2002',
+  ExpectedClosingBrace: 'E2003',
+  ExpectedClosingBracket: 'E2004',
+  ExpectedSemicolonOrNewline: 'E2005',
+  ExpectedStringLiteral: 'E2006',
+
+  // Include errors (3xxx)
+  IncludeNotFound: 'E3001',
+  IncludeCycle: 'E3002',
+  IncludeDepthExceeded: 'E3003',
+  IncludeResolverFailed: 'E3004',
+  IncludeNoMatches: 'W3005',
+} as const;
+export type DiagnosticCode = (typeof DiagnosticCode)[keyof typeof DiagnosticCode];
+
+/**
+ * Diagnostic severity.
+ */
+export const DiagnosticSeverity = {
+  Error: 'error',
+  Warning: 'warning',
+  Info: 'info',
+} as const;
+export type DiagnosticSeverity = (typeof DiagnosticSeverity)[keyof typeof DiagnosticSeverity];
+
+/**
+ * Structured diagnostic with stable code.
+ */
+export interface IDiagnostic {
+  code: DiagnosticCode;
+  severity: DiagnosticSeverity;
   message: string;
-  line: number;
-  column: number;
-  span: ITokenSpan;
+  span: ISourceSpan;
+  /** Optional source file identifier */
+  sourceId?: string;
 }
 
 /**
- * Check if a token type is trivia (whitespace/comments).
+ * Check if a token type is trivia (whitespace/comments/newlines).
  */
 export function isTrivia(type: TokenType): boolean {
   return (
@@ -93,11 +145,15 @@ export function isComment(type: TokenType): boolean {
 }
 
 /**
- * Keyword lookup table.
- *
- * This is intentionally minimal to keep @rasl/config schema-agnostic.
+ * Check if a token type is whitespace (not newline).
  */
-export const Keywords: Record<string, TokenType> = {
-  true: TokenType.Boolean,
-  false: TokenType.Boolean,
-};
+export function isWhitespace(type: TokenType): boolean {
+  return type === TokenType.Whitespace;
+}
+
+/**
+ * Check if a token terminates a directive (newline or semicolon).
+ */
+export function isTerminator(type: TokenType): boolean {
+  return type === TokenType.Newline || type === TokenType.Semicolon;
+}
