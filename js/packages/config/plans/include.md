@@ -11,19 +11,19 @@
 - Extend `IParseConfig` with:
   - `basePath?: string` – starting directory for relative include paths.
   - `sourceId?: string` – optional stable identity for the root document (used for diagnostics + graph edges).
-  - `includeResolver?: (spec: string, ctx: { parentPath: string; depth: number }) => Promise<Array<{ source: string; resolvedPath: string }>>` – resolves an include spec (path or glob) to one or more sources. Core code applies deterministic ordering.
+  - `loader: (spec: string, ctx: { parentPath: string; depth: number }) => Promise<Array<{ source: string; resolvedPath: string }>>` – loads an include spec (path or glob) to one or more documents. Core code applies deterministic ordering.
   - `maxIncludeDepth?: number` – guard against cycles (default e.g. 16).
-- Update `parseAsync` to require the resolver when includes appear; `parse` remains synchronous and skips include expansion.
+- Make `parse` async-only and require a `loader` always.
 
 ## Execution flow
 1. Parse the parent file to a CST that still contains `include` directives.
-2. When `includeResolver` exists, walk the CST/AST for `include` directives:
+2. Walk the CST/AST for `include` directives and use the `loader`:
    - `include` paths are **quoted string literals** and may be relative or absolute; interpretation (including globbing) is resolver-defined.
    - Resolve relative to `basePath` or the including file’s resolved path (when available).
    - Await the resolver; on failure, push a diagnostic and leave the include unresolved.
    - Sort matches ascending lexicographic by `resolvedPath`.
    - For each match:
-     - parse the returned source via `parseAsync` recursively (passing updated `basePath` and incremented depth)
+     - parse the returned source via `parse` recursively (passing updated `parentPath` and incremented depth)
      - attach the parsed document (or null) as an include edge in the document graph (and to the directive facade if needed)
 3. Track visited paths to prevent infinite recursion; emit a warning when the limit hits.
 4. Keep the core result as a document graph; consumers can optionally build their own “single inlined document” view in a separate pass.
