@@ -1,1 +1,0 @@
-SliceInfo<[SliceInfoElem; 2], Dim<[usize; 2]>, Dim<[usize; 2]>>: ndarray::slice::SliceArg<ndarray::dimension::dim::Dim<[usize; 2]>>
