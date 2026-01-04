@@ -7,12 +7,12 @@
 
 ## Approach
 1. **Lexer emits trivia**
-   - Add token kinds for whitespace, newline, `//`, `/* */`, and `#` comments.
+   - Add token kinds for whitespace, newline, `//`, and `/* */` comments.
    - Preserve the exact lexeme text (no trimming or escape normalisation) so serialization can reuse it verbatim.
    - Carry precise spans for every trivia token.
 2. **Parser retains trivia**
    - Stop filtering trivia before parsing; instead, consume it into `leadingTrivia` and `trailingTrivia` collections attached to each `ICstDirective`.
-   - Respect `preserveTrivia?: boolean` so consumers that do not care can still drop trivia for performance.
+   - Default `preserveTrivia?: boolean` to `true`; allow consumers to drop trivia for performance.
    - Ensure the document node also keeps trailing trivia after the final directive (needed to reproduce EOF whitespace).
 3. **Directive structure**
    - Do not reinterpret literal token values for the CST layer—store raw tokens so they can be re-serialized.
