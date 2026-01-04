@@ -7,7 +7,7 @@
 
 ## Current gaps (from the existing package)
 - **RASL leakage in surface area**: package description/README/tests/JSDoc are RASL-centric even though the core parser is mostly directive-generic.
-- **Docs don’t match implementation**: `parseAsync`, `include`, and `serializeCst` are described but not implemented; semicolon/newline rules are underspecified.
+- **Docs don’t match implementation**: parsing API and include semantics must match the implementation; semicolon/newline rules should be specified.
 - **Parsing drops information**: lexer/parser currently filter or reshape tokens (blocking byte-identical round-tripping).
 - **Grammar edge-cases are accidental**: newline is currently treated as ignorable trivia (so “optional semicolons” can’t work).
 - **Tokenization mismatches nginx expectations**: `.` is currently tokenized as punctuation instead of being part of a “word”.
@@ -70,7 +70,7 @@
 - Add focused parser recovery rules and diagnostic codes (not just strings) for stability across languages.
 
 ### 4) Multi-file parsing + include resolution
-- Implement `parseAsync` + `includeResolver` (no filesystem I/O in core).
+- Implement async `parse` + required `includeResolver` (no filesystem I/O in core).
 - Specify and enforce cycle/depth handling; surface diagnostics with file identity/path.
 - Use a document graph representation so included files can be round-tripped back to their original sources.
 - Support glob expansion in the resolver surface and define deterministic match ordering.
