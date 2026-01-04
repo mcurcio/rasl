@@ -4,6 +4,7 @@
 - Make `DirectiveDelegator` easier to compose when building DSL layers on top of the directive AST.
 - Default to walking child directives with the current scope/context while still allowing handlers to redirect child processing.
 - Improve observability (hooks) without forcing each handler to hand-roll `{ scope, ctx }` objects.
+- Make it a solid foundation for post-parse passes like `include` resolution.
 
 ## Proposed API refinements
 1. **Default child traversal**
@@ -18,9 +19,9 @@
    - Keep `onEnterScope`, `onExitScope`, `onBeforeDirective`, `onAfterDirective`, `onUnknownDirective`.
    - Add `onSkipDirective` to detect when children are intentionally skipped.
 
-## Migration plan
-- Introduce the new helper return types while still accepting the legacy `{ scope, ctx }` object for one release (with console warnings) to ease adoption.
-- Update internal usage/tests to exercise default traversal, skipping, and re-scoping flows.
+## Change strategy
+- Treat any change to default traversal or handler return shapes as a breaking change.
+- If compatibility shims are desired, decide that explicitly (default: no shims/aliases/deprecations).
 
 ## Open questions
 - Do we need per-directive context merges (e.g., deriving child context from parent return value)?
