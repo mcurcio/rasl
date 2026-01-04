@@ -4,6 +4,8 @@
 - Make `DirectiveDelegator` easier to compose when building DSL layers on top of the directive AST.
 - Default to walking child directives with the current scope/context while still allowing handlers to redirect child processing.
 - Improve observability (hooks) without forcing each handler to hand-roll `{ scope, ctx }` objects.
+- Make it a solid foundation for post-parse passes like `include` resolution.
+- Keep the public API strongly typed (avoid `unknown`/`any` where possible).
 
 ## Proposed API refinements
 1. **Default child traversal**
@@ -17,11 +19,18 @@
 4. **Hooks**
    - Keep `onEnterScope`, `onExitScope`, `onBeforeDirective`, `onAfterDirective`, `onUnknownDirective`.
    - Add `onSkipDirective` to detect when children are intentionally skipped.
+5. **Strong typing for delegation results**
+   - Replace `void | { scope: DirectiveDelegator<unknown>; ctx: unknown }` with a discriminated union that preserves types:
+     - `Delegate.children(ctxOverride?)`
+     - `Delegate.childrenWith(scope, childCtx)`
+     - `Delegate.skipChildren()`
+   - Ensure `childrenWith` carries a `DirectiveDelegator<TChildCtx>` and `TChildCtx` without casts.
 
-## Migration plan
-- Introduce the new helper return types while still accepting the legacy `{ scope, ctx }` object for one release (with console warnings) to ease adoption.
-- Update internal usage/tests to exercise default traversal, skipping, and re-scoping flows.
+## Change strategy
+- Treat any change to default traversal or handler return shapes as a breaking change.
+- If compatibility shims are desired, decide that explicitly (default: no shims/aliases/deprecations).
 
 ## Open questions
 - Do we need per-directive context merges (e.g., deriving child context from parent return value)?
 - Should the delegator expose a way to mutate directive arguments in-place, or should that stay outside scope?
+- Do we want a higher-level “register directives + callbacks” API as a thin wrapper over `DirectiveDelegator`, or is the delegator itself the intended minimal surface?
