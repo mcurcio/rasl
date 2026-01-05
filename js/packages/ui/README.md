@@ -74,11 +74,11 @@ The `public/` directory contains:
 The UI is served by `@rasl/server` and connects via WebSocket for real-time updates.
 
 ```typescript
-import { RaslServer } from '@rasl/server';
+import { RaslServer } from "@rasl/server";
 
 const server = new RaslServer({
   port: 8080,
-  staticDir: '@rasl/ui/public',
+  staticDir: "@rasl/ui/public",
 });
 ```
 

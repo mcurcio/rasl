@@ -5,32 +5,32 @@
  * separate H, S, L sources.
  */
 
+import type { InputPort, OutputPort } from "@rasl/engine";
 import {
   BaseNode,
   Frame,
-  type ITickContext,
-  InputPort,
   InputPortSpec,
+  type ITickContext,
   MatrixPayload,
-  OutputPort,
+  node,
   OutputPortSpec,
   PortGroup,
-  node,
-} from '@rasl/engine';
-import { normalizeModel, type ColorModel } from '../../convert.js';
-import { ColorPayload } from './color.js';
+} from "@rasl/engine";
+
+import { type ColorModel, normalizeModel } from "../../convert.js";
+import { ColorPayload } from "./color.js";
 
 /**
  * Output type for compose node.
  */
 export const ComposeOutputType = {
-  Array: 'array',
-  Rgb: 'rgb',
-  Hsl: 'hsl',
-  Oklch: 'oklch',
-  Oklab: 'oklab',
-  Okhsl: 'okhsl',
-  Okhsv: 'okhsv',
+  Array: "array",
+  Rgb: "rgb",
+  Hsl: "hsl",
+  Oklch: "oklch",
+  Oklab: "oklab",
+  Okhsl: "okhsl",
+  Okhsv: "okhsv",
 } as const;
 export type ComposeOutputType = (typeof ComposeOutputType)[keyof typeof ComposeOutputType];
 
@@ -43,7 +43,7 @@ export interface IComposeConfig {
   topic?: string;
 }
 
-@node('ComposeNode', 'Compose')
+@node("ComposeNode", "Compose")
 export class ComposeNode extends BaseNode {
   readonly inputs: PortGroup<InputPort>;
   readonly outputs: PortGroup<OutputPort>;
@@ -62,20 +62,19 @@ export class ComposeNode extends BaseNode {
     this._fills = config.fill ?? {};
     this._numPorts = this._portNames.length;
     this._outputType = config.outputType ?? ComposeOutputType.Array;
-    this._colorModel =
-      this._outputType === ComposeOutputType.Array ? null : normalizeModel(this._outputType);
+    this._colorModel = this._outputType === ComposeOutputType.Array ? null : normalizeModel(this._outputType);
     this._topic = config.topic ?? `compose.${this.id}`;
     this._resolvedLength = config.outputChannels ?? null;
 
     // Create dynamic input ports based on config
     const inputSpecs: Record<string, InputPortSpec> = {};
     for (const name of this._portNames) {
-      inputSpecs[name] = new InputPortSpec({ accepts: 'matrix' });
+      inputSpecs[name] = new InputPortSpec({ accepts: "matrix" });
     }
     this.inputs = PortGroup.inputs(inputSpecs);
 
     this.outputs = PortGroup.outputs({
-      out: new OutputPortSpec({ produces: this._outputType === 'array' ? 'matrix' : 'color' }),
+      out: new OutputPortSpec({ produces: this._outputType === "array" ? "matrix" : "color" }),
     });
   }
 
@@ -120,7 +119,7 @@ export class ComposeNode extends BaseNode {
       metadata: this._metadata,
     });
 
-    this.outputs.get('out')?.write(frame);
+    this.outputs.get("out")?.write(frame);
   }
 
   private _composeMatrix(count: number, buffers: Map<string, Float32Array | null>): Float32Array {

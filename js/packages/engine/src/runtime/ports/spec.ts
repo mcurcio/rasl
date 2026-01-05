@@ -37,7 +37,7 @@ export function parseCountSpec(spec: CountSpec): IParsedCountSpec {
   if (spec === null) {
     return { fixedCount: null, minCount: null, maxCount: null };
   }
-  if (typeof spec === 'number') {
+  if (typeof spec === "number") {
     return { fixedCount: spec, minCount: spec, maxCount: spec };
   }
   if (spec.length === 1) {
