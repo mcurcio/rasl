@@ -7,7 +7,9 @@
  * Protocol reference: http://www.3waylabs.com/ddp/
  */
 
-import * as dgram from 'node:dgram';
+import * as dgram from "node:dgram";
+
+import { ErrorCodes, RaslError } from "@rasl/engine";
 
 export const DDP_PORT = 4048;
 export const DDP_HEADER_LEN = 10;
@@ -26,11 +28,7 @@ export class DDPClient {
   private _socket: dgram.Socket | null = null;
   private _sequence = 0;
 
-  constructor(
-    host: string,
-    port: number = DDP_PORT,
-    destinationId: number = DDP_DEFAULT_DEST_ID
-  ) {
+  constructor(host: string, port: number = DDP_PORT, destinationId: number = DDP_DEFAULT_DEST_ID) {
     this._host = host;
     this._port = port;
     this._destinationId = destinationId;
@@ -38,7 +36,7 @@ export class DDPClient {
 
   connect(): void {
     if (this._socket === null) {
-      this._socket = dgram.createSocket('udp4');
+      this._socket = dgram.createSocket("udp4");
     }
   }
 
@@ -55,7 +53,7 @@ export class DDPClient {
    */
   send(data: Uint8Array): void {
     if (this._socket === null) {
-      throw new Error('DDPClient not connected. Call connect() first.');
+      throw new RaslError(ErrorCodes.NotReady, "DDPClient not connected. Call connect() first.");
     }
 
     const totalLen = data.length;
@@ -77,13 +75,9 @@ export class DDPClient {
    * Send as many packets as possible.
    * Returns the next byte offset to resume from. Returns 0 when complete.
    */
-  sendNonblocking(
-    data: Uint8Array,
-    startOffset: number = 0,
-    pushEveryPacket: boolean = false
-  ): number {
+  sendNonblocking(data: Uint8Array, startOffset: number = 0, pushEveryPacket: boolean = false): number {
     if (this._socket === null) {
-      throw new Error('DDPClient not connected. Call connect() first.');
+      throw new RaslError(ErrorCodes.NotReady, "DDPClient not connected. Call connect() first.");
     }
 
     const totalLen = data.length;
@@ -109,7 +103,7 @@ export class DDPClient {
     byteOffset: number,
     data: Uint8Array,
     isLast: boolean,
-    pushEveryPacket: boolean = false
+    pushEveryPacket: boolean = false,
   ): void {
     if (this._socket === null) return;
 

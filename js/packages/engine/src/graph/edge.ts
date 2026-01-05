@@ -31,13 +31,7 @@ export class Edge {
   readonly targetSlice: IResolvedSlice | null;
   readonly repeat: number;
 
-  constructor(
-    source: string,
-    sourcePort: string,
-    target: string,
-    targetPort: string,
-    options?: IConnectOptions
-  ) {
+  constructor(source: string, sourcePort: string, target: string, targetPort: string, options?: IConnectOptions) {
     this.source = source;
     this.sourcePort = sourcePort;
     this.target = target;

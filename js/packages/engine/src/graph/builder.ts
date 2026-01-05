@@ -2,18 +2,18 @@
  * GraphBuilder - Assembles nodes and edges into an ExecutionPlan.
  */
 
-import { type ILogger, type INode, getInputs, getOutputs } from '@rasl/engine';
-import { createConsoleLogger } from '../log/index.js';
-import { Edge, type IConnectOptions } from './edge.js';
-import { ExecutionPlan } from './plan.js';
+import { ErrorCodes, getInputs, getOutputs, type ILogger, type INode, RaslError } from "@rasl/engine";
+
+import { createConsoleLogger } from "../log/index.js";
+import { Edge, type IConnectOptions } from "./edge.js";
+import { ExecutionPlan } from "./plan.js";
 
 /**
  * Warning emitted when cycles are detected in the graph.
  */
-export class CycleWarning extends Error {
+export class CycleWarning extends RaslError {
   constructor(message: string) {
-    super(message);
-    this.name = 'CycleWarning';
+    super(ErrorCodes.Internal, message);
   }
 }
 
@@ -51,7 +51,7 @@ export class GraphBuilder {
    */
   addNode(node: INode): void {
     if (this._nodes.has(node.id)) {
-      throw new Error(`Duplicate node id '${node.id}'`);
+      throw new RaslError(ErrorCodes.InvalidArgument, `Duplicate node id '${node.id}'`);
     }
     this._nodes.set(node.id, node);
   }
@@ -59,18 +59,12 @@ export class GraphBuilder {
   /**
    * Create an edge connecting two node ports.
    */
-  connect(
-    source: string,
-    sourcePort: string,
-    target: string,
-    targetPort: string,
-    options?: IConnectOptions
-  ): void {
+  connect(source: string, sourcePort: string, target: string, targetPort: string, options?: IConnectOptions): void {
     if (!this._nodes.has(source)) {
-      throw new Error(`Unknown source node '${source}'`);
+      throw new RaslError(ErrorCodes.NotFound, `Unknown source node '${source}'`);
     }
     if (!this._nodes.has(target)) {
-      throw new Error(`Unknown target node '${target}'`);
+      throw new RaslError(ErrorCodes.NotFound, `Unknown target node '${target}'`);
     }
 
     const srcNode = this._nodes.get(source)!;
@@ -81,15 +75,15 @@ export class GraphBuilder {
 
     // Validate port existence
     if (!srcOutputs.has(sourcePort)) {
-      throw new Error(
-        `Node '${source}' has no output port '${sourcePort}'. ` +
-        `Available: ${srcOutputs.names.join(', ')}`
+      throw new RaslError(
+        ErrorCodes.NotFound,
+        `Node '${source}' has no output port '${sourcePort}'. Available: ${srcOutputs.names.join(", ")}`,
       );
     }
     if (!tgtInputs.has(targetPort)) {
-      throw new Error(
-        `Node '${target}' has no input port '${targetPort}'. ` +
-        `Available: ${tgtInputs.names.join(', ')}`
+      throw new RaslError(
+        ErrorCodes.NotFound,
+        `Node '${target}' has no input port '${targetPort}'. Available: ${tgtInputs.names.join(", ")}`,
       );
     }
 
@@ -102,9 +96,9 @@ export class GraphBuilder {
       const tgtLen = Edge.sliceLength(options.targetSlice, tgtSpec.fixedCount);
 
       if (srcLen !== null && tgtLen !== null && srcLen !== tgtLen) {
-        throw new Error(
-          `Slice length mismatch: ${source}.${sourcePort} has ${srcLen} channels, ` +
-          `but ${target}.${targetPort} has ${tgtLen} channels`
+        throw new RaslError(
+          ErrorCodes.InvalidArgument,
+          `Slice length mismatch: ${source}.${sourcePort} has ${srcLen} channels, but ${target}.${targetPort} has ${tgtLen} channels`,
         );
       }
     }
@@ -117,10 +111,10 @@ export class GraphBuilder {
    */
   connectDefault(source: string, target: string): void {
     if (!this._nodes.has(source)) {
-      throw new Error(`Unknown source node '${source}'`);
+      throw new RaslError(ErrorCodes.NotFound, `Unknown source node '${source}'`);
     }
     if (!this._nodes.has(target)) {
-      throw new Error(`Unknown target node '${target}'`);
+      throw new RaslError(ErrorCodes.NotFound, `Unknown target node '${target}'`);
     }
 
     const srcOutputs = getOutputs(this._nodes.get(source)!);
@@ -158,7 +152,7 @@ export class GraphBuilder {
           cycles: cycles.length,
         },
         `Graph contains ${cycles.length} cycle(s). ` +
-          `Cycles may cause nodes to receive stale data on the first frame.`
+          `Cycles may cause nodes to receive stale data on the first frame.`,
       );
     }
 
@@ -168,9 +162,7 @@ export class GraphBuilder {
   /**
    * Compute execution order, handling cycles gracefully.
    */
-  private _toposortWithCycles(
-    adjacency: Map<string, Edge[]>
-  ): { order: string[]; cycles: string[][] } {
+  private _toposortWithCycles(adjacency: Map<string, Edge[]>): { order: string[]; cycles: string[][] } {
     const cycles = this._findCycles(adjacency);
 
     const indegree = new Map<string, number>();

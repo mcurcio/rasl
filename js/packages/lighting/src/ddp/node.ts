@@ -6,18 +6,10 @@
  * counts with up to 480 RGB pixels per packet.
  */
 
-import {
-  BaseNode,
-  type ITickContext,
-  InputPort,
-  InputPortSpec,
-  MatrixPayload,
-  type NodeContext,
-  PortGroup,
-  node,
-  pullRate,
-} from '@rasl/engine';
-import { DDPClient } from './client.js';
+import type { InputPort, MatrixPayload } from "@rasl/engine";
+import { BaseNode, InputPortSpec, type ITickContext, node, type NodeContext, PortGroup, pullRate } from "@rasl/engine";
+
+import { DDPClient } from "./client.js";
 
 export interface IDdpSinkConfig {
   id: string;
@@ -29,13 +21,13 @@ export interface IDdpSinkConfig {
 }
 
 function parseFps(fps: unknown): number {
-  if (typeof fps === 'number') return fps;
-  if (typeof fps === 'string') {
+  if (typeof fps === "number") return fps;
+  if (typeof fps === "string") {
     // Handle "20hz", "30", "50ms" formats
     const lower = fps.toLowerCase();
-    if (lower.endsWith('hz')) {
+    if (lower.endsWith("hz")) {
       return parseFloat(lower.slice(0, -2));
-    } else if (lower.endsWith('ms')) {
+    } else if (lower.endsWith("ms")) {
       return 1000 / parseFloat(lower.slice(0, -2));
     }
     return parseFloat(fps);
@@ -43,7 +35,7 @@ function parseFps(fps: unknown): number {
   return 30;
 }
 
-@node('DdpSinkNode', 'DdpSink')
+@node("DdpSinkNode", "DdpSink")
 export class DdpSinkNode extends BaseNode {
   readonly inputs: PortGroup<InputPort>;
 
@@ -58,24 +50,22 @@ export class DdpSinkNode extends BaseNode {
 
   constructor(config: IDdpSinkConfig) {
     super(config);
-    this._target = config.target ?? 'localhost';
+    this._target = config.target ?? "localhost";
     this._fps = parseFps(config.fps);
     this._maxCount = config.maxCount ?? null;
-    this._inputPort = config.inputPort ?? 'pixels';
+    this._inputPort = config.inputPort ?? "pixels";
     this._pushEveryPacket = config.pushEveryPacket ?? false;
 
     // Build dynamic input port based on config
     this.inputs = PortGroup.inputs({
-      [this._inputPort]: new InputPortSpec({ accepts: ['matrix', 'color'] }),
+      [this._inputPort]: new InputPortSpec({ accepts: ["matrix", "color"] }),
     });
   }
 
   override async start(ctx: NodeContext): Promise<void> {
     this._client = new DDPClient(this._target);
     this._client.connect();
-    ctx.logger.info(
-      `DdpSink '${this.id}' targeting ${this._target} at ${this._fps} FPS`
-    );
+    ctx.logger.info(`DdpSink '${this.id}' targeting ${this._target} at ${this._fps} FPS`);
   }
 
   override async stop(ctx: NodeContext): Promise<void> {
@@ -83,9 +73,7 @@ export class DdpSinkNode extends BaseNode {
       this._client.close();
       this._client = null;
     }
-    ctx.logger.info(
-      `DdpSink '${this.id}' stopped: ${this._framesSent} sent, ${this._framesDropped} dropped`
-    );
+    ctx.logger.info(`DdpSink '${this.id}' stopped: ${this._framesSent} sent, ${this._framesDropped} dropped`);
   }
 
   @pullRate((self: unknown) => (self as DdpSinkNode)._fps)
@@ -117,11 +105,7 @@ export class DdpSinkNode extends BaseNode {
     if (byteData.length === 0) return;
 
     try {
-      const nextOffset = this._client.sendNonblocking(
-        byteData,
-        0,
-        this._pushEveryPacket
-      );
+      const nextOffset = this._client.sendNonblocking(byteData, 0, this._pushEveryPacket);
       if (nextOffset === 0) {
         this._framesSent++;
       } else {

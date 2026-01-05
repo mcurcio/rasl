@@ -2,10 +2,10 @@
  * BaseNode - Abstract base class for all RASL nodes.
  */
 
-import type { Metadata } from '../frame.js';
-import { EMPTY_METADATA } from '../frame.js';
-import type { ITickContext } from '../tick.js';
-import type { NodeContext } from './context.js';
+import type { Metadata } from "../frame.js";
+import { EMPTY_METADATA } from "../frame.js";
+import type { ITickContext } from "../tick.js";
+import type { NodeContext } from "./context.js";
 
 /**
  * Base configuration shared by all nodes.

@@ -5,34 +5,30 @@
  */
 
 // Runtime primitives and built-in nodes
-export * from './runtime/index.js';
-export * from './nodes/index.js';
+export * from "./nodes/index.js";
+export * from "./runtime/index.js";
 
 // Graph building
 export {
-  GraphBuilder,
-  ExecutionPlan,
   Edge,
-  type IResolvedSlice,
+  ExecutionPlan,
+  GraphBuilder,
   type IConnectOptions,
+  type IEdgeDescription,
   type IGraphDescription,
   type INodeDescription,
-  type IEdgeDescription,
-} from './graph/index.js';
+  type IResolvedSlice,
+} from "./graph/index.js";
 
 // Scheduler
-export {
-  UnifiedScheduler,
-  type ISchedulerConfig,
-  type INodeStats,
-} from './scheduler/index.js';
+export { type INodeStats, type ISchedulerConfig, UnifiedScheduler } from "./scheduler/index.js";
 
 // Logging
-export * from './log/index.js';
-
 export {
-  loadRaslConfigFromSource,
-  type IRaslLoadResult,
   type IRaslConfigError,
+  type IRaslLoadResult,
   type IRaslUiConfig,
-} from './config/rasl.js';
+  loadRaslConfigFromSource,
+} from "./config/rasl.js";
+export * from "./log/index.js";
+export { type ErrorCode, ErrorCodes, RaslError } from "@rasl/config";

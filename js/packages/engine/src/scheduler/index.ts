@@ -2,5 +2,5 @@
  * Scheduler exports.
  */
 
-export { UnifiedScheduler, type ISchedulerConfig } from './unified.js';
-export { type INodeStats } from './monitor.js';
+export { type INodeStats } from "./monitor.js";
+export { type ISchedulerConfig, UnifiedScheduler } from "./unified.js";

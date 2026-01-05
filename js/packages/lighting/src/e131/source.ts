@@ -5,18 +5,19 @@
  * them as normalized Frames into the processing graph.
  */
 
-import * as dgram from 'node:dgram';
+import * as dgram from "node:dgram";
+
+import type { OutputPort } from "@rasl/engine";
 import {
   BaseNode,
   Frame,
   type ITickContext,
   MatrixPayload,
-  OutputPort,
-  OutputPortSpec,
-  type NodeContext,
-  PortGroup,
   node,
-} from '@rasl/engine';
+  type NodeContext,
+  OutputPortSpec,
+  PortGroup,
+} from "@rasl/engine";
 
 export interface ISacnSourceConfig {
   id: string;
@@ -31,15 +32,15 @@ const SACN_PORT = 5568;
 const SACN_HEADER_SIZE = 126; // Root + Framing + DMP layers
 
 function parseUniverses(universes: unknown): number[] {
-  if (typeof universes === 'number') return [universes];
+  if (typeof universes === "number") return [universes];
   if (Array.isArray(universes)) return universes.map(Number);
   return [1];
 }
 
-@node('SacnSourceNode', 'SacnSource')
+@node("SacnSourceNode", "SacnSource")
 export class SacnSourceNode extends BaseNode {
   readonly outputs: PortGroup<OutputPort> = PortGroup.outputs({
-    out: new OutputPortSpec({ produces: 'matrix' }),
+    out: new OutputPortSpec({ produces: "matrix" }),
   });
 
   private readonly _bindAddress: string;
@@ -51,31 +52,31 @@ export class SacnSourceNode extends BaseNode {
 
   constructor(config: ISacnSourceConfig) {
     super(config);
-    this._bindAddress = config.bindAddress ?? '0.0.0.0';
+    this._bindAddress = config.bindAddress ?? "0.0.0.0";
     this._bindPort = config.bindPort ?? SACN_PORT;
     this._universes = parseUniverses(config.universes);
     this._topic = config.topic ?? `sacn.${this.id}`;
   }
 
   override async start(ctx: NodeContext): Promise<void> {
-    this._socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+    this._socket = dgram.createSocket({ type: "udp4", reuseAddr: true });
 
-    this._socket.on('message', (msg: Buffer) => {
+    this._socket.on("message", (msg: Buffer) => {
       this._handlePacket(msg);
     });
 
-    this._socket.on('error', (err: Error) => {
+    this._socket.on("error", (err: Error) => {
       ctx.logger.error(`SacnSource '${this.id}' error: ${err.message}`);
     });
 
     await new Promise<void>((resolve, reject) => {
       this._socket!.bind(this._bindPort, this._bindAddress, () => {
         ctx.logger.info(
-          `SacnSource '${this.id}' listening on ${this._bindAddress}:${this._bindPort} for universes ${this._universes.join(', ')}`
+          `SacnSource '${this.id}' listening on ${this._bindAddress}:${this._bindPort} for universes ${this._universes.join(", ")}`,
         );
         resolve();
       });
-      this._socket!.once('error', reject);
+      this._socket!.once("error", reject);
     });
   }
 
@@ -92,8 +93,8 @@ export class SacnSourceNode extends BaseNode {
     if (msg.length < SACN_HEADER_SIZE + 1) return;
 
     // Check ACN packet identifier (bytes 4-15)
-    const acnId = msg.toString('ascii', 4, 16);
-    if (acnId !== 'ASC-E1.17\0\0\0') return;
+    const acnId = msg.toString("ascii", 4, 16);
+    if (acnId !== "ASC-E1.17\0\0\0") return;
 
     // Extract universe number (bytes 113-114, big-endian)
     const universe = msg.readUInt16BE(113);
@@ -133,6 +134,6 @@ export class SacnSourceNode extends BaseNode {
       metadata: this._metadata,
     });
 
-    this.outputs.get('out')?.write(outFrame);
+    this.outputs.get("out")?.write(outFrame);
   }
 }

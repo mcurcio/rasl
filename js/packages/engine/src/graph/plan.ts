@@ -2,8 +2,9 @@
  * ExecutionPlan - Compiled graph ready for runtime execution.
  */
 
-import type { INode } from '@rasl/engine';
-import type { Edge } from './edge.js';
+import type { INode } from "@rasl/engine";
+
+import type { Edge } from "./edge.js";
 
 /**
  * Description of a node for serialization.
@@ -56,11 +57,7 @@ export class ExecutionPlan {
    */
   readonly topologicalOrder: readonly string[];
 
-  constructor(
-    nodes: Map<string, INode>,
-    adjacency: Map<string, Edge[]>,
-    topologicalOrder: string[]
-  ) {
+  constructor(nodes: Map<string, INode>, adjacency: Map<string, Edge[]>, topologicalOrder: string[]) {
     this.nodes = nodes;
     this.adjacency = adjacency;
     this.topologicalOrder = Object.freeze([...topologicalOrder]);

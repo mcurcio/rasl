@@ -1,4 +1,4 @@
-import type { DocumentLoader, DocumentWriter } from './io.js';
+import type { DocumentLoader, DocumentWriter } from "./io.js";
 
 /**
  * Create a fetch-backed document loader for browser-like environments.
@@ -25,19 +25,18 @@ export function createFetchLoader(fetchImpl: typeof fetch): DocumentLoader {
  */
 export function createFetchWriter(
   fetchImpl: typeof fetch,
-  options?: { method?: string; contentType?: string }
+  options?: { method?: string; contentType?: string },
 ): DocumentWriter {
-  const method = options?.method ?? 'PUT';
-  const contentType = options?.contentType ?? 'text/plain';
+  const method = options?.method ?? "PUT";
+  const contentType = options?.contentType ?? "text/plain";
 
   return {
     async write(resolvedPath, source) {
       await fetchImpl(resolvedPath, {
         method,
-        headers: { 'content-type': contentType },
+        headers: { "content-type": contentType },
         body: source,
       });
     },
   };
 }
-

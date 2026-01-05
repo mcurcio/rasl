@@ -27,13 +27,13 @@ interface IServerConfig {
 
 ```typescript
 interface IWsMessage {
-  type: 'subscribe' | 'unsubscribe' | 'data' | 'error';
+  type: "subscribe" | "unsubscribe" | "data" | "error";
   topic?: string;
   payload?: unknown;
 }
 
 interface INodeDataMessage {
-  type: 'data';
+  type: "data";
   nodeId: string;
   portName: string;
   timestamp: number;
@@ -54,11 +54,11 @@ interface INodeDataMessage {
 ## Usage
 
 ```typescript
-import { RaslServer } from '@rasl/server';
+import { RaslServer } from "@rasl/server";
 
 const server = new RaslServer({
   port: 8080,
-  staticDir: './public',
+  staticDir: "./public",
 });
 
 await server.start(scheduler);
@@ -69,18 +69,20 @@ await server.start(scheduler);
 Connect to `ws://host:port/ws` for real-time updates.
 
 ```javascript
-const ws = new WebSocket('ws://localhost:8080/ws');
+const ws = new WebSocket("ws://localhost:8080/ws");
 
 // Subscribe to node output
-ws.send(JSON.stringify({
-  type: 'subscribe',
-  topic: 'node:sine.out'
-}));
+ws.send(
+  JSON.stringify({
+    type: "subscribe",
+    topic: "node:sine.out",
+  }),
+);
 
 // Receive data
 ws.onmessage = (event) => {
   const msg = JSON.parse(event.data);
-  if (msg.type === 'data') {
+  if (msg.type === "data") {
     console.log(msg.values);
   }
 };

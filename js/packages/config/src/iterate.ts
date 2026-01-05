@@ -1,6 +1,6 @@
-import { getDirectiveName } from './cst.js';
-import type { IAstDirective } from './ast.js';
-import type { IDocumentGraph, IDocumentNode } from './graph.js';
+import type { IAstDirective } from "./ast.js";
+import { getDirectiveName } from "./cst.js";
+import type { IDocumentGraph, IDocumentNode } from "./graph.js";
 
 /**
  * Iterate directives in include-expanded order.
@@ -19,7 +19,7 @@ export function* iterateDirectives(graph: IDocumentGraph): Generator<IAstDirecti
     function* iterateList(list: Iterable<IAstDirective>): Generator<IAstDirective> {
       for (const directive of list) {
         const name = getDirectiveName(node.parseResult.cst, directive.cst);
-        if (name === 'include') {
+        if (name === "include") {
           const edge = node.includes.get(directive.cst);
           const targets = edge?.targets ?? [];
           for (const target of targets) yield* iterateNode(target);

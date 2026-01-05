@@ -2,13 +2,13 @@
  * REST API response types for RASL server.
  */
 
-import type { IGraphDescription, INodeStats } from '@rasl/engine';
+import type { IGraphDescription, INodeStats } from "@rasl/engine";
 
 /**
  * Health check response.
  */
 export interface IHealthResponse {
-  status: 'ok' | 'error';
+  status: "ok" | "error";
   version: string;
   uptime: number;
 }

@@ -8,27 +8,27 @@ This package provides perceptually uniform color space conversions, optimized fo
 
 ## Supported Color Models
 
-| Model | Description | Best For |
-|-------|-------------|----------|
-| `srgb` | Standard RGB (0-1 range) | Display output |
-| `linear` | Linear RGB | Blending operations |
-| `hsl` | Hue, Saturation, Lightness | Traditional color picking |
-| `oklab` | Oklab perceptual (L, a, b) | Perceptual blending |
-| `oklch` | Oklab cylindrical (L, C, H) | Chroma/hue control |
-| `okhsl` | Perceptually uniform HSL | **Hue animations** |
-| `okhsv` | Perceptually uniform HSV | Value-based effects |
+| Model    | Description                 | Best For                  |
+| -------- | --------------------------- | ------------------------- |
+| `srgb`   | Standard RGB (0-1 range)    | Display output            |
+| `linear` | Linear RGB                  | Blending operations       |
+| `hsl`    | Hue, Saturation, Lightness  | Traditional color picking |
+| `oklab`  | Oklab perceptual (L, a, b)  | Perceptual blending       |
+| `oklch`  | Oklab cylindrical (L, C, H) | Chroma/hue control        |
+| `okhsl`  | Perceptually uniform HSL    | **Hue animations**        |
+| `okhsv`  | Perceptually uniform HSV    | Value-based effects       |
 
 ## Key Types
 
 ```typescript
 const ColorModel = {
-  Srgb: 'srgb',
-  Linear: 'linear',
-  Hsl: 'hsl',
-  Oklab: 'oklab',
-  Oklch: 'oklch',
-  Okhsl: 'okhsl',
-  Okhsv: 'okhsv',
+  Srgb: "srgb",
+  Linear: "linear",
+  Hsl: "hsl",
+  Oklab: "oklab",
+  Oklch: "oklch",
+  Okhsl: "okhsl",
+  Okhsv: "okhsv",
 } as const;
 type ColorModel = (typeof ColorModel)[keyof typeof ColorModel];
 ```
@@ -36,7 +36,7 @@ type ColorModel = (typeof ColorModel)[keyof typeof ColorModel];
 ## Usage
 
 ```typescript
-import { convert, ColorModel } from '@rasl/color';
+import { convert, ColorModel } from "@rasl/color";
 
 // Convert sRGB to OkHSL for smooth hue animation
 const rgb: [number, number, number] = [1.0, 0.5, 0.0];
@@ -65,6 +65,6 @@ All conversions route through Oklab as the hub space:
 sRGB ↔ Linear RGB ↔ Oklab ↔ Oklch
                       ↕
                    OkHSL/OkHSV
-                      
+
 HSL ↔ sRGB (direct)
 ```

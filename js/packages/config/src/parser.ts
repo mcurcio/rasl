@@ -8,23 +8,18 @@
  * - Structured diagnostics with stable codes
  */
 
+import { createDocument, CstNodeKind, type ICstDirective, type ICstDocument, type ITokenRange } from "./cst.js";
+import { ErrorCodes, RaslError } from "./errors.js";
+import { lex } from "./lexer.js";
 import {
-  TokenType,
   DiagnosticCode,
   DiagnosticSeverity,
-  isTrivia,
-  isTerminator,
-  type IToken,
   type IDiagnostic,
-} from './tokens.js';
-import { lex } from './lexer.js';
-import {
-  CstNodeKind,
-  createDocument,
-  type ICstDocument,
-  type ICstDirective,
-  type ITokenRange,
-} from './cst.js';
+  isTerminator,
+  isTrivia,
+  type IToken,
+  TokenType,
+} from "./tokens.js";
 
 /**
  * Parser configuration options.
@@ -102,8 +97,8 @@ class Parser {
   private _eofToken(): IToken {
     return {
       type: TokenType.Eof,
-      text: '',
-      value: '',
+      text: "",
+      value: "",
       span: { start: { offset: 0, line: 0, column: 0 }, end: { offset: 0, line: 0, column: 0 } },
     };
   }
@@ -154,7 +149,7 @@ class Parser {
         this._advance();
         return null;
       }
-      throw new Error(`Expected directive name, got ${this._current().type}`);
+      throw new RaslError(ErrorCodes.ParseError, `Expected directive name, got ${this._current().type}`);
     }
 
     const nameStart = this._pos;
@@ -229,7 +224,7 @@ class Parser {
         this._errors.push({
           code: DiagnosticCode.ExpectedClosingBrace,
           severity: DiagnosticSeverity.Error,
-          message: 'Expected closing brace',
+          message: "Expected closing brace",
           span: this._current().span,
           sourceId: this._sourceId,
         });

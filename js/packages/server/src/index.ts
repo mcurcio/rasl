@@ -1,17 +1,9 @@
 /**
- * @rasl/server - HTTP/WebSocket server for RASL
+ * @rasl/server - HTTP/WebSocket server for RASL runtime control and monitoring.
  */
 
-export { RaslServer, type IServerConfig } from './server.js';
-export {
-  type IWsMessage,
-  type INodeDataMessage,
-  type ISubscribeMessage,
-  type IUnsubscribeMessage,
-} from './websocket.js';
-export {
-  type IHealthResponse,
-  type IGraphResponse,
-  type INodeResponse,
-  type IStatsResponse,
-} from './api.js';
+export { type IServerConfig, RaslServer } from "./server.js";
+export { type IMetricsMessage, type IWsHandlerConfig, WsHandler } from "./ws-handler.js";
+
+// API types
+export type { IGraphResponse, IHealthResponse, INodeResponse, IStatsResponse } from "./api.js";
