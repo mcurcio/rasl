@@ -8,6 +8,49 @@ import { BaseNode, InputPortSpec, OutputPortSpec, PortGroup } from "../runtime/i
 import type { ITickContext } from "../runtime/tick.js";
 import { GraphBuilder } from "./builder.js";
 
+// Type compatibility test nodes
+class ColorSourceNode extends BaseNode {
+  readonly outputs = PortGroup.outputs({
+    out: new OutputPortSpec({ produces: "color" }),
+  });
+}
+
+class ColorRgbSourceNode extends BaseNode {
+  readonly outputs = PortGroup.outputs({
+    out: new OutputPortSpec({ produces: "color:rgb" }),
+  });
+}
+
+class BoolSourceNode extends BaseNode {
+  readonly outputs = PortGroup.outputs({
+    out: new OutputPortSpec({ produces: "bool" }),
+  });
+}
+
+class MatrixSinkNode extends BaseNode {
+  readonly inputs = PortGroup.inputs({
+    in: new InputPortSpec({ accepts: "matrix" }),
+  });
+}
+
+class ColorSinkNode extends BaseNode {
+  readonly inputs = PortGroup.inputs({
+    in: new InputPortSpec({ accepts: "color" }),
+  });
+}
+
+class ColorRgbSinkNode extends BaseNode {
+  readonly inputs = PortGroup.inputs({
+    in: new InputPortSpec({ accepts: "color:rgb" }),
+  });
+}
+
+class MultiAcceptSinkNode extends BaseNode {
+  readonly inputs = PortGroup.inputs({
+    in: new InputPortSpec({ accepts: ["color", "bool"] }),
+  });
+}
+
 // Test node implementations
 class TestSourceNode extends BaseNode {
   readonly outputs = PortGroup.outputs({
@@ -224,6 +267,144 @@ describe("GraphBuilder", () => {
       const edge = desc.edges[0];
       expect(edge.source).toBe("source");
       expect(edge.target).toBe("sink");
+    });
+  });
+
+  describe("type compatibility validation", () => {
+    describe("exact match", () => {
+      it("should allow exact type match", () => {
+        const builder = new GraphBuilder();
+        builder.addNode(new ColorSourceNode({ id: "color" }));
+        builder.addNode(new ColorSinkNode({ id: "sink" }));
+
+        // color -> color: should work
+        expect(() => {
+          builder.connect("color", "out", "sink", "in");
+        }).not.toThrow();
+      });
+    });
+
+    describe("colon-prefix hierarchy", () => {
+      it("should allow more specific type to less specific acceptor", () => {
+        const builder = new GraphBuilder();
+        builder.addNode(new ColorRgbSourceNode({ id: "rgb" }));
+        builder.addNode(new ColorSinkNode({ id: "sink" }));
+
+        // color:rgb -> color: should work (more specific is compatible)
+        expect(() => {
+          builder.connect("rgb", "out", "sink", "in");
+        }).not.toThrow();
+      });
+
+      it("should reject less specific type to more specific acceptor", () => {
+        const builder = new GraphBuilder();
+        builder.addNode(new ColorSourceNode({ id: "color" }));
+        builder.addNode(new ColorRgbSinkNode({ id: "sink" }));
+
+        // color -> color:rgb: should fail (less specific cannot satisfy more specific)
+        expect(() => {
+          builder.connect("color", "out", "sink", "in");
+        }).toThrow(/Type mismatch.*produces "color".*accepts "color:rgb"/);
+      });
+    });
+
+    describe("inheritance hierarchy", () => {
+      it("should allow color to matrix (color inherits from matrix)", () => {
+        const builder = new GraphBuilder();
+        builder.addNode(new ColorSourceNode({ id: "color" }));
+        builder.addNode(new MatrixSinkNode({ id: "sink" }));
+
+        // color -> matrix: should work (color inherits from matrix)
+        expect(() => {
+          builder.connect("color", "out", "sink", "in");
+        }).not.toThrow();
+      });
+
+      it("should allow color:rgb to matrix (transitive inheritance)", () => {
+        const builder = new GraphBuilder();
+        builder.addNode(new ColorRgbSourceNode({ id: "rgb" }));
+        builder.addNode(new MatrixSinkNode({ id: "sink" }));
+
+        // color:rgb -> matrix: should work (color:rgb -> color -> matrix)
+        expect(() => {
+          builder.connect("rgb", "out", "sink", "in");
+        }).not.toThrow();
+      });
+
+      it("should allow bool to matrix (bool inherits from matrix)", () => {
+        const builder = new GraphBuilder();
+        builder.addNode(new BoolSourceNode({ id: "bool" }));
+        builder.addNode(new MatrixSinkNode({ id: "sink" }));
+
+        // bool -> matrix: should work
+        expect(() => {
+          builder.connect("bool", "out", "sink", "in");
+        }).not.toThrow();
+      });
+
+      it("should reject matrix to color (parent cannot satisfy child)", () => {
+        const builder = new GraphBuilder();
+        builder.addNode(new TestSourceNode({ id: "matrix" })); // produces "matrix"
+        builder.addNode(new ColorSinkNode({ id: "sink" }));
+
+        // matrix -> color: should fail
+        expect(() => {
+          builder.connect("matrix", "out", "sink", "in");
+        }).toThrow(/Type mismatch.*produces "matrix".*accepts "color"/);
+      });
+
+      it("should reject bool to color (siblings)", () => {
+        const builder = new GraphBuilder();
+        builder.addNode(new BoolSourceNode({ id: "bool" }));
+        builder.addNode(new ColorSinkNode({ id: "sink" }));
+
+        // bool -> color: should fail (both inherit from matrix, but not from each other)
+        expect(() => {
+          builder.connect("bool", "out", "sink", "in");
+        }).toThrow(/Type mismatch.*produces "bool".*accepts "color"/);
+      });
+    });
+
+    describe("multi-accept ports", () => {
+      it("should allow any matching type from accepts array", () => {
+        const builder = new GraphBuilder();
+        builder.addNode(new ColorSourceNode({ id: "color" }));
+        builder.addNode(new BoolSourceNode({ id: "bool" }));
+        builder.addNode(new MultiAcceptSinkNode({ id: "sink1" }));
+        builder.addNode(new MultiAcceptSinkNode({ id: "sink2" }));
+
+        // color -> [color, bool]: should work
+        expect(() => {
+          builder.connect("color", "out", "sink1", "in");
+        }).not.toThrow();
+
+        // bool -> [color, bool]: should work
+        expect(() => {
+          builder.connect("bool", "out", "sink2", "in");
+        }).not.toThrow();
+      });
+
+      it("should allow subtype to multi-accept port", () => {
+        const builder = new GraphBuilder();
+        builder.addNode(new ColorRgbSourceNode({ id: "rgb" }));
+        builder.addNode(new MultiAcceptSinkNode({ id: "sink" }));
+
+        // color:rgb -> [color, bool]: should work (color:rgb is subtype of color)
+        expect(() => {
+          builder.connect("rgb", "out", "sink", "in");
+        }).not.toThrow();
+      });
+
+      it("should reject incompatible type to multi-accept port", () => {
+        const builder = new GraphBuilder();
+        builder.addNode(new TestSourceNode({ id: "matrix" })); // produces "matrix"
+        builder.addNode(new MultiAcceptSinkNode({ id: "sink" }));
+
+        // matrix -> [color, bool]: should fail (matrix is parent, not child)
+        expect(() => {
+          builder.connect("matrix", "out", "sink", "in");
+        }).toThrow(/Type mismatch.*produces "matrix".*accepts "color \| bool"/);
+      });
     });
   });
 });

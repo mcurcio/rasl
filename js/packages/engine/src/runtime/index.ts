@@ -47,3 +47,12 @@ export {
   payload,
   resetRegistries,
 } from "./registry.js";
+
+// Type compatibility
+export {
+  globalTypeRegistry,
+  isTypeCompatible,
+  type ITypeRegistry,
+  registerDefaultTypes,
+  TypeRegistry,
+} from "./types/index.js";

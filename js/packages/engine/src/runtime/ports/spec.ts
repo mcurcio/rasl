@@ -74,13 +74,16 @@ export class InputPortSpec {
   }
 
   /**
-   * Check if this port accepts a given payload type.
+   * Check if this port accepts a given payload type using a compatibility checker.
+   *
+   * @param producesType - The type string produced by the source port
+   * @param isCompatible - Function to check if produces is compatible with accepts
    */
-  acceptsPayloadType(typeName: string): boolean {
+  acceptsPayloadType(producesType: string, isCompatible: (produces: string, accepts: string) => boolean): boolean {
     if (Array.isArray(this.accepts)) {
-      return this.accepts.includes(typeName);
+      return this.accepts.some((acceptType) => isCompatible(producesType, acceptType));
     }
-    return this.accepts === typeName;
+    return isCompatible(producesType, this.accepts);
   }
 }
 
