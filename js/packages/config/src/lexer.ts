@@ -132,8 +132,8 @@ export class Lexer {
       return { token: this._makeToken(TokenType.Newline, '\n', '\n', start), error: null };
     }
 
-    // Line comment
-    if (ch === '/' && this._peek(1) === '/') {
+    // Line comment (// or #)
+    if ((ch === '/' && this._peek(1) === '/') || ch === '#') {
       return { token: this._readLineComment(start), error: null };
     }
 
@@ -215,9 +215,13 @@ export class Lexer {
 
   private _readLineComment(start: ISourceLocation): IToken {
     let text = '';
-    // Consume //
-    text += this._advance();
-    text += this._advance();
+    // Consume comment prefix (// or #)
+    if (this._peek() === '#') {
+      text += this._advance();
+    } else {
+      text += this._advance(); // /
+      text += this._advance(); // /
+    }
     // Consume until newline (but not the newline itself)
     while (!this._atEnd() && this._peek() !== '\n') {
       text += this._advance();
