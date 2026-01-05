@@ -1,18 +1,19 @@
 import {
-  parse,
-  TokenType,
+  type DocumentLoader,
   getDirectiveArgs,
   getDirectiveName,
   getSpanForRange,
-  type DocumentLoader,
   type ICstDirective,
   type ICstDocument,
   type IToken,
-} from '@rasl/config';
-import { createFsLoader } from '@rasl/config/node';
-import { GraphBuilder } from '../graph/builder.js';
-import type { IConnectOptions, IResolvedSlice } from '../graph/edge.js';
-import { getNodeClass } from '@rasl/engine';
+  parse,
+  TokenType,
+} from "@rasl/config";
+import { createFsLoader } from "@rasl/config/node";
+import { ErrorCodes, getNodeClass, RaslError } from "@rasl/engine";
+
+import { GraphBuilder } from "../graph/builder.js";
+import type { IConnectOptions, IResolvedSlice } from "../graph/edge.js";
 
 export interface IRaslConfigError {
   message: string;
@@ -35,7 +36,7 @@ function tokenText(t: IToken): string {
 }
 
 function tokensToText(tokens: readonly IToken[]): string {
-  return tokens.map(tokenText).join(' ');
+  return tokens.map(tokenText).join(" ");
 }
 
 function snakeToCamel(s: string): string {
@@ -46,7 +47,7 @@ function coerceScalar(tokens: readonly IToken[]): unknown {
   if (tokens.length === 0) return true;
   if (tokens.length === 1) {
     const t = tokens[0]!;
-    if (t.type === TokenType.Number) return typeof t.value === 'number' ? t.value : parseFloat(String(t.value));
+    if (t.type === TokenType.Number) return typeof t.value === "number" ? t.value : parseFloat(String(t.value));
     if (t.type === TokenType.String) return String(t.value);
     if (t.type === TokenType.Word) return t.value;
     return t.value;
@@ -62,7 +63,7 @@ function coerceScalar(tokens: readonly IToken[]): unknown {
 
 function parseSliceTokens(
   tokens: readonly IToken[],
-  startIndex: number
+  startIndex: number,
 ): { slice: IResolvedSlice; nextIndex: number } | null {
   const t0 = tokens[startIndex];
   if (!t0 || t0.type !== TokenType.LeftBracket) return null;
@@ -72,7 +73,7 @@ function parseSliceTokens(
   if (!t1 || t1.type !== TokenType.Number) return null;
   if (!t2 || t2.type !== TokenType.Colon) return null;
 
-  const start = typeof t1.value === 'number' ? t1.value : parseInt(String(t1.value), 10);
+  const start = typeof t1.value === "number" ? t1.value : parseInt(String(t1.value), 10);
   if (!Number.isFinite(start)) return null;
 
   const t3 = tokens[startIndex + 3];
@@ -86,16 +87,13 @@ function parseSliceTokens(
   const t4 = tokens[startIndex + 4];
   if (!t4 || t4.type !== TokenType.RightBracket) return null;
 
-  const end = typeof t3.value === 'number' ? t3.value : parseInt(String(t3.value), 10);
+  const end = typeof t3.value === "number" ? t3.value : parseInt(String(t3.value), 10);
   if (!Number.isFinite(end)) return null;
 
   return { slice: { start, end }, nextIndex: startIndex + 5 };
 }
 
-function directiveLocation(
-  doc: ICstDocument,
-  dir: ICstDirective
-): { line: number; column: number } {
+function directiveLocation(doc: ICstDocument, dir: ICstDirective): { line: number; column: number } {
   const span = getSpanForRange(doc, dir.tokenRange);
   return { line: span.start.line, column: span.start.column };
 }
@@ -130,14 +128,14 @@ function parseConnectArgs(tokens: readonly IToken[]): {
   const expectWord = (): string => {
     const t = tokens[i];
     if (!t || t.type !== TokenType.Word) {
-      throw new Error('Expected word');
+      throw new RaslError(ErrorCodes.ParseError, "Expected word");
     }
     i++;
     return String(t.value);
   };
 
   const sourceSpec = expectWord();
-  const dotIdx = sourceSpec.indexOf('.');
+  const dotIdx = sourceSpec.indexOf(".");
   const sourceNode = dotIdx === -1 ? sourceSpec : sourceSpec.slice(0, dotIdx);
 
   let sourcePort: string | null = null;
@@ -167,18 +165,15 @@ function parseConnectArgs(tokens: readonly IToken[]): {
   return { sourceNode, sourcePort, sourceSlice, targetPort, targetSlice };
 }
 
-function parseConnectOptionsFromBody(
-  doc: ICstDocument,
-  dir: ICstDirective
-): Pick<IConnectOptions, 'repeat'> {
+function parseConnectOptionsFromBody(doc: ICstDocument, dir: ICstDirective): Pick<IConnectOptions, "repeat"> {
   const repeat = 1;
   if (!dir.body) return { repeat };
 
   let outRepeat = repeat;
   for (const opt of dir.body) {
-    if (getDirectiveName(doc, opt) === 'repeat') {
+    if (getDirectiveName(doc, opt) === "repeat") {
       const v = coerceScalar(getDirectiveArgs(doc, opt));
-      const n = typeof v === 'number' ? v : parseInt(String(v), 10);
+      const n = typeof v === "number" ? v : parseInt(String(v), 10);
       if (Number.isFinite(n) && n > 0) outRepeat = Math.floor(n);
     }
   }
@@ -188,15 +183,15 @@ function parseConnectOptionsFromBody(
 
 function buildNodeConfigFromBody(
   doc: ICstDocument,
-  nodeDir: ICstDirective
+  nodeDir: ICstDirective,
 ): {
   properties: Record<string, unknown>;
   fills: Record<string, number>;
-  connects: Array<{ conn: ReturnType<typeof parseConnectArgs>; options: Pick<IConnectOptions, 'repeat'> }>;
+  connects: Array<{ conn: ReturnType<typeof parseConnectArgs>; options: Pick<IConnectOptions, "repeat"> }>;
 } {
   const properties: Record<string, unknown> = {};
   const fills: Record<string, number> = {};
-  const connects: Array<{ conn: ReturnType<typeof parseConnectArgs>; options: Pick<IConnectOptions, 'repeat'> }> = [];
+  const connects: Array<{ conn: ReturnType<typeof parseConnectArgs>; options: Pick<IConnectOptions, "repeat"> }> = [];
 
   if (!nodeDir.body) return { properties, fills, connects };
 
@@ -204,24 +199,24 @@ function buildNodeConfigFromBody(
     const stmtName = getDirectiveName(doc, stmt);
     const stmtArgs = getDirectiveArgs(doc, stmt);
 
-    if (stmtName === 'connect') {
+    if (stmtName === "connect") {
       const conn = parseConnectArgs(stmtArgs);
       const options = parseConnectOptionsFromBody(doc, stmt);
       connects.push({ conn, options });
       continue;
     }
 
-    if (stmtName === 'fill') {
+    if (stmtName === "fill") {
       if (stmtArgs.length >= 2 && stmtArgs[0]!.type === TokenType.Word) {
         const port = String(stmtArgs[0]!.value);
         const value = coerceScalar(stmtArgs.slice(1));
-        const num = typeof value === 'number' ? value : parseFloat(String(value));
+        const num = typeof value === "number" ? value : parseFloat(String(value));
         if (Number.isFinite(num)) fills[port] = num;
       }
       continue;
     }
 
-    if (stmtName === 'ports') {
+    if (stmtName === "ports") {
       properties.ports = parsePortsBlock(doc, stmt);
       continue;
     }
@@ -252,12 +247,12 @@ function loadGraphFromDirective(doc: ICstDocument): {
 
   for (const dir of doc.children) {
     const dirName = getDirectiveName(doc, dir);
-    if (dirName === 'graph') graph = dir;
-    if (dirName === 'ui' && dir.body) {
+    if (dirName === "graph") graph = dir;
+    if (dirName === "ui" && dir.body) {
       for (const stmt of dir.body) {
-        if (getDirectiveName(doc, stmt) === 'port') {
+        if (getDirectiveName(doc, stmt) === "port") {
           const v = coerceScalar(getDirectiveArgs(doc, stmt));
-          const n = typeof v === 'number' ? v : parseInt(String(v), 10);
+          const n = typeof v === "number" ? v : parseInt(String(v), 10);
           if (Number.isFinite(n)) ui.port = n;
         }
       }
@@ -269,15 +264,15 @@ function loadGraphFromDirective(doc: ICstDocument): {
 
 export async function loadRaslConfigFromSource(
   source: string,
-  options?: { path?: string; loader?: DocumentLoader }
+  options?: { path?: string; loader?: DocumentLoader },
 ): Promise<IRaslLoadResult> {
   const graph = await parse(source, {
-    path: options?.path ?? '<root>',
+    path: options?.path ?? "<root>",
     loader: options?.loader ?? createFsLoader(),
   });
 
   const errors: IRaslConfigError[] = [];
-  const fatal = graph.diagnostics.filter((d) => d.severity === 'error');
+  const fatal = graph.diagnostics.filter((d) => d.severity === "error");
   if (fatal.length > 0) {
     for (const e of fatal) {
       errors.push({ message: e.message, line: e.span.start.line, column: e.span.start.column });
@@ -288,14 +283,18 @@ export async function loadRaslConfigFromSource(
   const rootDoc = graph.root.parseResult.cst;
   const { ui, graph: graphDir } = loadGraphFromDirective(rootDoc);
   if (!graphDir || !graphDir.body) {
-    return { ui, builder: new GraphBuilder(), errors: [{ message: "No 'graph' block found in configuration", line: 0, column: 0 }] };
+    return {
+      ui,
+      builder: new GraphBuilder(),
+      errors: [{ message: "No 'graph' block found in configuration", line: 0, column: 0 }],
+    };
   }
 
   const builder = new GraphBuilder();
 
   // Pass 1: instantiate nodes.
   for (const dir of graphDir.body) {
-    if (getDirectiveName(rootDoc, dir) !== 'node') continue;
+    if (getDirectiveName(rootDoc, dir) !== "node") continue;
     const args = getDirectiveArgs(rootDoc, dir);
 
     // node <Type> <id> [extra...]
@@ -320,7 +319,7 @@ export async function loadRaslConfigFromSource(
     if (extra.length > 0) {
       // RASL convention: third arg is a model discriminator for some nodes.
       // Special-case literal shorthand: node literal <id> <model> <data...>;
-      if (typeName === 'literal') {
+      if (typeName === "literal") {
         // Accept both "color:hsl" (one token) and "color : hsl" (three tokens)
         // and treat remaining tokens as the literal payload data.
         const modelTokens =
@@ -345,7 +344,11 @@ export async function loadRaslConfigFromSource(
       builder.addNode(node);
     } catch (e) {
       const loc = directiveLocation(rootDoc, dir);
-      errors.push({ message: `Failed to create node ${nodeId}: ${(e as Error).message}`, line: loc.line, column: loc.column });
+      errors.push({
+        message: `Failed to create node ${nodeId}: ${(e as Error).message}`,
+        line: loc.line,
+        column: loc.column,
+      });
     }
 
     // Store connects on directive for pass 2 via a side table.
@@ -355,7 +358,7 @@ export async function loadRaslConfigFromSource(
 
   // Pass 2: connect edges.
   for (const dir of graphDir.body) {
-    if (getDirectiveName(rootDoc, dir) !== 'node') continue;
+    if (getDirectiveName(rootDoc, dir) !== "node") continue;
     const args = getDirectiveArgs(rootDoc, dir);
 
     const idTok = args[1];
@@ -365,15 +368,15 @@ export async function loadRaslConfigFromSource(
     const nodeDir = dir as typeof dir & {
       __raslConnects?: Array<{
         conn: ReturnType<typeof parseConnectArgs>;
-        options: Pick<IConnectOptions, 'repeat'>;
+        options: Pick<IConnectOptions, "repeat">;
       }>;
     };
     const connects = nodeDir.__raslConnects;
     if (!connects) continue;
 
     for (const { conn, options } of connects) {
-      const srcPort = conn.sourcePort ?? 'out';
-      const tgtPort = conn.targetPort ?? 'in';
+      const srcPort = conn.sourcePort ?? "out";
+      const tgtPort = conn.targetPort ?? "in";
       const connectOptions: IConnectOptions = {
         repeat: options.repeat,
         sourceSlice: conn.sourceSlice ?? undefined,
@@ -384,7 +387,11 @@ export async function loadRaslConfigFromSource(
         builder.connect(conn.sourceNode, srcPort, targetNode, tgtPort, connectOptions);
       } catch (e) {
         const loc = directiveLocation(rootDoc, dir);
-        errors.push({ message: `Failed to connect ${conn.sourceNode} -> ${targetNode}: ${(e as Error).message}`, line: loc.line, column: loc.column });
+        errors.push({
+          message: `Failed to connect ${conn.sourceNode} -> ${targetNode}: ${(e as Error).message}`,
+          line: loc.line,
+          column: loc.column,
+        });
       }
     }
   }

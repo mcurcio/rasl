@@ -7,12 +7,12 @@ import {
   Frame,
   type ITickContext,
   MatrixPayload,
+  node,
   OutputPortSpec,
   PortGroup,
-  node,
-} from '../../runtime/index.js';
+} from "../../runtime/index.js";
 
-export type OutputType = 'phase' | 'speed' | 'uniform' | 'binary';
+export type OutputType = "phase" | "speed" | "uniform" | "binary";
 
 export interface ISeededRandomConfig {
   id: string;
@@ -36,10 +36,10 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-@node('SeededRandomNode', 'SeededRandom')
+@node("SeededRandomNode", "SeededRandom")
 export class SeededRandomNode extends BaseNode {
   readonly outputs = PortGroup.outputs({
-    out: new OutputPortSpec({ produces: 'matrix' }),
+    out: new OutputPortSpec({ produces: "matrix" }),
   });
 
   private readonly _seed: number;
@@ -54,7 +54,7 @@ export class SeededRandomNode extends BaseNode {
     super(config);
     this._seed = config.seed ?? 12345;
     this._channels = config.outputChannels ?? 512;
-    this._outputType = config.outputType ?? 'uniform';
+    this._outputType = config.outputType ?? "uniform";
     this._minSpeed = config.minSpeed ?? 1.0;
     this._maxSpeed = config.maxSpeed ?? 3.0;
     this._density = config.density ?? 0.5;
@@ -70,16 +70,16 @@ export class SeededRandomNode extends BaseNode {
       const r = rng();
 
       switch (this._outputType) {
-        case 'phase':
+        case "phase":
           values[i] = r;
           break;
-        case 'speed':
+        case "speed":
           values[i] = this._minSpeed + r * (this._maxSpeed - this._minSpeed);
           break;
-        case 'uniform':
+        case "uniform":
           values[i] = r;
           break;
-        case 'binary':
+        case "binary":
           values[i] = r < this._density ? 1.0 : 0.0;
           break;
       }
@@ -93,6 +93,6 @@ export class SeededRandomNode extends BaseNode {
       metadata: this._metadata,
     });
 
-    this.outputs.get('out')?.write(frame);
+    this.outputs.get("out")?.write(frame);
   }
 }

@@ -5,18 +5,17 @@
  * corrections in linear RGB space for physically correct results.
  */
 
+import type { InputPort, OutputPort } from "@rasl/engine";
 import {
   BaseNode,
   Frame,
-  type ITickContext,
-  InputPort,
   InputPortSpec,
+  type ITickContext,
   MatrixPayload,
-  OutputPort,
+  node,
   OutputPortSpec,
   PortGroup,
-  node,
-} from '@rasl/engine';
+} from "@rasl/engine";
 
 export interface IColorCorrectionConfig {
   id: string;
@@ -32,13 +31,13 @@ export interface IColorCorrectionConfig {
   topic?: string;
 }
 
-@node('ColorCorrectionNode', 'ColorCorrection')
+@node("ColorCorrectionNode", "ColorCorrection")
 export class ColorCorrectionNode extends BaseNode {
   readonly inputs: PortGroup<InputPort> = PortGroup.inputs({
-    in: new InputPortSpec({ accepts: ['matrix', 'color'] }),
+    in: new InputPortSpec({ accepts: ["matrix", "color"] }),
   });
   readonly outputs: PortGroup<OutputPort> = PortGroup.outputs({
-    out: new OutputPortSpec({ produces: 'color' }),
+    out: new OutputPortSpec({ produces: "color" }),
   });
 
   private readonly _gamma: number;
@@ -53,21 +52,13 @@ export class ColorCorrectionNode extends BaseNode {
     this._gamma = config.gamma ?? 2.2;
     this._saturation = config.saturation ?? 1.0;
     this._brightness = config.brightness ?? 1.0;
-    this._rgbScale = new Float32Array([
-      config.rScale ?? 1.0,
-      config.gScale ?? 1.0,
-      config.bScale ?? 1.0,
-    ]);
-    this._rgbOffset = new Float32Array([
-      config.rOffset ?? 0.0,
-      config.gOffset ?? 0.0,
-      config.bOffset ?? 0.0,
-    ]);
+    this._rgbScale = new Float32Array([config.rScale ?? 1.0, config.gScale ?? 1.0, config.bScale ?? 1.0]);
+    this._rgbOffset = new Float32Array([config.rOffset ?? 0.0, config.gOffset ?? 0.0, config.bOffset ?? 0.0]);
     this._topic = config.topic ?? `correction.${this.id}`;
   }
 
   override async pull(tick: ITickContext): Promise<void> {
-    const inPort = this.inputs.get('in');
+    const inPort = this.inputs.get("in");
     const frame = inPort?.read() ?? null;
     if (!frame) return;
 
@@ -76,7 +67,7 @@ export class ColorCorrectionNode extends BaseNode {
 
     // Validate: must be RGB triplets
     if (data.length % 3 !== 0) {
-      this.outputs.get('out')?.write(frame);
+      this.outputs.get("out")?.write(frame);
       return;
     }
 
@@ -144,6 +135,6 @@ export class ColorCorrectionNode extends BaseNode {
       metadata: frame.metadata,
     });
 
-    this.outputs.get('out')?.write(outFrame);
+    this.outputs.get("out")?.write(outFrame);
   }
 }

@@ -1,6 +1,6 @@
-import { serializeCst } from './cst.js';
-import type { IDocumentGraph } from './graph.js';
-import type { DocumentWriter } from './io.js';
+import { serializeCst } from "./cst.js";
+import type { IDocumentGraph } from "./graph.js";
+import type { DocumentWriter } from "./io.js";
 
 /**
  * Persist all modified documents in a graph back to their resolved paths.
@@ -16,4 +16,3 @@ export async function save(graph: IDocumentGraph, writer: DocumentWriter): Promi
     }
   }
 }
-

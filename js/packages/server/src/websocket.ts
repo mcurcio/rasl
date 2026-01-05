@@ -15,7 +15,7 @@ export interface IWsMessage {
  * Subscribe to a topic.
  */
 export interface ISubscribeMessage extends IWsMessage {
-  type: 'subscribe';
+  type: "subscribe";
   topic: string;
 }
 
@@ -23,7 +23,7 @@ export interface ISubscribeMessage extends IWsMessage {
  * Unsubscribe from a topic.
  */
 export interface IUnsubscribeMessage extends IWsMessage {
-  type: 'unsubscribe';
+  type: "unsubscribe";
   topic: string;
 }
 
@@ -31,7 +31,7 @@ export interface IUnsubscribeMessage extends IWsMessage {
  * Node data update message.
  */
 export interface INodeDataMessage extends IWsMessage {
-  type: 'data';
+  type: "data";
   nodeId: string;
   portName: string;
   timestamp: number;
@@ -42,7 +42,7 @@ export interface INodeDataMessage extends IWsMessage {
  * Error message.
  */
 export interface IErrorMessage extends IWsMessage {
-  type: 'error';
+  type: "error";
   message: string;
   code?: string;
 }

@@ -5,7 +5,7 @@
  * supporting scoped processing and include handling.
  */
 
-import type { IAstDirective, IAstDocument } from './ast.js';
+import type { IAstDirective, IAstDocument } from "./ast.js";
 
 /**
  * Result of a directive handler that opens a new scope.
@@ -23,7 +23,7 @@ export interface IScopeResult<TChildContext> {
  */
 export type DirectiveHandler<TContext, TChildContext = TContext> = (
   directive: IAstDirective,
-  ctx: TContext
+  ctx: TContext,
 ) => void | IScopeResult<TChildContext>;
 
 /**
@@ -56,10 +56,7 @@ export class DirectiveDelegator<TContext> {
   private readonly _parent: DirectiveDelegator<TContext> | null;
   private readonly _hooks: IDelegatorHooks<TContext>;
 
-  constructor(options?: {
-    parent?: DirectiveDelegator<TContext>;
-    hooks?: IDelegatorHooks<TContext>;
-  }) {
+  constructor(options?: { parent?: DirectiveDelegator<TContext>; hooks?: IDelegatorHooks<TContext> }) {
     this._parent = options?.parent ?? null;
     this._hooks = options?.hooks ?? {};
   }
@@ -67,10 +64,7 @@ export class DirectiveDelegator<TContext> {
   /**
    * Register a handler for a directive name.
    */
-  register<TChildContext = TContext>(
-    name: string,
-    handler: DirectiveHandler<TContext, TChildContext>
-  ): this {
+  register<TChildContext = TContext>(name: string, handler: DirectiveHandler<TContext, TChildContext>): this {
     this._handlers.set(name, handler as DirectiveHandler<TContext, unknown>);
     return this;
   }
@@ -152,7 +146,7 @@ export class DirectiveDelegator<TContext> {
 export function walkScopeDocument<TContext>(
   doc: IAstDocument,
   scope: DirectiveDelegator<TContext>,
-  ctx: TContext
+  ctx: TContext,
 ): void {
   scope._enterScope(null, ctx);
   for (const directive of doc.children) {
@@ -167,7 +161,7 @@ export function walkScopeDocument<TContext>(
 export function walkScopeBody<TContext>(
   owner: IAstDirective,
   scope: DirectiveDelegator<TContext>,
-  ctx: TContext
+  ctx: TContext,
 ): void {
   if (!owner.body) return;
   scope._enterScope(owner, ctx);
@@ -182,7 +176,7 @@ export function walkScopeBody<TContext>(
  */
 export function createChildDelegator<TContext>(
   parent: DirectiveDelegator<TContext>,
-  hooks?: IDelegatorHooks<TContext>
+  hooks?: IDelegatorHooks<TContext>,
 ): DirectiveDelegator<TContext> {
   return new DirectiveDelegator({ parent, hooks });
 }

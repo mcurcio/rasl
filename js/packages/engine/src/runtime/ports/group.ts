@@ -2,8 +2,8 @@
  * PortGroup - Named collection of ports.
  */
 
-import { InputPort, OutputPort } from './port.js';
-import { InputPortSpec, OutputPortSpec } from './spec.js';
+import { InputPort, OutputPort } from "./port.js";
+import type { InputPortSpec, OutputPortSpec } from "./spec.js";
 
 /**
  * Named collection of input or output ports.
@@ -65,7 +65,7 @@ export class PortGroup<TPort extends InputPort | OutputPort> implements Iterable
    */
   getDefault(): [string, TPort | null] {
     const first = this._names[0];
-    if (!first) return ['', null];
+    if (!first) return ["", null];
     return [first, this._ports.get(first) ?? null];
   }
 

@@ -7,7 +7,5 @@
     "lib": ["ES2022", "DOM"]
   },
   "include": ["src/**/*"],
-  "references": [
-    { "path": "../engine" }
-  ]
+  "references": [{ "path": "../engine" }]
 }

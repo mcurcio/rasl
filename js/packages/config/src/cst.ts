@@ -7,14 +7,14 @@
  * - Serialization is token concatenation for byte-identical round-tripping
  */
 
-import type { IToken, ISourceSpan } from './tokens.js';
+import type { ISourceSpan, IToken } from "./tokens.js";
 
 /**
  * CST node kinds.
  */
 export const CstNodeKind = {
-  Document: 'document',
-  Directive: 'directive',
+  Document: "document",
+  Directive: "directive",
 } as const;
 export type CstNodeKind = (typeof CstNodeKind)[keyof typeof CstNodeKind];
 
@@ -89,7 +89,7 @@ export function getSpanForRange(doc: ICstDocument, range: ITokenRange): ISourceS
  */
 export function getDirectiveName(doc: ICstDocument, directive: ICstDirective): string {
   const token = doc.tokens[directive.nameRange.start];
-  return token ? String(token.value) : '';
+  return token ? String(token.value) : "";
 }
 
 /**
@@ -103,7 +103,7 @@ export function getDirectiveArgs(doc: ICstDocument, directive: ICstDirective): I
  * Serialize a CST document back to source text (byte-identical round-trip).
  */
 export function serializeCst(doc: ICstDocument): string {
-  return doc.tokens.map((t) => t.text).join('');
+  return doc.tokens.map((t) => t.text).join("");
 }
 
 /**
@@ -113,7 +113,7 @@ export function serializeRange(doc: ICstDocument, range: ITokenRange): string {
   return doc.tokens
     .slice(range.start, range.end)
     .map((t) => t.text)
-    .join('');
+    .join("");
 }
 
 /**
@@ -130,7 +130,7 @@ export function createDocument(
   tokens: IToken[],
   children: ICstDirective[],
   source: string,
-  sourceId?: string
+  sourceId?: string,
 ): ICstDocument {
   const tokenRange: ITokenRange = {
     start: 0,

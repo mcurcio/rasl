@@ -22,17 +22,17 @@ pnpm add @rasl/engine
 ### Building a Graph
 
 ```typescript
-import { GraphBuilder, WaveformNode } from '@rasl/engine';
-import { ColorNode } from '@rasl/color';
+import { GraphBuilder, WaveformNode } from "@rasl/engine";
+import { ColorNode } from "@rasl/color";
 
 const builder = new GraphBuilder();
 
 // Add nodes
-builder.addNode(new WaveformNode({ id: 'wave', shape: 'sine' }));
-builder.addNode(new ColorNode({ id: 'color', model: 'srgb' }));
+builder.addNode(new WaveformNode({ id: "wave", shape: "sine" }));
+builder.addNode(new ColorNode({ id: "color", model: "srgb" }));
 
 // Connect ports
-builder.connect('wave', 'out', 'color', 'lightness');
+builder.connect("wave", "out", "color", "lightness");
 
 // Build execution plan
 const plan = builder.build();
@@ -41,7 +41,7 @@ const plan = builder.build();
 ### Running the Scheduler
 
 ```typescript
-import { UnifiedScheduler } from '@rasl/engine';
+import { UnifiedScheduler } from "@rasl/engine";
 
 const scheduler = new UnifiedScheduler(plan);
 
@@ -76,6 +76,7 @@ RASL uses a pull-based execution model:
 ### Topological Ordering
 
 The GraphBuilder computes a topological order for nodes, ensuring:
+
 - Sources are started before transforms
 - Transforms are started before sinks
 - Cycles are detected and warned about (but allowed)
@@ -85,7 +86,7 @@ The GraphBuilder computes a topological order for nodes, ensuring:
 Edges can include channel slices for partial port connections:
 
 ```typescript
-builder.connect('source', 'out', 'sink', 'in', {
+builder.connect("source", "out", "sink", "in", {
   sourceSlice: { start: 0, end: 150 },
   targetSlice: { start: 0, end: 150 },
 });
