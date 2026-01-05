@@ -88,10 +88,7 @@ export function slicePayload(payload: MatrixPayload, slice: IResolvedSlice): Mat
 
   // Validate bounds
   if (start < 0 || start > payload.count) {
-    throw new RaslError(
-      ErrorCodes.InvalidArgument,
-      `Slice start ${start} out of bounds [0, ${payload.count}]`,
-    );
+    throw new RaslError(ErrorCodes.InvalidArgument, `Slice start ${start} out of bounds [0, ${payload.count}]`);
   }
   if (actualEnd < start || actualEnd > payload.count) {
     throw new RaslError(

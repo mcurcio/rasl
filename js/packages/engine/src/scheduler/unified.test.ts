@@ -29,12 +29,8 @@ class RecordingNode extends BaseNode {
 
   constructor(id: string, hasInput = false, hasOutput = true) {
     super({ id });
-    this.#inputs = hasInput
-      ? PortGroup.inputs({ in: new InputPortSpec({ accepts: "matrix" }) })
-      : EMPTY_INPUTS;
-    this.#outputs = hasOutput
-      ? PortGroup.outputs({ out: new OutputPortSpec({ produces: "matrix" }) })
-      : EMPTY_OUTPUTS;
+    this.#inputs = hasInput ? PortGroup.inputs({ in: new InputPortSpec({ accepts: "matrix" }) }) : EMPTY_INPUTS;
+    this.#outputs = hasOutput ? PortGroup.outputs({ out: new OutputPortSpec({ produces: "matrix" }) }) : EMPTY_OUTPUTS;
   }
 
   get inputs(): PortGroup<InputPort> {

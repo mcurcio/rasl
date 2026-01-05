@@ -234,10 +234,7 @@ describe("validateNonOverlappingTargets", () => {
   });
 
   it("should pass for edges without target slices", () => {
-    const edges = [
-      new Edge("src1", "out", "tgt", "in"),
-      new Edge("src2", "out", "tgt", "in"),
-    ];
+    const edges = [new Edge("src1", "out", "tgt", "in"), new Edge("src2", "out", "tgt", "in")];
 
     // No target slices means no overlap validation needed
     expect(() => validateNonOverlappingTargets(edges)).not.toThrow();
