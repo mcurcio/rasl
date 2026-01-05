@@ -2,7 +2,10 @@
  * GraphBuilder - Assembles nodes and edges into an ExecutionPlan.
  */
 
-import { ErrorCodes, getInputs, getOutputs, type ILogger, type INode, RaslError } from "@rasl/engine";
+import { ErrorCodes, RaslError } from "../errors.js";
+import type { ILogger } from "../runtime/nodes/index.js";
+import { type INode, getInputs, getOutputs } from "../runtime/nodes/index.js";
+import { isTypeCompatible } from "../runtime/types/index.js";
 
 import { createConsoleLogger } from "../log/index.js";
 import { Edge, type IConnectOptions } from "./edge.js";
@@ -87,11 +90,20 @@ export class GraphBuilder {
       );
     }
 
+    // Validate payload type compatibility
+    const srcSpec = srcOutputs.get(sourcePort)!.spec;
+    const tgtSpec = tgtInputs.get(targetPort)!.spec;
+
+    if (!tgtSpec.acceptsPayloadType(srcSpec.produces, isTypeCompatible)) {
+      const acceptsStr = Array.isArray(tgtSpec.accepts) ? tgtSpec.accepts.join(" | ") : tgtSpec.accepts;
+      throw new RaslError(
+        ErrorCodes.InvalidArgument,
+        `Type mismatch: ${source}.${sourcePort} produces "${srcSpec.produces}" but ${target}.${targetPort} accepts "${acceptsStr}"`,
+      );
+    }
+
     // Validate slice compatibility if both are specified
     if (options?.sourceSlice && options?.targetSlice) {
-      const srcSpec = srcOutputs.get(sourcePort)!.spec;
-      const tgtSpec = tgtInputs.get(targetPort)!.spec;
-
       const srcLen = Edge.sliceLength(options.sourceSlice, srcSpec.fixedCount);
       const tgtLen = Edge.sliceLength(options.targetSlice, tgtSpec.fixedCount);
 

@@ -5,7 +5,7 @@
  * computed once at construction and returned unchanged on every pull.
  */
 
-import { ErrorCodes, RaslError } from "@rasl/engine";
+import { ErrorCodes, RaslError } from "../../errors.js";
 
 import {
   BaseNode,

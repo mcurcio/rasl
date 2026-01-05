@@ -2,7 +2,7 @@
  * UnifiedScheduler - Pull-based scheduler for RASL graph execution.
  */
 
-import type { Frame } from "@rasl/engine";
+import type { Frame } from "../runtime/frame.js";
 import {
   createTickContext,
   getInputs,
@@ -12,12 +12,13 @@ import {
   type INode,
   type ITickContext,
   NodeContext,
-} from "@rasl/engine";
+} from "../runtime/index.js";
 
 import type { Edge } from "../graph/edge.js";
 import type { ExecutionPlan } from "../graph/plan.js";
 import { childLogger, createConsoleLogger } from "../log/index.js";
 import { type INodeStats, NodeMonitor } from "./monitor.js";
+import { applyEdgeRouting, validateNonOverlappingTargets } from "./routing.js";
 
 /**
  * Scheduler configuration options.
@@ -63,7 +64,21 @@ export class UnifiedScheduler {
   private _running = false;
   private _startTime = 0;
   private _tickCount = 0;
-  private _lastNodeTime = new Map<string, number>();
+
+  /**
+   * Per-node last pull time (seconds since start) for dt calculation.
+   */
+  private readonly _lastPulledTime = new Map<string, number>();
+
+  /**
+   * Per-tick memoization: which tick each node was last pulled.
+   */
+  private readonly _lastPulledTick = new Map<string, number>();
+
+  /**
+   * Re-entrancy guard: nodes currently being pulled (for cycle detection).
+   */
+  private readonly _inProgress = new Set<string>();
 
   constructor(plan: ExecutionPlan, config?: ISchedulerConfig) {
     this._plan = plan;
@@ -83,6 +98,9 @@ export class UnifiedScheduler {
         this._routes.set(key, existing);
       }
     }
+
+    // Validate non-overlapping target slices at startup
+    this._validateTargetSlices();
 
     this._logger.debug(
       {
@@ -141,18 +159,18 @@ export class UnifiedScheduler {
         const t = now - this._startTime;
 
         // Pull from each sink
+        // Increment tick at start of frame
+        this._tickCount++;
+
         for (const { node, intervalMs } of sinks) {
-          const lastTime = this._lastNodeTime.get(node.id) ?? 0;
-          const elapsed = (now - this._startTime) * 1000 - lastTime * 1000;
+          const lastPulledTime = this._lastPulledTime.get(node.id) ?? 0;
+          const elapsed = (t - lastPulledTime) * 1000;
 
           if (elapsed >= intervalMs) {
             this._logger.trace({ nodeId: node.id, t, elapsedMs: elapsed }, "Pulling sink");
             await this._pullNode(node, t);
-            this._lastNodeTime.set(node.id, t);
           }
         }
-
-        this._tickCount++;
 
         // Yield to event loop
         await this._sleep(1);
@@ -182,17 +200,17 @@ export class UnifiedScheduler {
         const now = performance.now() / 1000;
         const t = now - this._startTime;
 
+        // Increment tick at start of frame
+        this._tickCount++;
+
         for (const { node, intervalMs } of sinks) {
-          const lastTime = this._lastNodeTime.get(node.id) ?? 0;
-          const elapsed = (now - this._startTime) * 1000 - lastTime * 1000;
+          const lastPulledTime = this._lastPulledTime.get(node.id) ?? 0;
+          const elapsed = (t - lastPulledTime) * 1000;
 
           if (elapsed >= intervalMs) {
             await this._pullNode(node, t);
-            this._lastNodeTime.set(node.id, t);
           }
         }
-
-        this._tickCount++;
         await this._sleep(1);
       }
     } finally {
@@ -265,23 +283,52 @@ export class UnifiedScheduler {
   private async _pullNode(node: INode, t: number): Promise<void> {
     if (this._disabledNodes.has(node.id)) return;
 
-    const lastTime = this._lastNodeTime.get(node.id) ?? t;
-    const dt = t - lastTime;
+    // Per-tick memoization: skip if already pulled this tick
+    const lastPulledTick = this._lastPulledTick.get(node.id);
+    if (lastPulledTick === this._tickCount) {
+      this._logger.trace({ nodeId: node.id, tick: this._tickCount }, "Node already pulled this tick (memoized)");
+      return;
+    }
 
-    const tick = createTickContext({
-      tick: this._tickCount,
-      t,
-      dt,
-      wallTime: performance.now() / 1000,
-    });
+    // Re-entrancy guard: if we're already pulling this node, serve previous output
+    if (this._inProgress.has(node.id)) {
+      this._logger.trace({ nodeId: node.id, tick: this._tickCount }, "Cycle detected, serving previous tick output");
+      return;
+    }
 
-    // Pull upstream nodes first
-    await this._pullUpstream(node, tick);
+    // Mark as in-progress for cycle detection
+    this._inProgress.add(node.id);
 
-    // Execute this node
+    try {
+      // Calculate dt from last pull time (not last sink time)
+      const lastPulledTime = this._lastPulledTime.get(node.id) ?? 0;
+      const dt = lastPulledTime === 0 ? 0 : t - lastPulledTime;
+
+      const tick = createTickContext({
+        tick: this._tickCount,
+        t,
+        dt,
+        wallTime: performance.now() / 1000,
+      });
+
+      // Pull upstream nodes first
+      await this._pullUpstream(node, tick);
+
+      // Execute this node
+      await this._executeNode(node, tick);
+
+      // Update tracking after successful pull
+      this._lastPulledTick.set(node.id, this._tickCount);
+      this._lastPulledTime.set(node.id, t);
+    } finally {
+      this._inProgress.delete(node.id);
+    }
+  }
+
+  private async _executeNode(node: INode, tick: ITickContext): Promise<void> {
     const startTime = performance.now();
     try {
-      this._logger.trace({ nodeId: node.id, tick: tick.tick, t: tick.t, dt: tick.dt }, "Pull node");
+      this._logger.trace({ nodeId: node.id, tick: tick.tick, t: tick.t, dt: tick.dt }, "Execute node");
       await node.pull(tick);
       const elapsedMs = performance.now() - startTime;
       this._monitor.recordSuccess(node.id, elapsedMs);
@@ -352,11 +399,25 @@ export class UnifiedScheduler {
               );
               await this._pullNode(sourceNode, tick.t);
 
-              // Route the frame to the input port
+              // Route the frame to the input port with slice/repeat applied
               const frame = this._outputFrames.get(`${edge.source}.${edge.sourcePort}`);
               if (frame) {
-                inputPort._setFrame(frame);
-                inputPort._setHasUpstream(true);
+                try {
+                  const routedFrame = applyEdgeRouting(frame, edge);
+                  inputPort._setFrame(routedFrame);
+                  inputPort._setHasUpstream(true);
+                } catch (err) {
+                  this._logger.error(
+                    {
+                      source: edge.source,
+                      sourcePort: edge.sourcePort,
+                      target: edge.target,
+                      targetPort: edge.targetPort,
+                      err,
+                    },
+                    `Failed to route frame: ${(err as Error).message}`,
+                  );
+                }
               }
             }
           }
@@ -381,5 +442,35 @@ export class UnifiedScheduler {
 
   private _sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Validate that no target slices overlap for the same input port.
+   * Called at startup to fail fast on invalid configurations.
+   */
+  private _validateTargetSlices(): void {
+    // Group edges by target port
+    const edgesByTarget = new Map<string, Edge[]>();
+
+    for (const edges of this._plan.adjacency.values()) {
+      for (const edge of edges) {
+        const key = `${edge.target}.${edge.targetPort}`;
+        const existing = edgesByTarget.get(key) ?? [];
+        existing.push(edge);
+        edgesByTarget.set(key, existing);
+      }
+    }
+
+    // Validate each group
+    for (const [targetKey, edges] of edgesByTarget) {
+      if (edges.length > 1) {
+        try {
+          validateNonOverlappingTargets(edges);
+        } catch (err) {
+          this._logger.error({ targetKey, err }, `Invalid target slice configuration`);
+          throw err;
+        }
+      }
+    }
   }
 }

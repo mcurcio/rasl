@@ -1,6 +1,6 @@
 import { format } from "node:util";
 
-import type { ILogger, LogFields } from "@rasl/engine";
+import type { ILogger, LogFields } from "../runtime/nodes/index.js";
 import pino, { type DestinationStream, type LevelWithSilent, type Logger as PinoLogger } from "pino";
 
 export type LogLevel = Exclude<LevelWithSilent, "fatal">;

@@ -4,7 +4,7 @@
  * Randomly maps input channels to output channels using a seeded RNG.
  */
 
-import { ErrorCodes, RaslError } from "@rasl/engine";
+import { ErrorCodes, RaslError } from "../../errors.js";
 
 import { BaseNode, InputPortSpec, MatrixPayload, node, OutputPortSpec, PortGroup } from "../../runtime/index.js";
 import type { ITickContext } from "../../runtime/tick.js";

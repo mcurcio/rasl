@@ -5,7 +5,7 @@
  * and the PayloadDescriptor for introspection.
  */
 
-import { ErrorCodes, RaslError } from "@rasl/engine";
+import { ErrorCodes, RaslError } from "../../errors.js";
 
 /**
  * Introspection metadata for any payload.

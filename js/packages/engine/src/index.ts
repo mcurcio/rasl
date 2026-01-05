@@ -4,6 +4,9 @@
  * This package provides the execution infrastructure for RASL graphs.
  */
 
+// Errors (must be first - other modules depend on these)
+export { type ErrorCode, ErrorCodes, RaslError } from "./errors.js";
+
 // Runtime primitives and built-in nodes
 export * from "./nodes/index.js";
 export * from "./runtime/index.js";
@@ -30,5 +33,4 @@ export {
   type IRaslUiConfig,
   loadRaslConfigFromSource,
 } from "./config/rasl.js";
-export { type ErrorCode, ErrorCodes, RaslError } from "./errors.js";
 export * from "./log/index.js";

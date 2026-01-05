@@ -4,7 +4,7 @@
  * MatrixPayload is the base for all numeric signals.
  */
 
-import { ErrorCodes, RaslError } from "@rasl/engine";
+import { ErrorCodes, RaslError } from "../../errors.js";
 
 import { FramePayload, type IPayloadDescriptor } from "./base.js";
 
