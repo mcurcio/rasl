@@ -2,7 +2,7 @@
  * NodeContext - Runtime context provided to nodes.
  */
 
-import type { Frame } from '../frame.js';
+import type { Frame } from "../frame.js";
 
 /**
  * Logger interface for node logging.

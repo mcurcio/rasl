@@ -1,7 +1,7 @@
-import type { ICstDocument, ICstDirective } from './cst.js';
-import type { IParseResult } from './parser.js';
-import type { IAstDocument } from './ast.js';
-import type { IDiagnostic } from './tokens.js';
+import type { IAstDocument } from "./ast.js";
+import type { ICstDirective,ICstDocument } from "./cst.js";
+import type { IParseResult } from "./parser.js";
+import type { IDiagnostic } from "./tokens.js";
 
 /**
  * Edge in the document graph.
@@ -57,4 +57,3 @@ export interface IDocumentGraph {
   /** All diagnostics across all documents. */
   diagnostics: IDiagnostic[];
 }
-

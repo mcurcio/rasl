@@ -5,22 +5,24 @@
  * Default output is sRGB.
  */
 
+import type {
+  InputPort,
+  OutputPort} from "@rasl/engine";
 import {
   BaseNode,
   Frame,
-  type ITickContext,
-  InputPort,
   InputPortSpec,
+  type ITickContext,
   MatrixPayload,
-  OutputPort,
+  node,
   OutputPortSpec,
   PortGroup,
-  node,
-} from '@rasl/engine';
-import { convert, normalizeModel, type ColorModel } from '../../convert.js';
+} from "@rasl/engine";
+
+import { type ColorModel,convert, normalizeModel } from "../../convert.js";
 
 function payloadHasModel(payload: MatrixPayload): payload is MatrixPayload & { model: string } {
-  return typeof (payload as { model?: unknown }).model === 'string';
+  return typeof (payload as { model?: unknown }).model === "string";
 }
 
 export interface IColorConfig {
@@ -29,14 +31,14 @@ export interface IColorConfig {
   topic?: string;
 }
 
-@node('ColorNode', 'Color')
+@node("ColorNode", "Color")
 export class ColorNode extends BaseNode {
   readonly inputs: PortGroup<InputPort> = PortGroup.inputs({
-    in: new InputPortSpec({ accepts: ['matrix', 'color'] }),
+    in: new InputPortSpec({ accepts: ["matrix", "color"] }),
   });
 
   readonly outputs: PortGroup<OutputPort> = PortGroup.outputs({
-    out: new OutputPortSpec({ produces: 'color' }),
+    out: new OutputPortSpec({ produces: "color" }),
   });
 
   private readonly _model: ColorModel;
@@ -44,12 +46,12 @@ export class ColorNode extends BaseNode {
 
   constructor(config: IColorConfig) {
     super(config);
-    this._model = normalizeModel(config.model ?? 'srgb');
+    this._model = normalizeModel(config.model ?? "srgb");
     this._topic = config.topic ?? `color.${this.id}`;
   }
 
   override async pull(tick: ITickContext): Promise<void> {
-    const inPort = this.inputs.get('in');
+    const inPort = this.inputs.get("in");
     const frame = inPort?.read() ?? null;
     if (!frame) return;
 
@@ -58,7 +60,7 @@ export class ColorNode extends BaseNode {
     const channels = payload.channels;
 
     // Determine source model from payload metadata or assume based on components
-    let srcModel: ColorModel = 'srgb';
+    let srcModel: ColorModel = "srgb";
     if (payloadHasModel(payload)) {
       srcModel = normalizeModel(payload.model);
     }
@@ -69,11 +71,7 @@ export class ColorNode extends BaseNode {
 
     for (let i = 0; i < numColors; i++) {
       const offset = i * channels;
-      const color: [number, number, number] = [
-        data[offset] ?? 0,
-        data[offset + 1] ?? 0,
-        data[offset + 2] ?? 0,
-      ];
+      const color: [number, number, number] = [data[offset] ?? 0, data[offset + 1] ?? 0, data[offset + 2] ?? 0];
 
       const converted = convert(color, srcModel, this._model);
       outData[i * 3] = converted[0];
@@ -90,7 +88,7 @@ export class ColorNode extends BaseNode {
       metadata: frame.metadata,
     });
 
-    this.outputs.get('out')?.write(outFrame);
+    this.outputs.get("out")?.write(outFrame);
   }
 }
 
@@ -107,8 +105,8 @@ export class ColorPayload extends MatrixPayload {
 
   override describe() {
     return {
-      typeName: 'ColorPayload',
-      domain: 'color',
+      typeName: "ColorPayload",
+      domain: "color",
       attrs: {
         model: this.model,
         count: this.count,

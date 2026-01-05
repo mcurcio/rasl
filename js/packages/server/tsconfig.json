@@ -7,10 +7,5 @@
     "lib": ["ES2022", "DOM"]
   },
   "include": ["src/**/*"],
-  "references": [
-    { "path": "../engine" },
-    { "path": "../config" },
-    { "path": "../color" },
-    { "path": "../lighting" }
-  ]
+  "references": [{ "path": "../engine" }, { "path": "../config" }, { "path": "../color" }, { "path": "../lighting" }]
 }

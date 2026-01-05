@@ -2,6 +2,8 @@
  * WebSocket client for connecting to RASL server.
  */
 
+import { ErrorCodes, RaslError } from "@rasl/engine";
+
 /**
  * WebSocket client configuration.
  */
@@ -47,17 +49,17 @@ export class WebSocketClient {
     this._ws.onopen = () => {
       this._connected = true;
       this._reconnectAttempts = 0;
-      this._emit('connected', null);
+      this._emit("connected", null);
     };
 
     this._ws.onclose = () => {
       this._connected = false;
-      this._emit('disconnected', null);
+      this._emit("disconnected", null);
       this._attemptReconnect();
     };
 
     this._ws.onerror = (error) => {
-      this._emit('error', error);
+      this._emit("error", error);
     };
 
     this._ws.onmessage = (event) => {
@@ -65,9 +67,9 @@ export class WebSocketClient {
         const data = JSON.parse(event.data as string);
         const type = data.type as string;
         this._emit(type, data);
-        this._emit('message', data);
+        this._emit("message", data);
       } catch {
-        this._emit('error', new Error('Failed to parse message'));
+        this._emit("error", new RaslError(ErrorCodes.ParseError, "Failed to parse message"));
       }
     };
   }
@@ -87,14 +89,14 @@ export class WebSocketClient {
    * Subscribe to a topic.
    */
   subscribe(topic: string): void {
-    this._send({ type: 'subscribe', topic });
+    this._send({ type: "subscribe", topic });
   }
 
   /**
    * Unsubscribe from a topic.
    */
   unsubscribe(topic: string): void {
-    this._send({ type: 'unsubscribe', topic });
+    this._send({ type: "unsubscribe", topic });
   }
 
   /**
@@ -138,7 +140,7 @@ export class WebSocketClient {
 
   private _attemptReconnect(): void {
     if (this._reconnectAttempts >= this._config.maxReconnectAttempts) {
-      this._emit('reconnect_failed', null);
+      this._emit("reconnect_failed", null);
       return;
     }
 

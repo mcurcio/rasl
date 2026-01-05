@@ -5,6 +5,7 @@ Lighting protocol sinks for RASL, supporting industry-standard protocols for LED
 ## Supported Protocols
 
 ### E1.31 (sACN)
+
 Streaming ACN - ANSI E1.31 protocol for DMX over IP.
 
 - Multicast and unicast support
@@ -12,6 +13,7 @@ Streaming ACN - ANSI E1.31 protocol for DMX over IP.
 - Priority and synchronization
 
 ### DDP (Distributed Display Protocol)
+
 Lightweight protocol for addressable LED control.
 
 - Push-based data transfer
@@ -48,11 +50,11 @@ interface IDdpSinkConfig {
 ## Usage
 
 ```typescript
-import { E131Sink, DdpSink } from '@rasl/lighting';
+import { E131Sink, DdpSink } from "@rasl/lighting";
 
 // E1.31 output to universe 1
 const e131 = new E131Sink({
-  id: 'sacn_out',
+  id: "sacn_out",
   universe: 1,
   priority: 100,
   fps: 44,
@@ -60,8 +62,8 @@ const e131 = new E131Sink({
 
 // DDP output to a controller
 const ddp = new DdpSink({
-  id: 'ddp_out',
-  host: '192.168.1.100',
+  id: "ddp_out",
+  host: "192.168.1.100",
   port: 4048,
   fps: 44,
 });

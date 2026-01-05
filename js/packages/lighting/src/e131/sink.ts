@@ -4,18 +4,20 @@
  * Sends DMX channel data as sACN packets to network devices.
  */
 
-import * as dgram from 'node:dgram';
+import * as dgram from "node:dgram";
+
+import type {
+  InputPort,
+  MatrixPayload} from "@rasl/engine";
 import {
   BaseNode,
-  type ITickContext,
-  InputPort,
   InputPortSpec,
-  MatrixPayload,
+  type ITickContext,
+  node,
   type NodeContext,
   PortGroup,
-  node,
   pullRate,
-} from '@rasl/engine';
+} from "@rasl/engine";
 
 export interface ISacnSinkConfig {
   id: string;
@@ -35,7 +37,7 @@ function buildSacnPacket(
   dmxData: Uint8Array,
   sequence: number,
   sourceName: string,
-  priority: number
+  priority: number,
 ): Buffer {
   // Full sACN packet is 638 bytes for 512 DMX channels
   const packet = Buffer.alloc(638);
@@ -49,7 +51,7 @@ function buildSacnPacket(
   packet.writeUInt16BE(0x0000, offset);
   offset += 2;
   // ACN Packet Identifier (12 bytes)
-  packet.write('ASC-E1.17\0\0\0', offset, 'ascii');
+  packet.write("ASC-E1.17\0\0\0", offset, "ascii");
   offset += 12;
   // Flags and Length (2 bytes) - 0x7000 | (packet length - 16)
   packet.writeUInt16BE(0x7000 | (638 - 16), offset);
@@ -72,7 +74,7 @@ function buildSacnPacket(
   offset += 4;
   // Source Name (64 bytes)
   const nameBytes = Buffer.alloc(64);
-  nameBytes.write(sourceName.slice(0, 63), 0, 'utf8');
+  nameBytes.write(sourceName.slice(0, 63), 0, "utf8");
   nameBytes.copy(packet, offset);
   offset += 64;
   // Priority (1 byte)
@@ -121,7 +123,7 @@ function buildSacnPacket(
   return packet;
 }
 
-@node('SacnSinkNode', 'SacnSink')
+@node("SacnSinkNode", "SacnSink")
 export class SacnSinkNode extends BaseNode {
   readonly inputs: PortGroup<InputPort>;
 
@@ -136,25 +138,25 @@ export class SacnSinkNode extends BaseNode {
 
   constructor(config: ISacnSinkConfig) {
     super(config);
-    this._targetHost = config.targetHost ?? '255.255.255.255';
+    this._targetHost = config.targetHost ?? "255.255.255.255";
     this._targetUniverse = config.targetUniverse ?? 1;
     this._fps = config.fps ?? 40;
-    this._sourceName = config.sourceName ?? 'RASL';
+    this._sourceName = config.sourceName ?? "RASL";
     this._priority = config.priority ?? 100;
-    this._inputPort = config.inputPort ?? 'dmx';
+    this._inputPort = config.inputPort ?? "dmx";
 
     this.inputs = PortGroup.inputs({
-      [this._inputPort]: new InputPortSpec({ accepts: ['matrix', 'color'] }),
+      [this._inputPort]: new InputPortSpec({ accepts: ["matrix", "color"] }),
     });
   }
 
   override async start(ctx: NodeContext): Promise<void> {
-    this._socket = dgram.createSocket('udp4');
-    this._socket.on('error', (err) => {
+    this._socket = dgram.createSocket("udp4");
+    this._socket.on("error", (err) => {
       ctx.logger.error(`SacnSink '${this.id}' error: ${err.message}`);
     });
     ctx.logger.info(
-      `SacnSink '${this.id}' sending to ${this._targetHost}:${SACN_PORT} universe ${this._targetUniverse} at ${this._fps} FPS`
+      `SacnSink '${this.id}' sending to ${this._targetHost}:${SACN_PORT} universe ${this._targetUniverse} at ${this._fps} FPS`,
     );
   }
 
@@ -185,13 +187,7 @@ export class SacnSinkNode extends BaseNode {
 
     // Build and send packet
     this._sequence = (this._sequence + 1) & 0xff;
-    const packet = buildSacnPacket(
-      this._targetUniverse,
-      dmxData,
-      this._sequence,
-      this._sourceName,
-      this._priority
-    );
+    const packet = buildSacnPacket(this._targetUniverse, dmxData, this._sequence, this._sourceName, this._priority);
 
     this._socket.send(packet, SACN_PORT, this._targetHost);
 

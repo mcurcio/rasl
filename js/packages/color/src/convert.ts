@@ -2,24 +2,24 @@
  * Color conversion utilities.
  */
 
-import { srgbToLinear, linearToSrgb } from './spaces/srgb.js';
-import { hslToSrgb, srgbToHsl } from './spaces/hsl.js';
-import { linearToOklab, oklabToLinear } from './spaces/oklab.js';
-import { oklabToOklch, oklchToOklab } from './spaces/oklch.js';
-import { oklabToOkhsl, okhslToOklab } from './spaces/okhsl.js';
-import { oklabToOkhsv, okhsvToOklab } from './spaces/okhsv.js';
+import { hslToSrgb, srgbToHsl } from "./spaces/hsl.js";
+import { okhslToOklab,oklabToOkhsl } from "./spaces/okhsl.js";
+import { okhsvToOklab,oklabToOkhsv } from "./spaces/okhsv.js";
+import { linearToOklab, oklabToLinear } from "./spaces/oklab.js";
+import { oklabToOklch, oklchToOklab } from "./spaces/oklch.js";
+import { linearToSrgb,srgbToLinear } from "./spaces/srgb.js";
 
 /**
  * Supported color models.
  */
 export const ColorModel = {
-  Srgb: 'srgb',
-  Linear: 'linear',
-  Hsl: 'hsl',
-  Oklab: 'oklab',
-  Oklch: 'oklch',
-  Okhsl: 'okhsl',
-  Okhsv: 'okhsv',
+  Srgb: "srgb",
+  Linear: "linear",
+  Hsl: "hsl",
+  Oklab: "oklab",
+  Oklch: "oklch",
+  Okhsl: "okhsl",
+  Okhsv: "okhsv",
 } as const;
 export type ColorModel = (typeof ColorModel)[keyof typeof ColorModel];
 
@@ -29,23 +29,23 @@ export type ColorModel = (typeof ColorModel)[keyof typeof ColorModel];
 export function normalizeModel(model: string): ColorModel {
   const lower = model.toLowerCase();
   switch (lower) {
-    case 'srgb':
-    case 'rgb':
+    case "srgb":
+    case "rgb":
       return ColorModel.Srgb;
-    case 'linear':
-    case 'linear-rgb':
+    case "linear":
+    case "linear-rgb":
       return ColorModel.Linear;
-    case 'hsl':
+    case "hsl":
       return ColorModel.Hsl;
-    case 'oklab':
-    case 'lab':
+    case "oklab":
+    case "lab":
       return ColorModel.Oklab;
-    case 'oklch':
-    case 'lch':
+    case "oklch":
+    case "lch":
       return ColorModel.Oklch;
-    case 'okhsl':
+    case "okhsl":
       return ColorModel.Okhsl;
-    case 'okhsv':
+    case "okhsv":
       return ColorModel.Okhsv;
     default:
       return ColorModel.Srgb;
@@ -56,11 +56,7 @@ export function normalizeModel(model: string): ColorModel {
  * Convert a color from one model to another.
  * All colors are represented as [c0, c1, c2] tuples.
  */
-export function convert(
-  color: [number, number, number],
-  from: ColorModel,
-  to: ColorModel
-): [number, number, number] {
+export function convert(color: [number, number, number], from: ColorModel, to: ColorModel): [number, number, number] {
   if (from === to) return color;
 
   // Convert to Oklab as intermediate

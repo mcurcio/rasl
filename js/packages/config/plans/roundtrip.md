@@ -1,11 +1,13 @@
 # CST round-tripping plan
 
 ## Goals
+
 - Preserve every byte of the original source (whitespace, comments, delimiters) via a full-fidelity token stream.
 - Implement `serializeCst` so `serializeCst(parse(x).cst) === x` (byte-identical) by default.
 - Keep the directive model schema-agnostic so downstream DSL layers only deal with directives.
 
 ## Approach
+
 1. **Tokenize everything (canonical storage)**
    - Lexer emits a full token stream including whitespace, newlines, and comments.
    - Each token stores its exact source `text` (raw lexeme) and a precise span (0-based line/column).
@@ -27,5 +29,6 @@
    - Mutation tests: edit a directive name/arg and assert only the intended token ranges change.
 
 ## Open questions
+
 - Do we expose a stable “printer” for AST-level edits, or is token-splicing the only supported way to preserve formatting?
 - Should `serializeCst` support selective subtree serialization (useful for editors and patch-based tooling)?

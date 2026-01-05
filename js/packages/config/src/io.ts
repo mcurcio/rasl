@@ -1,4 +1,4 @@
-import type { ISourceSpan } from './tokens.js';
+import type { ISourceSpan } from "./tokens.js";
 
 /**
  * Loader context for resolving includes.
@@ -77,4 +77,3 @@ export function syntheticSpan(): ISourceSpan {
     end: { offset: 0, line: 0, column: 0 },
   };
 }
-

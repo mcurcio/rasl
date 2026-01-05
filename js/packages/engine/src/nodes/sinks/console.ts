@@ -2,26 +2,27 @@
  * ConsoleSink - Debug output to console.
  */
 
+import type {
+  MatrixPayload} from "../../runtime/index.js";
 import {
   BaseNode,
-  type ITickContext,
   type ILogger,
   InputPortSpec,
-  MatrixPayload,
+  type ITickContext,
+  node,
   type NodeContext,
   PortGroup,
-  node,
   pullRate,
-} from '../../runtime/index.js';
+} from "../../runtime/index.js";
 
 function payloadHasModel(payload: MatrixPayload): boolean {
-  return Object.prototype.hasOwnProperty.call(payload, 'model');
+  return Object.prototype.hasOwnProperty.call(payload, "model");
 }
 
 export interface IConsoleSinkConfig {
   id: string;
   fps?: number;
-  format?: 'compact' | 'full' | 'hex';
+  format?: "compact" | "full" | "hex";
   maxValues?: number;
 
   // Config keys used by existing RASL configs
@@ -30,14 +31,14 @@ export interface IConsoleSinkConfig {
   include_metadata?: boolean;
 }
 
-@node('ConsoleSink', 'Console')
+@node("ConsoleSink", "Console")
 export class ConsoleSink extends BaseNode {
   readonly inputs = PortGroup.inputs({
-    in: new InputPortSpec({ accepts: ['matrix', 'color'] }),
+    in: new InputPortSpec({ accepts: ["matrix", "color"] }),
   });
 
   private readonly _fps: number;
-  private readonly _format: 'compact' | 'full' | 'hex';
+  private readonly _format: "compact" | "full" | "hex";
   private readonly _maxValues: number;
   private readonly _asBytes: boolean;
   private readonly _includeMetadata: boolean;
@@ -46,7 +47,7 @@ export class ConsoleSink extends BaseNode {
   constructor(config: IConsoleSinkConfig) {
     super(config);
     this._fps = config.fps ?? 30;
-    this._format = config.format ?? 'compact';
+    this._format = config.format ?? "compact";
     this._maxValues = config.maxValues ?? config.max_channels ?? 10;
     this._asBytes = config.as_bytes ?? false;
     this._includeMetadata = config.include_metadata ?? false;
@@ -59,30 +60,30 @@ export class ConsoleSink extends BaseNode {
 
   @pullRate((self: unknown) => (self as ConsoleSink)._fps)
   override async pull(tick: ITickContext): Promise<void> {
-    const inPort = this.inputs.get('in');
+    const inPort = this.inputs.get("in");
     const frame = inPort?.read() ?? null;
     if (!frame) return;
 
     const payload = frame.payload as MatrixPayload;
     if (this._logger) {
-      this._logger.debug(payload.describe(), 'ConsoleSink payload');
+      this._logger.debug(payload.describe(), "ConsoleSink payload");
     }
     const data = payload.flatten();
 
     let output: string;
-    const isColor = payloadHasModel(payload) || payload.describe().domain === 'color';
+    const isColor = payloadHasModel(payload) || payload.describe().domain === "color";
 
     if (isColor) {
       output = this._formatColor(payload);
     } else {
       switch (this._format) {
-        case 'hex':
+        case "hex":
           output = this._formatHex(data);
           break;
-        case 'full':
+        case "full":
           output = this._formatFull(data);
           break;
-        case 'compact':
+        case "compact":
         default:
           output = this._formatCompact(data);
       }
@@ -116,36 +117,40 @@ export class ConsoleSink extends BaseNode {
         const gg = Math.max(0, Math.min(255, Math.round(g * 255)));
         const bb = Math.max(0, Math.min(255, Math.round(b * 255)));
         parts.push(
-          `#${rr.toString(16).padStart(2, '0')}${gg.toString(16).padStart(2, '0')}${bb
-            .toString(16)
-            .padStart(2, '0')}`
+          `#${rr.toString(16).padStart(2, "0")}${gg.toString(16).padStart(2, "0")}${bb.toString(16).padStart(2, "0")}`,
         );
       } else {
         parts.push(`[${r.toFixed(3)}, ${g.toFixed(3)}, ${b.toFixed(3)}]`);
       }
     }
 
-    const suffix = count > limit ? ` ... (${count} total)` : '';
-    return `[${parts.join(', ')}${suffix}]`;
+    const suffix = count > limit ? ` ... (${count} total)` : "";
+    return `[${parts.join(", ")}${suffix}]`;
   }
 
   private _formatCompact(data: Float32Array): string {
     const values = Array.from(data.slice(0, this._maxValues))
       .map((v) => v.toFixed(2))
-      .join(', ');
-    const suffix = data.length > this._maxValues ? ` ... (${data.length} total)` : '';
+      .join(", ");
+    const suffix = data.length > this._maxValues ? ` ... (${data.length} total)` : "";
     return `[${values}${suffix}]`;
   }
 
   private _formatFull(data: Float32Array): string {
-    return `[${Array.from(data).map((v) => v.toFixed(3)).join(', ')}]`;
+    return `[${Array.from(data)
+      .map((v) => v.toFixed(3))
+      .join(", ")}]`;
   }
 
   private _formatHex(data: Float32Array): string {
     const hexValues = Array.from(data.slice(0, this._maxValues))
-      .map((v) => Math.round(v * 255).toString(16).padStart(2, '0'))
-      .join('');
-    const suffix = data.length > this._maxValues ? `... (${data.length} total)` : '';
+      .map((v) =>
+        Math.round(v * 255)
+          .toString(16)
+          .padStart(2, "0"),
+      )
+      .join("");
+    const suffix = data.length > this._maxValues ? `... (${data.length} total)` : "";
     return `#${hexValues} ${suffix}`;
   }
 }

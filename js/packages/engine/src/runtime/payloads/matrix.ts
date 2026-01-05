@@ -4,7 +4,9 @@
  * MatrixPayload is the base for all numeric signals.
  */
 
-import { FramePayload, type IPayloadDescriptor } from './base.js';
+import { ErrorCodes, RaslError } from "@rasl/engine";
+
+import { FramePayload, type IPayloadDescriptor } from "./base.js";
 
 /**
  * Base for all numeric signal types.
@@ -17,7 +19,7 @@ import { FramePayload, type IPayloadDescriptor } from './base.js';
  * - channels: Second dimension (dimensions per element, e.g., 3 for RGB)
  */
 export class MatrixPayload extends FramePayload {
-  static override readonly domain = 'matrix' as string;
+  static override readonly domain = "matrix" as string;
 
   /**
    * The underlying data array.
@@ -39,7 +41,7 @@ export class MatrixPayload extends FramePayload {
     const arr = data instanceof Float32Array ? data : new Float32Array(data);
 
     if (channels < 1) {
-      throw new Error(`channels must be >= 1, got ${channels}`);
+      throw new RaslError(ErrorCodes.InvalidArgument, `channels must be >= 1, got ${channels}`);
     }
 
     this.data = arr;
@@ -91,7 +93,7 @@ export class MatrixPayload extends FramePayload {
 
   override describe(): IPayloadDescriptor {
     return {
-      typeName: 'MatrixPayload',
+      typeName: "MatrixPayload",
       domain: MatrixPayload.domain,
       attrs: {
         count: this.count,
@@ -114,7 +116,7 @@ export class MatrixPayload extends FramePayload {
  * Values are normalized to 0.0 or 1.0.
  */
 export class BoolPayload extends MatrixPayload {
-  static override readonly domain = 'bool' as string;
+  static override readonly domain = "bool" as string;
 
   constructor(data: Float32Array | number[] | boolean[]) {
     const arr = Array.isArray(data)
@@ -132,7 +134,7 @@ export class BoolPayload extends MatrixPayload {
 
   override describe(): IPayloadDescriptor {
     return {
-      typeName: 'BoolPayload',
+      typeName: "BoolPayload",
       domain: BoolPayload.domain,
       attrs: {
         count: this.count,

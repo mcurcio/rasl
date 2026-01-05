@@ -2,17 +2,16 @@
  * Port types for the RASL runtime.
  */
 
+export { EMPTY_INPUTS, EMPTY_OUTPUTS,PortGroup } from "./group.js";
+export { InputPort, OutputPort } from "./port.js";
 export {
+  type AcceptsSpec,
+  type CountSpec,
+  type IInputPortSpecOptions,
   InputPortSpec,
+  type IOutputPortSpecOptions,
+  type IParsedCountSpec,
   OutputPortSpec,
   parseCountSpec,
-  type AcceptsSpec,
   type ProducesSpec,
-  type CountSpec,
-  type IParsedCountSpec,
-  type IInputPortSpecOptions,
-  type IOutputPortSpecOptions,
-} from './spec.js';
-
-export { InputPort, OutputPort } from './port.js';
-export { PortGroup, EMPTY_INPUTS, EMPTY_OUTPUTS } from './group.js';
+} from "./spec.js";
