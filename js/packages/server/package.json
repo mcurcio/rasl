@@ -26,9 +26,11 @@
     "@rasl/config": "workspace:*",
     "@rasl/color": "workspace:*",
     "@rasl/engine": "workspace:*",
-    "@rasl/lighting": "workspace:*"
+    "@rasl/lighting": "workspace:*",
+    "ws": "^8.16.0"
   },
   "devDependencies": {
+    "@types/ws": "^8.5.10",
     "typescript": "^5.3.0",
     "vitest": "^1.0.0"
   },

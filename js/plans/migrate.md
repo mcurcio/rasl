@@ -1,4 +1,4 @@
-# RASL Migration Plan Prompt (Python → TypeScript)
+# RASL Migration Plan (Python → TypeScript)
 
 You are a senior TypeScript engineer migrating RASL from a stable Python implementation to the existing TypeScript monorepo in `js/`. Move fast, keep diffs small, and keep the system working.
 
@@ -68,9 +68,7 @@ You are a senior TypeScript engineer migrating RASL from a stable Python impleme
 9.3 Add tests (including color stability tests where relevant).  
 9.4 Validate with `pnpm -C js test` and `pnpm -C js typecheck`.  
 9.5 Summarize changes + update `js/plans/QuestionsAndAssumptions.md` + choose the next slice.
-9.6 Repeat the loop until all functionality has been migrated.
+9.6 Repeat the loop.
+9.7 Dont't stop until all the Typescript code is on par with the Python implementation
 
-## 10. First task
-
-10.1 Scan the repo and propose 2–3 migration slices focused on `@rasl/engine` + `@rasl/server`.  
-10.2 Start with the smallest slice immediately; only ask questions if blocked.
+## 10. 
