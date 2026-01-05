@@ -94,11 +94,18 @@ describe('Lexer', () => {
       expect(newlines).toHaveLength(3);
     });
 
-    it('should preserve line comments', () => {
+    it('should preserve line comments with //', () => {
       const result = lex('hello // this is a comment\nworld');
       const comments = result.tokens.filter((t) => t.type === TokenType.LineComment);
       expect(comments).toHaveLength(1);
       expect(comments[0].text).toBe('// this is a comment');
+    });
+
+    it('should preserve line comments with #', () => {
+      const result = lex('hello # this is a comment\nworld');
+      const comments = result.tokens.filter((t) => t.type === TokenType.LineComment);
+      expect(comments).toHaveLength(1);
+      expect(comments[0].text).toBe('# this is a comment');
     });
 
     it('should preserve block comments', () => {
