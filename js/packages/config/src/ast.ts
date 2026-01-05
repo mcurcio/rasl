@@ -5,14 +5,8 @@
  * round-tripping. Edits through the AST modify the underlying CST.
  */
 
-import type { IToken, ISourceSpan } from './tokens.js';
-import {
-  getDirectiveName,
-  getDirectiveArgs,
-  getSpanForRange,
-  type ICstDocument,
-  type ICstDirective,
-} from './cst.js';
+import { getDirectiveArgs, getDirectiveName, getSpanForRange, type ICstDirective, type ICstDocument } from "./cst.js";
+import type { ISourceSpan, IToken } from "./tokens.js";
 
 /**
  * AST document wrapping a CST document.
@@ -212,7 +206,7 @@ export function createAst(cst: ICstDocument): IAstDocument {
  */
 export function walkDirectives(
   doc: IAstDocument,
-  visitor: (directive: IAstDirective, parent: IAstDirective | null) => void
+  visitor: (directive: IAstDirective, parent: IAstDirective | null) => void,
 ): void {
   const visit = (directive: IAstDirective, parent: IAstDirective | null): void => {
     visitor(directive, parent);

@@ -12,15 +12,15 @@
 import {
   BaseNode,
   Frame,
-  type ITickContext,
   InputPortSpec,
+  type ITickContext,
   MatrixPayload,
+  node,
   OutputPortSpec,
   PortGroup,
-  node,
-} from '../../runtime/index.js';
+} from "../../runtime/index.js";
 
-export type TwinkleMode = 'brightness' | 'whiteness';
+export type TwinkleMode = "brightness" | "whiteness";
 
 export interface ITwinkleConfig {
   id: string;
@@ -56,14 +56,14 @@ function seededRandom(seed: number): () => number {
   };
 }
 
-@node('TwinkleEffectNode', 'TwinkleEffect')
+@node("TwinkleEffectNode", "TwinkleEffect")
 export class TwinkleEffectNode extends BaseNode {
   readonly inputs = PortGroup.inputs({
-    in: new InputPortSpec({ accepts: ['matrix', 'color'] }),
+    in: new InputPortSpec({ accepts: ["matrix", "color"] }),
   });
 
   readonly outputs = PortGroup.outputs({
-    out: new OutputPortSpec({ produces: 'color' }),
+    out: new OutputPortSpec({ produces: "color" }),
   });
 
   private readonly _seed: number;
@@ -81,7 +81,7 @@ export class TwinkleEffectNode extends BaseNode {
   constructor(config: ITwinkleConfig) {
     super(config);
     this._seed = config.seed ?? 42;
-    this._mode = config.mode ?? 'brightness';
+    this._mode = config.mode ?? "brightness";
     this._frequencyHz = config.frequencyHz ?? 0.3;
     this._attackRatio = config.attackRatio ?? 0.33;
     this._minSpeed = config.minSpeed ?? 1.0;
@@ -105,13 +105,12 @@ export class TwinkleEffectNode extends BaseNode {
     const rngSpeed = seededRandom(this._seed + 1);
     this._speedMultipliers = new Float32Array(numPixels);
     for (let i = 0; i < numPixels; i++) {
-      this._speedMultipliers[i] =
-        rngSpeed() * (this._maxSpeed - this._minSpeed) + this._minSpeed;
+      this._speedMultipliers[i] = rngSpeed() * (this._maxSpeed - this._minSpeed) + this._minSpeed;
     }
   }
 
   override async pull(tick: ITickContext): Promise<void> {
-    const inPort = this.inputs.get('in');
+    const inPort = this.inputs.get("in");
     const frame = inPort?.read() ?? null;
     if (!frame) return;
 
@@ -131,8 +130,7 @@ export class TwinkleEffectNode extends BaseNode {
     const basePhase = t * this._frequencyHz;
     const pixelPhases = new Float32Array(numPixels);
     for (let i = 0; i < numPixels; i++) {
-      pixelPhases[i] =
-        (basePhase * this._speedMultipliers![i] + this._phaseOffsets![i]) % 1.0;
+      pixelPhases[i] = (basePhase * this._speedMultipliers![i] + this._phaseOffsets![i]) % 1.0;
     }
 
     // Generate envelope [0, 1]
@@ -141,7 +139,7 @@ export class TwinkleEffectNode extends BaseNode {
     // Apply effect based on mode
     const outData = new Float32Array(data.length);
 
-    if (this._mode === 'brightness') {
+    if (this._mode === "brightness") {
       // Brightness mode: multiply RGB by envelope → fade to black
       for (let i = 0; i < numPixels; i++) {
         const e = envelope[i];
@@ -170,6 +168,6 @@ export class TwinkleEffectNode extends BaseNode {
       metadata: frame.metadata,
     });
 
-    this.outputs.get('out')?.write(outFrame);
+    this.outputs.get("out")?.write(outFrame);
   }
 }

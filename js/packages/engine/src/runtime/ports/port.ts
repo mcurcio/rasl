@@ -2,8 +2,8 @@
  * Runtime port instances.
  */
 
-import type { Frame } from '../frame.js';
-import type { InputPortSpec, OutputPortSpec } from './spec.js';
+import type { Frame } from "../frame.js";
+import type { InputPortSpec, OutputPortSpec } from "./spec.js";
 
 /**
  * Runtime input port.

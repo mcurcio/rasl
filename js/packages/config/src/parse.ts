@@ -1,14 +1,9 @@
-import { createAst } from './ast.js';
-import { getDirectiveArgs, getDirectiveName, type ICstDocument, type ICstDirective } from './cst.js';
-import { parseDocument } from './parser.js';
-import {
-  DiagnosticCode,
-  DiagnosticSeverity,
-  TokenType,
-  type IDiagnostic,
-} from './tokens.js';
-import { composeLoaders, syntheticSpan, type DocumentLoader } from './io.js';
-import type { IDocumentEdge, IDocumentGraph, IDocumentNode } from './graph.js';
+import { createAst } from "./ast.js";
+import { getDirectiveArgs, getDirectiveName, type ICstDirective, type ICstDocument } from "./cst.js";
+import type { IDocumentEdge, IDocumentGraph, IDocumentNode } from "./graph.js";
+import { composeLoaders, type DocumentLoader, syntheticSpan } from "./io.js";
+import { parseDocument } from "./parser.js";
+import { DiagnosticCode, DiagnosticSeverity, type IDiagnostic, TokenType } from "./tokens.js";
 
 /**
  * Configuration for parsing a root document into a document graph.
@@ -42,13 +37,12 @@ const DEFAULT_MAX_DEPTH = 16;
  */
 export async function parse(source: string, config: IParseConfig): Promise<IDocumentGraph> {
   if (!config || !config.loader) {
-    throw new Error('Malformed parser configuration: loader is required');
+    throw new Error("Malformed parser configuration: loader is required");
   }
 
-  const rootPath = config.path ?? '<root>';
+  const rootPath = config.path ?? "<root>";
   const maxDepth = config.maxIncludeDepth ?? DEFAULT_MAX_DEPTH;
-  const loader =
-    typeof config.loader === 'function' ? config.loader : composeLoaders(config.loader);
+  const loader = typeof config.loader === "function" ? config.loader : composeLoaders(config.loader);
 
   const diagnostics: IDiagnostic[] = [];
   const nodes = new Map<string, IDocumentNode>();
@@ -59,7 +53,7 @@ export async function parse(source: string, config: IParseConfig): Promise<IDocu
 
     const visit = (dirs: ICstDirective[]): void => {
       for (const d of dirs) {
-        if (getDirectiveName(cst, d) === 'include') out.push(d);
+        if (getDirectiveName(cst, d) === "include") out.push(d);
         if (d.body) visit(d.body);
       }
     };
@@ -76,11 +70,7 @@ export async function parse(source: string, config: IParseConfig): Promise<IDocu
     return String(first.value);
   };
 
-  async function processDocument(
-    src: string,
-    resolvedPath: string,
-    depth: number
-  ): Promise<IDocumentNode> {
+  async function processDocument(src: string, resolvedPath: string, depth: number): Promise<IDocumentNode> {
     if (visiting.has(resolvedPath)) {
       diagnostics.push({
         code: DiagnosticCode.IncludeCycle,
@@ -93,11 +83,11 @@ export async function parse(source: string, config: IParseConfig): Promise<IDocu
       const cached = nodes.get(resolvedPath);
       if (cached) return cached;
 
-      const emptyResult = parseDocument('', { sourceId: resolvedPath });
+      const emptyResult = parseDocument("", { sourceId: resolvedPath });
       const emptyCst = emptyResult.cst;
       const emptyNode: IDocumentNode = {
         resolvedPath,
-        source: '',
+        source: "",
         parseResult: emptyResult,
         cst: emptyCst,
         ast: createAst(emptyCst),
@@ -119,11 +109,11 @@ export async function parse(source: string, config: IParseConfig): Promise<IDocu
         sourceId: resolvedPath,
       });
 
-      const emptyResult = parseDocument('', { sourceId: resolvedPath });
+      const emptyResult = parseDocument("", { sourceId: resolvedPath });
       const emptyCst = emptyResult.cst;
       const emptyNode: IDocumentNode = {
         resolvedPath,
-        source: '',
+        source: "",
         parseResult: emptyResult,
         cst: emptyCst,
         ast: createAst(emptyCst),
@@ -158,7 +148,7 @@ export async function parse(source: string, config: IParseConfig): Promise<IDocu
         diagnostics.push({
           code: DiagnosticCode.ExpectedStringLiteral,
           severity: DiagnosticSeverity.Error,
-          message: 'Include directive requires a string literal path',
+          message: "Include directive requires a string literal path",
           span: syntheticSpan(),
           sourceId: resolvedPath,
         });
@@ -206,4 +196,3 @@ export async function parse(source: string, config: IParseConfig): Promise<IDocu
   const root = await processDocument(source, rootPath, 0);
   return { root, nodes, diagnostics };
 }
-

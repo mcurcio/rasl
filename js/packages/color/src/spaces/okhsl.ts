@@ -3,7 +3,7 @@
  * Simplified implementation - full implementation would require toe/cusp calculations.
  */
 
-import { oklabToOklch, oklchToOklab } from './oklch.js';
+import { oklabToOklch, oklchToOklab } from "./oklch.js";
 
 /**
  * Convert Oklab to OkHSL (simplified).

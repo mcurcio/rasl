@@ -1,6 +1,7 @@
 # Directive delegator scope plan
 
 ## Goals
+
 - Make `DirectiveDelegator` easier to compose when building DSL layers on top of the directive AST.
 - Default to walking child directives with the current scope/context while still allowing handlers to redirect child processing.
 - Improve observability (hooks) without forcing each handler to hand-roll `{ scope, ctx }` objects.
@@ -8,6 +9,7 @@
 - Keep the public API strongly typed (avoid `unknown`/`any` where possible).
 
 ## Proposed API refinements
+
 1. **Default child traversal**
    - After a handler runs, automatically walk `directive.body` using the same delegator/context unless the handler opts out (`return Delegate.skipChildren()`).
    - This aligns with intuition: most directives want their nested directives handled by the same scope.
@@ -29,9 +31,11 @@
    - Provide a thin “register directives + callbacks” API on top of `DirectiveDelegator` so minimal consumers don’t need to reason about scopes directly.
 
 ## Change strategy
+
 - Treat any change to default traversal or handler return shapes as a breaking change.
 - If compatibility shims are desired, decide that explicitly (default: no shims/aliases/deprecations).
 
 ## Open questions
+
 - Do we need per-directive context merges (e.g., deriving child context from parent return value)?
 - Should the delegator expose a way to mutate directive arguments in-place, or should that stay outside scope?

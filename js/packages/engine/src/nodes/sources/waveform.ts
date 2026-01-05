@@ -5,15 +5,15 @@
 import {
   BaseNode,
   Frame,
-  type ITickContext,
   InputPortSpec,
+  type ITickContext,
   MatrixPayload,
+  node,
   OutputPortSpec,
   PortGroup,
-  node,
-} from '../../runtime/index.js';
+} from "../../runtime/index.js";
 
-export type WaveShape = 'sine' | 'triangle' | 'sawtooth' | 'attack_decay' | 'square';
+export type WaveShape = "sine" | "triangle" | "sawtooth" | "attack_decay" | "square";
 
 export interface IWaveformConfig {
   id: string;
@@ -70,15 +70,15 @@ function sineWave(phase: Float32Array): Float32Array {
   return result;
 }
 
-@node('WaveformNode', 'Waveform')
+@node("WaveformNode", "Waveform")
 export class WaveformNode extends BaseNode {
   readonly inputs = PortGroup.inputs({
-    phase: new InputPortSpec({ accepts: 'matrix' }),
-    speed: new InputPortSpec({ accepts: 'matrix' }),
+    phase: new InputPortSpec({ accepts: "matrix" }),
+    speed: new InputPortSpec({ accepts: "matrix" }),
   });
 
   readonly outputs = PortGroup.outputs({
-    out: new OutputPortSpec({ produces: 'matrix' }),
+    out: new OutputPortSpec({ produces: "matrix" }),
   });
 
   private readonly _channels: number;
@@ -91,7 +91,7 @@ export class WaveformNode extends BaseNode {
   constructor(config: IWaveformConfig) {
     super(config);
     this._channels = config.outputChannels ?? 512;
-    this._shape = config.shape ?? 'sine';
+    this._shape = config.shape ?? "sine";
     this._frequencyHz = config.frequencyHz ?? 1.0;
     this._attackRatio = config.attackRatio ?? 0.33;
     this._duty = config.duty ?? 0.5;
@@ -106,13 +106,13 @@ export class WaveformNode extends BaseNode {
     let phaseOffsets: Float32Array | null = null;
     let speedMultipliers: Float32Array | null = null;
 
-    const phasePort = this.inputs.get('phase');
+    const phasePort = this.inputs.get("phase");
     const phaseFrame = phasePort?.read() ?? null;
     if (phaseFrame) {
       phaseOffsets = (phaseFrame.payload as MatrixPayload).flatten();
     }
 
-    const speedPort = this.inputs.get('speed');
+    const speedPort = this.inputs.get("speed");
     const speedFrame = speedPort?.read() ?? null;
     if (speedFrame) {
       speedMultipliers = (speedFrame.payload as MatrixPayload).flatten();
@@ -142,20 +142,20 @@ export class WaveformNode extends BaseNode {
       metadata: this._metadata,
     });
 
-    this.outputs.get('out')?.write(frame);
+    this.outputs.get("out")?.write(frame);
   }
 
   private _applyShape(phase: Float32Array): Float32Array {
     switch (this._shape) {
-      case 'sine':
+      case "sine":
         return sineWave(phase);
-      case 'triangle':
+      case "triangle":
         return triangleWave(phase);
-      case 'sawtooth':
+      case "sawtooth":
         return sawtoothWave(phase);
-      case 'attack_decay':
+      case "attack_decay":
         return attackDecayWave(phase, this._attackRatio);
-      case 'square':
+      case "square":
         return squareWave(phase, this._duty);
       default:
         return sineWave(phase);
