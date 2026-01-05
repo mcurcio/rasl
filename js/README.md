@@ -4,13 +4,13 @@ A JavaScript/TypeScript implementation of RASL for building real-time animation 
 
 ## Packages
 
-| Package | Description |
-|---------|-------------|
-| [@rasl/engine](./packages/engine) | Runtime primitives, built-in nodes, graph builder, scheduler |
-| [@rasl/color](./packages/color) | Color conversion + color-aware nodes (Compose, Literal, corrections) |
-| [@rasl/lighting](./packages/lighting) | Network protocol nodes (sACN/E1.31, DDP) |
-| [@rasl/config](./packages/config) | Configuration parser and loader |
-| [@rasl/server](./packages/server) | CLI/HTTP/WebSocket control server |
+| Package                               | Description                                                          |
+| ------------------------------------- | -------------------------------------------------------------------- |
+| [@rasl/engine](./packages/engine)     | Runtime primitives, built-in nodes, graph builder, scheduler         |
+| [@rasl/color](./packages/color)       | Color conversion + color-aware nodes (Compose, Literal, corrections) |
+| [@rasl/lighting](./packages/lighting) | Network protocol nodes (sACN/E1.31, DDP)                             |
+| [@rasl/config](./packages/config)     | Configuration parser and loader                                      |
+| [@rasl/server](./packages/server)     | CLI/HTTP/WebSocket control server                                    |
 
 ## Architecture
 
@@ -44,20 +44,20 @@ pnpm test
 ## Usage
 
 ```typescript
-import { GraphBuilder, UnifiedScheduler, WaveformNode } from '@rasl/engine';
-import { ComposeNode, ColorNode } from '@rasl/color';
-import { DdpSinkNode } from '@rasl/lighting';
+import { GraphBuilder, UnifiedScheduler, WaveformNode } from "@rasl/engine";
+import { ComposeNode, ColorNode } from "@rasl/color";
+import { DdpSinkNode } from "@rasl/lighting";
 
 // Build a graph
 const builder = new GraphBuilder();
-builder.addNode(new WaveformNode({ id: 'wave', shape: 'sine', frequencyHz: 0.5 }));
-builder.addNode(new ComposeNode({ id: 'color', outputType: 'oklch' }));
-builder.addNode(new ColorNode({ id: 'rgb', model: 'srgb' }));
-builder.addNode(new DdpSinkNode({ id: 'leds', host: '192.168.1.100', fps: 30 }));
+builder.addNode(new WaveformNode({ id: "wave", shape: "sine", frequencyHz: 0.5 }));
+builder.addNode(new ComposeNode({ id: "color", outputType: "oklch" }));
+builder.addNode(new ColorNode({ id: "rgb", model: "srgb" }));
+builder.addNode(new DdpSinkNode({ id: "leds", host: "192.168.1.100", fps: 30 }));
 
-builder.connect('wave', 'out', 'color', 'lightness');
-builder.connect('color', 'out', 'rgb', 'in');
-builder.connect('rgb', 'out', 'leds', 'in');
+builder.connect("wave", "out", "color", "lightness");
+builder.connect("color", "out", "rgb", "in");
+builder.connect("rgb", "out", "leds", "in");
 
 // Run the scheduler
 const plan = builder.build();

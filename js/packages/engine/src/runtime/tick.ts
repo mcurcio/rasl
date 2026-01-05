@@ -35,19 +35,14 @@ export interface ITickContext {
 /**
  * Create a TickContext.
  */
-export function createTickContext(options: {
-  tick: number;
-  t: number;
-  dt: number;
-  wallTime: number;
-}): ITickContext {
+export function createTickContext(options: { tick: number; t: number; dt: number; wallTime: number }): ITickContext {
   return Object.freeze(options);
 }
 
 /**
  * Symbol for storing pull rate on methods.
  */
-export const PULL_RATE_SYMBOL = Symbol('pullRate');
+export const PULL_RATE_SYMBOL = Symbol("pullRate");
 
 /**
  * Decorator declaring that a node drives the scheduler at a specific rate.
@@ -61,7 +56,7 @@ export function pullRate(hz: number | ((self: unknown) => number)) {
   return function (
     _target: unknown,
     _propertyKey: string,
-    descriptor: TypedPropertyDescriptor<any>
+    descriptor: TypedPropertyDescriptor<any>,
   ): TypedPropertyDescriptor<any> {
     if (descriptor.value) {
       (descriptor.value as Record<symbol, unknown>)[PULL_RATE_SYMBOL] = hz;
@@ -76,7 +71,7 @@ export function pullRate(hz: number | ((self: unknown) => number)) {
 export function getPullRate(method: unknown, instance?: unknown): number | null {
   const hz = (method as Record<symbol, unknown>)?.[PULL_RATE_SYMBOL];
   if (hz === undefined) return null;
-  if (typeof hz === 'function') {
+  if (typeof hz === "function") {
     return hz(instance);
   }
   return hz as number;

@@ -1,2 +1,2 @@
-export { SacnSinkNode, type ISacnSinkConfig } from './sink.js';
-export { SacnSourceNode, type ISacnSourceConfig } from './source.js';
+export { type ISacnSinkConfig, SacnSinkNode } from "./sink.js";
+export { type ISacnSourceConfig, SacnSourceNode } from "./source.js";

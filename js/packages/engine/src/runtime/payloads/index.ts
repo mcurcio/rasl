@@ -2,5 +2,5 @@
  * Payload types for the RASL frame system.
  */
 
-export { FramePayload, type IPayloadDescriptor, type IFramePayload } from './base.js';
-export { MatrixPayload, BoolPayload } from './matrix.js';
+export { FramePayload, type IFramePayload, type IPayloadDescriptor } from "./base.js";
+export { BoolPayload, MatrixPayload } from "./matrix.js";

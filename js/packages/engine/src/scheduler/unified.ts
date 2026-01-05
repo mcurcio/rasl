@@ -2,21 +2,22 @@
  * UnifiedScheduler - Pull-based scheduler for RASL graph execution.
  */
 
+import type { Frame } from "@rasl/engine";
 import {
-  Frame,
-  type ILogger,
-  type INode,
-  type ITickContext,
   createTickContext,
   getInputs,
   getOutputs,
   getPullRate,
+  type ILogger,
+  type INode,
+  type ITickContext,
   NodeContext,
-} from '@rasl/engine';
-import type { ExecutionPlan } from '../graph/plan.js';
-import type { Edge } from '../graph/edge.js';
-import { NodeMonitor, type INodeStats } from './monitor.js';
-import { childLogger, createConsoleLogger } from '../log/index.js';
+} from "@rasl/engine";
+
+import type { Edge } from "../graph/edge.js";
+import type { ExecutionPlan } from "../graph/plan.js";
+import { childLogger, createConsoleLogger } from "../log/index.js";
+import { type INodeStats, NodeMonitor } from "./monitor.js";
 
 /**
  * Scheduler configuration options.
@@ -88,7 +89,7 @@ export class UnifiedScheduler {
         nodes: plan.nodes.size,
         edges: Array.from(plan.adjacency.values()).reduce((acc, e) => acc + e.length, 0),
       },
-      'Scheduler initialized'
+      "Scheduler initialized",
     );
   }
 
@@ -118,7 +119,7 @@ export class UnifiedScheduler {
     this._startTime = performance.now() / 1000;
     this._tickCount = 0;
 
-    this._logger.info('Scheduler starting');
+    this._logger.info("Scheduler starting");
 
     try {
       // Start all nodes in topological order
@@ -131,7 +132,7 @@ export class UnifiedScheduler {
         {
           sinks: sinks.map((s) => ({ nodeId: s.node.id, intervalMs: s.intervalMs })),
         },
-        'Scheduler sinks discovered'
+        "Scheduler sinks discovered",
       );
 
       // Main loop
@@ -145,7 +146,7 @@ export class UnifiedScheduler {
           const elapsed = (now - this._startTime) * 1000 - lastTime * 1000;
 
           if (elapsed >= intervalMs) {
-            this._logger.trace({ nodeId: node.id, t, elapsedMs: elapsed }, 'Pulling sink');
+            this._logger.trace({ nodeId: node.id, t, elapsedMs: elapsed }, "Pulling sink");
             await this._pullNode(node, t);
             this._lastNodeTime.set(node.id, t);
           }
@@ -157,7 +158,7 @@ export class UnifiedScheduler {
         await this._sleep(1);
       }
     } finally {
-      this._logger.info('Scheduler stopping');
+      this._logger.info("Scheduler stopping");
       await this._stopNodes();
     }
   }
@@ -196,7 +197,7 @@ export class UnifiedScheduler {
       }
     } finally {
       this._running = false;
-      this._logger.info('Scheduler stopping (runFor)');
+      this._logger.info("Scheduler stopping (runFor)");
       await this._stopNodes();
     }
   }
@@ -205,7 +206,7 @@ export class UnifiedScheduler {
    * Stop the scheduler.
    */
   stop(): void {
-    this._logger.info('Scheduler stop requested');
+    this._logger.info("Scheduler stop requested");
     this._running = false;
   }
 
@@ -216,9 +217,9 @@ export class UnifiedScheduler {
 
       const ctx = this._createNodeContext(node);
       try {
-        this._logger.debug({ nodeId }, 'Starting node');
+        this._logger.debug({ nodeId }, "Starting node");
         await node.start(ctx);
-        this._logger.debug({ nodeId }, 'Node started');
+        this._logger.debug({ nodeId }, "Node started");
       } catch (error) {
         this._logger.error({ nodeId, err: error }, `Failed to start node '${nodeId}'`);
         this._disabledNodes.add(nodeId);
@@ -235,9 +236,9 @@ export class UnifiedScheduler {
 
       const ctx = this._createNodeContext(node);
       try {
-        this._logger.debug({ nodeId }, 'Stopping node');
+        this._logger.debug({ nodeId }, "Stopping node");
         await node.stop(ctx);
-        this._logger.debug({ nodeId }, 'Node stopped');
+        this._logger.debug({ nodeId }, "Node stopped");
       } catch (error) {
         this._logger.error({ nodeId, err: error }, `Failed to stop node '${nodeId}'`);
       }
@@ -280,7 +281,7 @@ export class UnifiedScheduler {
     // Execute this node
     const startTime = performance.now();
     try {
-      this._logger.trace({ nodeId: node.id, tick: tick.tick, t: tick.t, dt: tick.dt }, 'Pull node');
+      this._logger.trace({ nodeId: node.id, tick: tick.tick, t: tick.t, dt: tick.dt }, "Pull node");
       await node.pull(tick);
       const elapsedMs = performance.now() - startTime;
       this._monitor.recordSuccess(node.id, elapsedMs);
@@ -293,7 +294,7 @@ export class UnifiedScheduler {
             elapsedMs,
             frameBudgetMs: this._config.frameBudgetMs,
           },
-          `Node '${node.id}' exceeded frame budget`
+          `Node '${node.id}' exceeded frame budget`,
         );
       }
 
@@ -316,16 +317,13 @@ export class UnifiedScheduler {
           consecutiveFailures: consecutive,
           err: error,
         },
-        `Node '${node.id}' failed`
+        `Node '${node.id}' failed`,
       );
 
-      if (
-        this._config.maxConsecutiveErrors !== null &&
-        consecutive >= this._config.maxConsecutiveErrors
-      ) {
+      if (this._config.maxConsecutiveErrors !== null && consecutive >= this._config.maxConsecutiveErrors) {
         this._logger.error(
           { nodeId: node.id, consecutiveFailures: consecutive },
-          `Disabling node '${node.id}' after ${consecutive} consecutive failures`
+          `Disabling node '${node.id}' after ${consecutive} consecutive failures`,
         );
         this._disabledNodes.add(node.id);
       }
@@ -350,7 +348,7 @@ export class UnifiedScheduler {
                   target: edge.target,
                   targetPort: edge.targetPort,
                 },
-                'Routing edge'
+                "Routing edge",
               );
               await this._pullNode(sourceNode, tick.t);
 
@@ -376,7 +374,7 @@ export class UnifiedScheduler {
         this._outputFrames.set(`${node.id}.${port}`, frame);
       },
       startBackground: (fn: () => Promise<void>) => {
-        fn().catch((err) => logger.error({ err }, 'Background task failed'));
+        fn().catch((err) => logger.error({ err }, "Background task failed"));
       },
     });
   }

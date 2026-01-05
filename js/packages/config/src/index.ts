@@ -10,85 +10,76 @@
 
 // Token types and utilities
 export {
-  TokenType,
   DiagnosticCode,
   DiagnosticSeverity,
-  isTrivia,
+  type IDiagnostic,
+  type ILexResult,
   isComment,
-  isWhitespace,
-  isTerminator,
-  type IToken,
   type ISourceLocation,
   type ISourceSpan,
-  type ILexResult,
-  type IDiagnostic,
-} from './tokens.js';
+  isTerminator,
+  isTrivia,
+  isWhitespace,
+  type IToken,
+  TokenType,
+} from "./tokens.js";
 
 // Lexer
-export { lex, Lexer } from './lexer.js';
+export { lex, Lexer } from "./lexer.js";
 
 // CST types and utilities
 export {
-  CstNodeKind,
-  serializeCst,
-  serializeRange,
-  serializeDirective,
-  getSpanForRange,
-  getDirectiveName,
-  getDirectiveArgs,
   createDocument,
-  type ICstNode,
-  type ICstDocument,
+  CstNodeKind,
+  getDirectiveArgs,
+  getDirectiveName,
+  getSpanForRange,
   type ICstDirective,
+  type ICstDocument,
+  type ICstNode,
   type ITokenRange,
-} from './cst.js';
+  serializeCst,
+  serializeDirective,
+  serializeRange,
+} from "./cst.js";
 
 // Parser
-export { type IParseResult } from './parser.js';
+export { type IParseResult } from "./parser.js";
 
 // AST facade
 export {
   createAst,
-  walkDirectives,
   findDirectives,
-  type IAstDocument,
   type IAstDirective,
   type IAstDirectiveList,
-} from './ast.js';
+  type IAstDocument,
+  walkDirectives,
+} from "./ast.js";
 
 // Document I/O + parsing
+export { type IDocumentEdge, type IDocumentGraph, type IDocumentNode } from "./graph.js";
 export {
-  type ILoadContext,
-  type ILoadedDocument,
+  composeLoaders,
   type DocumentLoader,
   type DocumentWriter,
-  composeLoaders,
-} from './io.js';
-
-export {
-  parse,
-  type IParseConfig,
-} from './parse.js';
-
-export {
-  type IDocumentEdge,
-  type IDocumentNode,
-  type IDocumentGraph,
-} from './graph.js';
+  type ILoadContext,
+  type ILoadedDocument,
+} from "./io.js";
+export { type IParseConfig, parse } from "./parse.js";
 
 // Include-expanded traversal
-export { iterateDirectives } from './iterate.js';
+export { iterateDirectives } from "./iterate.js";
 
 // Persistence
-export { save } from './save.js';
+export { save } from "./save.js";
 
 // Delegator
 export {
-  DirectiveDelegator,
-  walkScopeDocument,
-  walkScopeBody,
   createChildDelegator,
+  DirectiveDelegator,
   type DirectiveHandler,
-  type IScopeResult,
   type IDelegatorHooks,
-} from './delegator.js';
+  type IScopeResult,
+  walkScopeBody,
+  walkScopeDocument,
+} from "./delegator.js";

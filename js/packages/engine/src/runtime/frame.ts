@@ -2,7 +2,7 @@
  * Frame - Immutable data container for the RASL graph.
  */
 
-import type { FramePayload } from './payloads/base.js';
+import type { FramePayload } from "./payloads/base.js";
 
 /**
  * Metadata attached to frames.

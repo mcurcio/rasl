@@ -5,15 +5,15 @@
 import {
   BaseNode,
   Frame,
-  type ITickContext,
   InputPortSpec,
+  type ITickContext,
   MatrixPayload,
+  node,
   OutputPortSpec,
   PortGroup,
-  node,
-} from '../../runtime/index.js';
+} from "../../runtime/index.js";
 
-export type MathOperation = 'add' | 'subtract' | 'multiply' | 'divide' | 'min' | 'max' | 'lerp' | 'screen';
+export type MathOperation = "add" | "subtract" | "multiply" | "divide" | "min" | "max" | "lerp" | "screen";
 
 export interface IMathConfig {
   id: string;
@@ -24,15 +24,15 @@ export interface IMathConfig {
   clamp?: boolean;
 }
 
-@node('MathNode', 'Math')
+@node("MathNode", "Math")
 export class MathNode extends BaseNode {
   readonly inputs = PortGroup.inputs({
-    a: new InputPortSpec({ accepts: 'matrix' }),
-    b: new InputPortSpec({ accepts: 'matrix' }),
+    a: new InputPortSpec({ accepts: "matrix" }),
+    b: new InputPortSpec({ accepts: "matrix" }),
   });
 
   readonly outputs = PortGroup.outputs({
-    out: new OutputPortSpec({ produces: 'matrix' }),
+    out: new OutputPortSpec({ produces: "matrix" }),
   });
 
   private readonly _operation: MathOperation;
@@ -53,8 +53,8 @@ export class MathNode extends BaseNode {
   }
 
   override async pull(tick: ITickContext): Promise<void> {
-    const portA = this.inputs.get('a');
-    const portB = this.inputs.get('b');
+    const portA = this.inputs.get("a");
+    const portB = this.inputs.get("b");
     const frameA = portA?.read() ?? null;
     const frameB = portB?.read() ?? null;
 
@@ -90,28 +90,28 @@ export class MathNode extends BaseNode {
 
       let value: number;
       switch (this._operation) {
-        case 'add':
+        case "add":
           value = a + b;
           break;
-        case 'subtract':
+        case "subtract":
           value = a - b;
           break;
-        case 'multiply':
+        case "multiply":
           value = a * b;
           break;
-        case 'divide':
+        case "divide":
           value = b !== 0 ? a / b : 0;
           break;
-        case 'min':
+        case "min":
           value = Math.min(a, b);
           break;
-        case 'max':
+        case "max":
           value = Math.max(a, b);
           break;
-        case 'lerp':
+        case "lerp":
           value = a + (b - a) * this._mix;
           break;
-        case 'screen':
+        case "screen":
           value = 1 - (1 - a) * (1 - b);
           break;
         default:
@@ -133,6 +133,6 @@ export class MathNode extends BaseNode {
       metadata: this._metadata,
     });
 
-    this.outputs.get('out')?.write(frame);
+    this.outputs.get("out")?.write(frame);
   }
 }

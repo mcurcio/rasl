@@ -5,6 +5,8 @@
  * and the PayloadDescriptor for introspection.
  */
 
+import { ErrorCodes, RaslError } from "@rasl/engine";
+
 /**
  * Introspection metadata for any payload.
  */
@@ -25,7 +27,7 @@ export abstract class FramePayload {
   /**
    * Domain identifier for this payload type.
    */
-  static readonly domain = 'payload' as string;
+  static readonly domain = "payload" as string;
 
   /**
    * Number of components per element (e.g., 3 for RGB).
@@ -48,16 +50,12 @@ export abstract class FramePayload {
   /**
    * Ensure a writable backing buffer exists and is large enough.
    */
-  static ensureBuffer(
-    buffer: Float32Array | null,
-    count: number,
-    components: number
-  ): Float32Array {
+  static ensureBuffer(buffer: Float32Array | null, count: number, components: number): Float32Array {
     if (count < 0) {
-      throw new Error(`count must be non-negative, got ${count}`);
+      throw new RaslError(ErrorCodes.InvalidArgument, `count must be non-negative, got ${count}`);
     }
     if (components <= 0) {
-      throw new Error(`components must be > 0, got ${components}`);
+      throw new RaslError(ErrorCodes.InvalidArgument, `components must be > 0, got ${components}`);
     }
 
     const requiredSize = count * components;
