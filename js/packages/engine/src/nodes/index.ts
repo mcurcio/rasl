@@ -1,6 +1,11 @@
 export { WaveformNode, type IWaveformConfig, type WaveShape } from './sources/waveform.js';
 export { SeededRandomNode, type ISeededRandomConfig, type OutputType } from './sources/seeded-random.js';
+export { LiteralNode, type ILiteralConfig } from './sources/literal.js';
 export { MathNode, type IMathConfig, type MathOperation } from './transforms/math.js';
+export { RangeMapNode, type IRangeMapConfig } from './transforms/range-map.js';
+export { SmoothNode, type ISmoothConfig } from './transforms/smooth.js';
+export { RandomMapNode, type IRandomMapConfig } from './transforms/random-map.js';
+export { MatrixMultiplyNode, type IMatrixMultiplyConfig } from './transforms/matrix-multiply.js';
 export { CrossfadeNode, type ICrossfadeConfig } from './effects/crossfade.js';
 export { TwinkleEffectNode, type ITwinkleConfig, type TwinkleMode } from './effects/twinkle.js';
 export { CronNode, type ICronConfig } from './effects/cron.js';
