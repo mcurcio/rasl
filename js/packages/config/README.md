@@ -84,24 +84,27 @@ node Waveform sine {
 ### Basic Parsing
 
 ```typescript
-import { parse } from '@rasl/config';
+import { parse } from "@rasl/config";
 
 const graph = await parse(configSource, {
-  path: '/path/to/config.conf',
+  path: "/path/to/config.conf",
   loader: async () => [],
 });
 
-console.log('Errors:', graph.diagnostics.filter((d) => d.severity === 'error'));
+console.log(
+  "Errors:",
+  graph.diagnostics.filter((d) => d.severity === "error"),
+);
 ```
 
 ### With Include Resolution
 
 ```typescript
-import { parse } from '@rasl/config';
-import { createFsLoader } from '@rasl/config/node';
+import { parse } from "@rasl/config";
+import { createFsLoader } from "@rasl/config/node";
 
 const graph = await parse(configSource, {
-  path: '/path/to/config/nginx.conf',
+  path: "/path/to/config/nginx.conf",
   loader: createFsLoader(),
 });
 ```
@@ -109,11 +112,11 @@ const graph = await parse(configSource, {
 ### Round-Tripping
 
 ```typescript
-import { parse, serializeCst, save } from '@rasl/config';
-import { createFsLoader, createFsWriter } from '@rasl/config/node';
+import { parse, serializeCst, save } from "@rasl/config";
+import { createFsLoader, createFsWriter } from "@rasl/config/node";
 
 const graph = await parse(configSource, {
-  path: '/path/to/config.conf',
+  path: "/path/to/config.conf",
   loader: createFsLoader(),
 });
 const roundTripped = serializeCst(graph.root.parseResult.cst);

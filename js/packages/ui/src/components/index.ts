@@ -2,7 +2,7 @@
  * UI component prop types.
  */
 
-import type { IGraphDescription, INodeStats } from '@rasl/engine';
+import type { IGraphDescription, INodeStats } from "@rasl/engine";
 
 /**
  * Graph view component props.

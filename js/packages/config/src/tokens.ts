@@ -12,28 +12,28 @@
  */
 export const TokenType = {
   // Literals
-  Word: 'word',           // Identifier with dots: letters/digits/underscores/dots
-  String: 'string',       // Quoted string (single or double)
-  Number: 'number',       // Numeric literal
+  Word: "word", // Identifier with dots: letters/digits/underscores/dots
+  String: "string", // Quoted string (single or double)
+  Number: "number", // Numeric literal
 
   // Punctuation
-  LeftBrace: 'left_brace',
-  RightBrace: 'right_brace',
-  LeftBracket: 'left_bracket',
-  RightBracket: 'right_bracket',
-  Semicolon: 'semicolon',
-  Colon: 'colon',
-  Comma: 'comma',
+  LeftBrace: "left_brace",
+  RightBrace: "right_brace",
+  LeftBracket: "left_bracket",
+  RightBracket: "right_bracket",
+  Semicolon: "semicolon",
+  Colon: "colon",
+  Comma: "comma",
 
   // Trivia (preserved for round-tripping)
-  Whitespace: 'whitespace',   // Spaces and tabs (not newlines)
-  Newline: 'newline',         // Structural: terminates directives
-  LineComment: 'line_comment',
-  BlockComment: 'block_comment',
+  Whitespace: "whitespace", // Spaces and tabs (not newlines)
+  Newline: "newline", // Structural: terminates directives
+  LineComment: "line_comment",
+  BlockComment: "block_comment",
 
   // Special
-  Eof: 'eof',
-  Error: 'error',
+  Eof: "eof",
+  Error: "error",
 } as const;
 export type TokenType = (typeof TokenType)[keyof typeof TokenType];
 
@@ -41,9 +41,9 @@ export type TokenType = (typeof TokenType)[keyof typeof TokenType];
  * 0-based source location.
  */
 export interface ISourceLocation {
-  offset: number;   // Byte offset from start of source
-  line: number;     // 0-based line number
-  column: number;   // 0-based column number
+  offset: number; // Byte offset from start of source
+  line: number; // 0-based line number
+  column: number; // 0-based column number
 }
 
 /**
@@ -80,26 +80,26 @@ export interface ILexResult {
  */
 export const DiagnosticCode = {
   // Lexer errors (1xxx)
-  UnterminatedString: 'E1001',
-  UnterminatedBlockComment: 'E1002',
-  UnexpectedCharacter: 'E1003',
-  InvalidEscapeSequence: 'W1004',
-  InvalidNumber: 'E1005',
+  UnterminatedString: "E1001",
+  UnterminatedBlockComment: "E1002",
+  UnexpectedCharacter: "E1003",
+  InvalidEscapeSequence: "W1004",
+  InvalidNumber: "E1005",
 
   // Parser errors (2xxx)
-  UnexpectedToken: 'E2001',
-  ExpectedDirectiveName: 'E2002',
-  ExpectedClosingBrace: 'E2003',
-  ExpectedClosingBracket: 'E2004',
-  ExpectedSemicolonOrNewline: 'E2005',
-  ExpectedStringLiteral: 'E2006',
+  UnexpectedToken: "E2001",
+  ExpectedDirectiveName: "E2002",
+  ExpectedClosingBrace: "E2003",
+  ExpectedClosingBracket: "E2004",
+  ExpectedSemicolonOrNewline: "E2005",
+  ExpectedStringLiteral: "E2006",
 
   // Include errors (3xxx)
-  IncludeNotFound: 'E3001',
-  IncludeCycle: 'E3002',
-  IncludeDepthExceeded: 'E3003',
-  IncludeResolverFailed: 'E3004',
-  IncludeNoMatches: 'W3005',
+  IncludeNotFound: "E3001",
+  IncludeCycle: "E3002",
+  IncludeDepthExceeded: "E3003",
+  IncludeResolverFailed: "E3004",
+  IncludeNoMatches: "W3005",
 } as const;
 export type DiagnosticCode = (typeof DiagnosticCode)[keyof typeof DiagnosticCode];
 
@@ -107,9 +107,9 @@ export type DiagnosticCode = (typeof DiagnosticCode)[keyof typeof DiagnosticCode
  * Diagnostic severity.
  */
 export const DiagnosticSeverity = {
-  Error: 'error',
-  Warning: 'warning',
-  Info: 'info',
+  Error: "error",
+  Warning: "warning",
+  Info: "info",
 } as const;
 export type DiagnosticSeverity = (typeof DiagnosticSeverity)[keyof typeof DiagnosticSeverity];
 

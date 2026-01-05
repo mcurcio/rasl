@@ -11,13 +11,15 @@ import {
   Frame,
   type ITickContext,
   MatrixPayload,
+  node,
+  type OutputPort,
   OutputPortSpec,
   PortGroup,
-  node,
   pullRate,
-} from '@rasl/engine';
-import { ColorPayload } from '../transforms/color.js';
-import type { ColorModel } from '../../convert.js';
+} from "@rasl/engine";
+
+import type { ColorModel } from "../../convert.js";
+import { ColorPayload } from "../transforms/color.js";
 
 export interface ILiteralConfig {
   id: string;
@@ -36,23 +38,22 @@ export interface ILiteralConfig {
 }
 
 function parseLiteral(value: string | number[] | number[][]): number[] | number[][] {
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     try {
       return JSON.parse(value) as number[] | number[][];
     } catch {
       // Try parsing as space-separated numbers
-      const nums = value.split(/[\s,]+/).map(Number).filter((n) => !isNaN(n));
+      const nums = value
+        .split(/[\s,]+/)
+        .map(Number)
+        .filter((n) => !isNaN(n));
       return nums;
     }
   }
   return value;
 }
 
-function buildPayload(
-  kind: string,
-  subtype: string | undefined,
-  value: number[] | number[][]
-): MatrixPayload {
+function buildPayload(kind: string, subtype: string | undefined, value: number[] | number[][]): MatrixPayload {
   // Flatten nested arrays
   let flat: Float32Array;
   let channels = 1;
@@ -72,18 +73,18 @@ function buildPayload(
     flat = new Float32Array(value as number[]);
   }
 
-  if (kind === 'color') {
-    const model = (subtype ?? 'srgb') as ColorModel;
+  if (kind === "color") {
+    const model = (subtype ?? "srgb") as ColorModel;
     return new ColorPayload(flat, channels, model);
   }
 
   return new MatrixPayload(flat, channels);
 }
 
-@node('LiteralNode', 'literal')
+@node("LiteralNode", "literal")
 export class LiteralNode extends BaseNode {
-  readonly outputs = PortGroup.outputs({
-    out: new OutputPortSpec({ produces: 'matrix' }),
+  readonly outputs: PortGroup<OutputPort> = PortGroup.outputs({
+    out: new OutputPortSpec({ produces: "matrix" }),
   });
 
   private readonly _payload: MatrixPayload;
@@ -94,12 +95,12 @@ export class LiteralNode extends BaseNode {
     super(config);
 
     // Parse model from "color:hsl" format or separate fields
-    let kind = config.payloadKind ?? 'matrix';
+    let kind = config.payloadKind ?? "matrix";
     let subtype = config.payloadSubtype;
 
     if (config.model) {
-      const parts = config.model.split(':');
-      kind = parts[0] ?? 'matrix';
+      const parts = config.model.split(":");
+      kind = parts[0] ?? "matrix";
       subtype = parts[1];
     }
 
@@ -121,6 +122,6 @@ export class LiteralNode extends BaseNode {
       metadata: this._metadata,
     });
 
-    this.outputs.get('out')?.write(frame);
+    this.outputs.get("out")?.write(frame);
   }
 }

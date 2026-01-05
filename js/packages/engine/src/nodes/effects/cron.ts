@@ -9,11 +9,11 @@ import {
   Frame,
   type ITickContext,
   MatrixPayload,
+  node,
   OutputPortSpec,
   PortGroup,
-  node,
   pullRate,
-} from '../../runtime/index.js';
+} from "../../runtime/index.js";
 
 export interface ICronConfig {
   id: string;
@@ -22,10 +22,10 @@ export interface ICronConfig {
   fps?: number;
 }
 
-@node('CronNode', 'cron')
+@node("CronNode", "cron")
 export class CronNode extends BaseNode {
   readonly outputs = PortGroup.outputs({
-    out: new OutputPortSpec({ produces: 'matrix' }),
+    out: new OutputPortSpec({ produces: "matrix" }),
   });
 
   private readonly _schedule: string;
@@ -34,7 +34,7 @@ export class CronNode extends BaseNode {
 
   constructor(config: ICronConfig) {
     super(config);
-    this._schedule = config.schedule ?? '* * * * *';
+    this._schedule = config.schedule ?? "* * * * *";
     this._topic = config.topic ?? `cron.${this.id}`;
     this._fps = config.fps ?? 1;
   }
@@ -48,12 +48,12 @@ export class CronNode extends BaseNode {
 
     // Parse schedule like "*/2 * * * *" (every 2 minutes)
     let value = 0;
-    const parts = this._schedule.split(' ');
+    const parts = this._schedule.split(" ");
     if (parts[0]) {
       const minutePart = parts[0];
-      if (minutePart === '*') {
+      if (minutePart === "*") {
         value = 1;
-      } else if (minutePart.startsWith('*/')) {
+      } else if (minutePart.startsWith("*/")) {
         const interval = parseInt(minutePart.slice(2), 10);
         value = minute % interval === 0 ? 1 : 0;
       } else {
@@ -71,6 +71,6 @@ export class CronNode extends BaseNode {
       metadata: this._metadata,
     });
 
-    this.outputs.get('out')?.write(outFrame);
+    this.outputs.get("out")?.write(outFrame);
   }
 }
