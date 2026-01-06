@@ -102,13 +102,10 @@ export class UnifiedScheduler {
     // Validate non-overlapping target slices at startup
     this._validateTargetSlices();
 
-    this._logger.debug(
-      {
-        nodes: plan.nodes.size,
-        edges: Array.from(plan.adjacency.values()).reduce((acc, e) => acc + e.length, 0),
-      },
-      "Scheduler initialized",
-    );
+    this._logger.debug("Graph built", {
+      nodes: plan.nodes.size,
+      edges: Array.from(plan.adjacency.values()).reduce((acc, e) => acc + e.length, 0),
+    });
   }
 
   /**
@@ -146,12 +143,9 @@ export class UnifiedScheduler {
       // Find sinks and their frame rates
       const sinks = this._findSinks();
 
-      this._logger.debug(
-        {
-          sinks: sinks.map((s) => ({ nodeId: s.node.id, intervalMs: s.intervalMs })),
-        },
-        "Scheduler sinks discovered",
-      );
+      this._logger.debug("Sinks found", {
+        sinks: sinks.map((s) => ({ nodeId: s.node.id, intervalMs: s.intervalMs })),
+      });
 
       // Main loop
       while (this._running) {
@@ -167,7 +161,7 @@ export class UnifiedScheduler {
           const elapsed = (t - lastPulledTime) * 1000;
 
           if (elapsed >= intervalMs) {
-            this._logger.trace({ nodeId: node.id, t, elapsedMs: elapsed }, "Pulling sink");
+            this._logger.trace("Pulling sink", { nodeId: node.id, t, elapsedMs: elapsed });
             await this._pullNode(node, t);
           }
         }
@@ -235,11 +229,11 @@ export class UnifiedScheduler {
 
       const ctx = this._createNodeContext(node);
       try {
-        this._logger.debug({ nodeId }, "Starting node");
+        this._logger.debug("Starting node", { nodeId });
         await node.start(ctx);
-        this._logger.debug({ nodeId }, "Node started");
+        this._logger.debug("Node started", { nodeId });
       } catch (error) {
-        this._logger.error({ nodeId, err: error }, `Failed to start node '${nodeId}'`);
+        this._logger.error(`Failed to start node '${nodeId}'`, error as Error, { nodeId });
         this._disabledNodes.add(nodeId);
       }
     }
@@ -254,11 +248,11 @@ export class UnifiedScheduler {
 
       const ctx = this._createNodeContext(node);
       try {
-        this._logger.debug({ nodeId }, "Stopping node");
+        this._logger.debug("Stopping node", { nodeId });
         await node.stop(ctx);
-        this._logger.debug({ nodeId }, "Node stopped");
+        this._logger.debug("Node stopped", { nodeId });
       } catch (error) {
-        this._logger.error({ nodeId, err: error }, `Failed to stop node '${nodeId}'`);
+        this._logger.error(`Failed to stop node '${nodeId}'`, error as Error, { nodeId });
       }
     }
   }
@@ -286,13 +280,13 @@ export class UnifiedScheduler {
     // Per-tick memoization: skip if already pulled this tick
     const lastPulledTick = this._lastPulledTick.get(node.id);
     if (lastPulledTick === this._tickCount) {
-      this._logger.trace({ nodeId: node.id, tick: this._tickCount }, "Node already pulled this tick (memoized)");
+      this._logger.trace("Node already pulled this tick (memoized)", { nodeId: node.id, tick: this._tickCount });
       return;
     }
 
     // Re-entrancy guard: if we're already pulling this node, serve previous output
     if (this._inProgress.has(node.id)) {
-      this._logger.trace({ nodeId: node.id, tick: this._tickCount }, "Cycle detected, serving previous tick output");
+      this._logger.trace("Cycle detected, serving previous tick output", { nodeId: node.id, tick: this._tickCount });
       return;
     }
 
@@ -328,21 +322,18 @@ export class UnifiedScheduler {
   private async _executeNode(node: INode, tick: ITickContext): Promise<void> {
     const startTime = performance.now();
     try {
-      this._logger.trace({ nodeId: node.id, tick: tick.tick, t: tick.t, dt: tick.dt }, "Execute node");
+      this._logger.trace("Execute node", { nodeId: node.id, tick: tick.tick, t: tick.t, dt: tick.dt });
       await node.pull(tick);
       const elapsedMs = performance.now() - startTime;
       this._monitor.recordSuccess(node.id, elapsedMs);
 
       // Check frame budget
       if (this._config.frameBudgetMs > 0 && elapsedMs > this._config.frameBudgetMs) {
-        this._logger.warn(
-          {
-            nodeId: node.id,
-            elapsedMs,
-            frameBudgetMs: this._config.frameBudgetMs,
-          },
-          `Node '${node.id}' exceeded frame budget`,
-        );
+        this._logger.warn("Frame budget exceeded", {
+          nodeId: node.id,
+          elapsedMs,
+          frameBudgetMs: this._config.frameBudgetMs,
+        });
       }
 
       // Capture output frames
@@ -357,21 +348,14 @@ export class UnifiedScheduler {
       const elapsedMs = performance.now() - startTime;
       const consecutive = this._monitor.recordFailure(node.id, error as Error, elapsedMs);
 
-      this._logger.error(
-        {
-          nodeId: node.id,
-          elapsedMs,
-          consecutiveFailures: consecutive,
-          err: error,
-        },
-        `Node '${node.id}' failed`,
-      );
+      this._logger.error("Node execution failed", error as Error, {
+        nodeId: node.id,
+        elapsedMs,
+        consecutiveFailures: consecutive,
+      });
 
       if (this._config.maxConsecutiveErrors !== null && consecutive >= this._config.maxConsecutiveErrors) {
-        this._logger.error(
-          { nodeId: node.id, consecutiveFailures: consecutive },
-          `Disabling node '${node.id}' after ${consecutive} consecutive failures`,
-        );
+        this._logger.error(`Disabling node '${node.id}' after ${consecutive} consecutive failures`, undefined, { nodeId: node.id, consecutiveFailures: consecutive });
         this._disabledNodes.add(node.id);
       }
     }
@@ -388,15 +372,12 @@ export class UnifiedScheduler {
             // Pull the source node
             const sourceNode = this._plan.nodes.get(edge.source);
             if (sourceNode && !this._disabledNodes.has(edge.source)) {
-              this._logger.trace(
-                {
-                  source: edge.source,
-                  sourcePort: edge.sourcePort,
-                  target: edge.target,
-                  targetPort: edge.targetPort,
-                },
-                "Routing edge",
-              );
+              this._logger.trace("Routing edge", {
+                source: edge.source,
+                sourcePort: edge.sourcePort,
+                target: edge.target,
+                targetPort: edge.targetPort,
+              });
               await this._pullNode(sourceNode, tick.t);
 
               // Route the frame to the input port with slice/repeat applied
@@ -407,16 +388,12 @@ export class UnifiedScheduler {
                   inputPort._setFrame(routedFrame);
                   inputPort._setHasUpstream(true);
                 } catch (err) {
-                  this._logger.error(
-                    {
-                      source: edge.source,
-                      sourcePort: edge.sourcePort,
-                      target: edge.target,
-                      targetPort: edge.targetPort,
-                      err,
-                    },
-                    `Failed to route frame: ${(err as Error).message}`,
-                  );
+                  this._logger.error("Frame routing failed", err as Error, {
+                    source: edge.source,
+                    sourcePort: edge.sourcePort,
+                    target: edge.target,
+                    targetPort: edge.targetPort,
+                  });
                 }
               }
             }
@@ -435,7 +412,7 @@ export class UnifiedScheduler {
         this._outputFrames.set(`${node.id}.${port}`, frame);
       },
       startBackground: (fn: () => Promise<void>) => {
-        fn().catch((err) => logger.error({ err }, "Background task failed"));
+        fn().catch((err) => logger.error("Background task failed", err as Error));
       },
     });
   }
@@ -467,7 +444,7 @@ export class UnifiedScheduler {
         try {
           validateNonOverlappingTargets(edges);
         } catch (err) {
-          this._logger.error({ targetKey, err }, `Invalid target slice configuration`);
+          this._logger.error("Invalid target slice configuration", err as Error, { targetKey });
           throw err;
         }
       }

@@ -6,7 +6,7 @@
 
 import type { Server } from "node:http";
 
-import type { INodeStats, UnifiedScheduler } from "@rasl/engine";
+import type { IEngine } from "@rasl/engine";
 import { WebSocket, WebSocketServer } from "ws";
 
 import type { IErrorMessage, ISubscribeMessage, IUnsubscribeMessage, IWsMessage } from "./websocket.js";
@@ -17,7 +17,18 @@ import type { IErrorMessage, ISubscribeMessage, IUnsubscribeMessage, IWsMessage 
 export interface IMetricsMessage extends IWsMessage {
   type: "metrics";
   timestamp: number;
-  nodes: Record<string, INodeStats>;
+  engineStats: {
+    totalGraphs: number;
+    runningGraphs: number;
+    totalNodes: number;
+    uptimeMs: number;
+  };
+  graphs: Record<string, {
+    nodeCount: number;
+    currentFps: number;
+    framesProcessed: number;
+    avgFrameTimeMs: number;
+  }>;
 }
 
 /**
@@ -41,7 +52,7 @@ interface IClientState {
  */
 export class WsHandler {
   private _wss: WebSocketServer | null = null;
-  private _scheduler: UnifiedScheduler | null = null;
+  private _engine: IEngine | null = null;
   private _clients = new Map<WebSocket, IClientState>();
   private _metricsTimer: ReturnType<typeof setInterval> | null = null;
   private readonly _minIntervalMs: number;
@@ -53,8 +64,8 @@ export class WsHandler {
   /**
    * Attach WebSocket server to HTTP server.
    */
-  attach(httpServer: Server, scheduler: UnifiedScheduler): void {
-    this._scheduler = scheduler;
+  attach(httpServer: Server, engine: IEngine): void {
+    this._engine = engine;
     this._wss = new WebSocketServer({ server: httpServer });
 
     this._wss.on("connection", (ws) => this._handleConnection(ws));
@@ -200,23 +211,32 @@ export class WsHandler {
    * Send metrics snapshot to a client.
    */
   private _sendMetrics(ws: WebSocket): void {
-    if (!this._scheduler || ws.readyState !== WebSocket.OPEN) return;
+    if (!this._engine || ws.readyState !== WebSocket.OPEN) return;
 
-    const allStats = this._scheduler.getNodeStats() as Map<string, INodeStats> | null;
-    const nodes: Record<string, INodeStats> = {};
-    if (allStats) {
-      for (const [id, stats] of allStats) {
-        nodes[id] = stats;
+    const engineStats = this._engine.getStats();
+    const graphs: Record<string, any> = {};
+    
+    // Get stats for each graph
+    for (const graphId of this._engine.listGraphs()) {
+      const graph = this._engine.getGraph(graphId);
+      if (graph) {
+        graphs[graphId] = graph.getStats();
       }
     }
 
-    const msg: IMetricsMessage = {
+    const message: IMetricsMessage = {
       type: "metrics",
       timestamp: Date.now(),
-      nodes,
+      engineStats: {
+        totalGraphs: engineStats.totalGraphs,
+        runningGraphs: engineStats.runningGraphs,
+        totalNodes: engineStats.totalNodes,
+        uptimeMs: engineStats.uptimeMs,
+      },
+      graphs,
     };
 
-    ws.send(JSON.stringify(msg));
+    ws.send(JSON.stringify(message));
   }
 
   /**

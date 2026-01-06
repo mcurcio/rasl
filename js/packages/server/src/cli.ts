@@ -10,7 +10,8 @@ import "@rasl/lighting";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { createEngineLogger, loadRaslConfigFromSource, type LogLevel, UnifiedScheduler } from "@rasl/engine";
+import { createEngineLogger, loadRaslConfigFromSource, type LogLevel, Engine } from "@rasl/engine";
+import { RaslServer } from "./server.js";
 
 // Legacy types kept local for now.
 
@@ -58,28 +59,42 @@ async function main(): Promise<void> {
   const plan = builder.build();
 
   console.log(`Built graph with ${plan.nodes.size} nodes`);
-  console.log("Starting scheduler...");
+  console.log("Starting engine...");
 
   const level: LogLevel = verbose ? "trace" : debug ? "debug" : "info";
   const logger = createEngineLogger({ level, pretty: true, filePath: null });
 
-  const scheduler = new UnifiedScheduler(plan, { logger });
+  // Create engine and add graph
+  const engine = new Engine({ logger });
+  engine.addGraph({ 
+    id: "main", 
+    plan, 
+    autoStart: true 
+  });
+
+  // Create and configure server
+  const server = new RaslServer({ port: 8080, logger });
 
   // Handle graceful shutdown
   process.on("SIGINT", () => {
     console.log("\nShutting down...");
-    scheduler.stop();
+    engine.stop();
+    server.stop();
   });
 
   process.on("SIGTERM", () => {
     console.log("\nShutting down...");
-    scheduler.stop();
+    engine.stop();
+    server.stop();
   });
 
   try {
-    await scheduler.run();
+    // Start both engine and server
+    await engine.start();
+    await server.start(engine);
+    console.log("Engine and server started successfully");
   } catch (err) {
-    console.error("Scheduler error:", err);
+    console.error("Error:", err);
     process.exit(1);
   }
 }

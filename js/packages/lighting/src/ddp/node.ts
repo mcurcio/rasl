@@ -47,6 +47,7 @@ export class DdpSinkNode extends BaseNode {
   private _client: DDPClient | null = null;
   private _framesSent = 0;
   private _framesDropped = 0;
+  private _logger: NodeContext["logger"] | null = null;
 
   constructor(config: IDdpSinkConfig) {
     super(config);
@@ -63,6 +64,7 @@ export class DdpSinkNode extends BaseNode {
   }
 
   override async start(ctx: NodeContext): Promise<void> {
+    this._logger = ctx.logger;
     this._client = new DDPClient(this._target);
     this._client.connect();
     ctx.logger.info(`DdpSink '${this.id}' targeting ${this._target} at ${this._fps} FPS`);
@@ -113,7 +115,7 @@ export class DdpSinkNode extends BaseNode {
       }
     } catch (e) {
       // Log error but don't crash
-      console.error(`DdpSink '${this.id}' send error:`, e);
+      this._logger?.error("DdpSink send error", e as Error);
     }
 
     void tick;

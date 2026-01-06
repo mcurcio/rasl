@@ -4,9 +4,7 @@
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
-import type { IGraphDescription, INodeStats, UnifiedScheduler } from "@rasl/engine";
-
-import type { IGraphResponse, IHealthResponse, INodeResponse, IStatsResponse } from "./api.js";
+import type { IGraphDescription, INodeStats, ILogger, IEngine } from "@rasl/engine";
 import { WsHandler } from "./ws-handler.js";
 
 /**
@@ -19,14 +17,16 @@ export interface IServerConfig {
   corsOrigins?: string[];
   /** Enable WebSocket support (default: true) */
   enableWebSocket?: boolean;
+  /** Logger for server operations */
+  logger: ILogger;
 }
 
 /**
  * RASL server for runtime control and monitoring.
  */
 export class RaslServer {
-  private readonly _config: Required<IServerConfig>;
-  private _scheduler: UnifiedScheduler | null = null;
+  private readonly _config: IServerConfig;
+  private _engine: IEngine | null = null;
   private _server: Server | null = null;
   private _wsHandler: WsHandler | null = null;
   private _running = false;
@@ -39,16 +39,17 @@ export class RaslServer {
       staticDir: config.staticDir ?? "./public",
       corsOrigins: config.corsOrigins ?? ["*"],
       enableWebSocket: config.enableWebSocket ?? true,
+      logger: config.logger,
     };
   }
 
   /**
-   * Start the server with a scheduler.
+   * Start the server with an engine.
    */
-  async start(scheduler: UnifiedScheduler): Promise<void> {
+  async start(engine: IEngine): Promise<void> {
     if (this._running) return;
 
-    this._scheduler = scheduler;
+    this._engine = engine;
     this._startTime = Date.now();
 
     this._server = createServer((req, res) => this._handleRequest(req, res));
@@ -61,10 +62,10 @@ export class RaslServer {
         // Attach WebSocket handler if enabled
         if (this._config.enableWebSocket) {
           this._wsHandler = new WsHandler();
-          this._wsHandler.attach(this._server!, scheduler);
+          this._wsHandler.attach(this._server!, engine);
         }
 
-        console.log(`RASL server started at http://${this._config.host}:${this._config.port}`);
+        this._config.logger?.info(`RASL server started at http://${this._config.host}:${this._config.port}`);
         resolve();
       });
     });
@@ -154,9 +155,9 @@ export class RaslServer {
    */
   private _setCorsHeaders(res: ServerResponse): void {
     const origins = this._config.corsOrigins;
-    if (origins.includes("*")) {
+    if (origins?.includes("*")) {
       res.setHeader("Access-Control-Allow-Origin", "*");
-    } else if (origins.length > 0) {
+    } else if (origins && origins.length > 0) {
       res.setHeader("Access-Control-Allow-Origin", origins[0]);
     }
     res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");

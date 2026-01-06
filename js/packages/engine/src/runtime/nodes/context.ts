@@ -10,11 +10,17 @@ import type { Frame } from "../frame.js";
 export type LogFields = Record<string, unknown>;
 
 export interface ILogger {
-  trace(a0: unknown, ...args: unknown[]): void;
-  debug(a0: unknown, ...args: unknown[]): void;
-  info(a0: unknown, ...args: unknown[]): void;
-  warn(a0: unknown, ...args: unknown[]): void;
-  error(a0: unknown, ...args: unknown[]): void;
+  // Standard pattern: message first, fields optional
+  trace(message: string, fields?: Record<string, unknown>): void;
+  debug(message: string, fields?: Record<string, unknown>): void;
+  info(message: string, fields?: Record<string, unknown>): void;
+  warn(message: string, fields?: Record<string, unknown>): void;
+  
+  // Error patterns
+  error(message: string, error?: Error, fields?: Record<string, unknown>): void;
+  
+  // Create child logger with additional bindings
+  child(bindings: Record<string, unknown>): ILogger;
 }
 
 /**

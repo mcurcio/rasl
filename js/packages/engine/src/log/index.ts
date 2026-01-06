@@ -1,5 +1,3 @@
-import { format } from "node:util";
-
 import type { ILogger, LogFields } from "../runtime/nodes/index.js";
 import pino, { type DestinationStream, type LevelWithSilent, type Logger as PinoLogger } from "pino";
 
@@ -11,46 +9,52 @@ export interface IEngineLoggerConfig {
   filePath?: string | null;
 }
 
-type IChildLogger = ILogger & { child?: (bindings: LogFields) => IChildLogger };
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v) && !(v instanceof Error);
-}
-
-function formatMessage(msg: unknown, args: unknown[]): string {
-  if (typeof msg === "string") return format(msg, ...args);
-  return format("%o", msg, ...args);
-}
-
-function wrapPino(logger: PinoLogger): IChildLogger {
-  const call = (level: "trace" | "debug" | "info" | "warn" | "error", a0: unknown, rest: unknown[]): void => {
-    if (a0 instanceof Error) {
-      const msg = rest.length > 0 ? formatMessage(rest[0], rest.slice(1)) : undefined;
-      (logger as any)[level]({ err: a0 }, msg);
-      return;
-    }
-
-    if (isPlainObject(a0)) {
-      const fields = a0 as LogFields;
-      const msg = rest.length > 0 ? formatMessage(rest[0], rest.slice(1)) : undefined;
-      (logger as any)[level](fields, msg);
-      return;
-    }
-
-    (logger as any)[level](formatMessage(a0, rest));
-  };
-
+function wrapPino(logger: PinoLogger): ILogger {
   return {
-    trace: (a0: unknown, ...rest: unknown[]) => call("trace", a0, rest),
-    debug: (a0: unknown, ...rest: unknown[]) => call("debug", a0, rest),
-    info: (a0: unknown, ...rest: unknown[]) => call("info", a0, rest),
-    warn: (a0: unknown, ...rest: unknown[]) => call("warn", a0, rest),
-    error: (a0: unknown, ...rest: unknown[]) => call("error", a0, rest),
-    child: (bindings: LogFields) => wrapPino(logger.child(bindings)),
+    trace: (message: string, fields?: Record<string, unknown>) => {
+      if (fields) {
+        logger.trace(fields, message);
+      } else {
+        logger.trace(message);
+      }
+    },
+    debug: (message: string, fields?: Record<string, unknown>) => {
+      if (fields) {
+        logger.debug(fields, message);
+      } else {
+        logger.debug(message);
+      }
+    },
+    info: (message: string, fields?: Record<string, unknown>) => {
+      if (fields) {
+        logger.info(fields, message);
+      } else {
+        logger.info(message);
+      }
+    },
+    warn: (message: string, fields?: Record<string, unknown>) => {
+      if (fields) {
+        logger.warn(fields, message);
+      } else {
+        logger.warn(message);
+      }
+    },
+    error: (message: string, error?: Error, fields?: Record<string, unknown>) => {
+      const logFields: Record<string, unknown> = fields ? { ...fields } : {};
+      if (error) {
+        logFields.err = error;
+      }
+      if (Object.keys(logFields).length > 0) {
+        logger.error(logFields, message);
+      } else {
+        logger.error(message);
+      }
+    },
+    child: (bindings: Record<string, unknown>) => wrapPino(logger.child(bindings)),
   };
 }
 
-export function createEngineLogger(config?: IEngineLoggerConfig): IChildLogger {
+export function createEngineLogger(config?: IEngineLoggerConfig): ILogger {
   const level = (config?.level ?? "info") as LevelWithSilent;
   const pretty = config?.pretty ?? true;
   const filePath = config?.filePath ?? null;
@@ -87,38 +91,97 @@ export function createEngineLogger(config?: IEngineLoggerConfig): IChildLogger {
 }
 
 export function childLogger(logger: ILogger, bindings: LogFields): ILogger {
-  const maybe = logger as IChildLogger;
-  if (typeof maybe.child === "function") return maybe.child(bindings);
-  return logger;
+  return logger.child(bindings);
 }
 
 export function createConsoleLogger(): ILogger {
-  const write = (level: "trace" | "debug" | "info" | "warn" | "error", a0: unknown, rest: unknown[]): void => {
-    const prefix = `[${level.toUpperCase()}]`;
-
-    if (a0 instanceof Error) {
-      const msg = rest.length > 0 ? formatMessage(rest[0], rest.slice(1)) : a0.message;
-      (console as any)[level === "trace" ? "debug" : level](`${prefix} ${msg}`, a0);
-      return;
-    }
-
-    if (isPlainObject(a0)) {
-      const fields = a0 as Record<string, unknown>;
-      const msg = rest.length > 0 ? formatMessage(rest[0], rest.slice(1)) : "";
-      const fieldsText = Object.keys(fields).length > 0 ? ` ${JSON.stringify(fields)}` : "";
-      (console as any)[level === "trace" ? "debug" : level](`${prefix}${fieldsText} ${msg}`.trim());
-      return;
-    }
-
-    const msg = formatMessage(a0, rest);
-    (console as any)[level === "trace" ? "debug" : level](`${prefix} ${msg}`);
-  };
-
   return {
-    trace: (a0: unknown, ...rest: unknown[]) => write("trace", a0, rest),
-    debug: (a0: unknown, ...rest: unknown[]) => write("debug", a0, rest),
-    info: (a0: unknown, ...rest: unknown[]) => write("info", a0, rest),
-    warn: (a0: unknown, ...rest: unknown[]) => write("warn", a0, rest),
-    error: (a0: unknown, ...rest: unknown[]) => write("error", a0, rest),
+    trace: (message: string, fields?: Record<string, unknown>) => {
+      const prefix = "[TRACE]";
+      if (fields) {
+        console.log(`${prefix} ${message}`, fields);
+      } else {
+        console.log(`${prefix} ${message}`);
+      }
+    },
+    debug: (message: string, fields?: Record<string, unknown>) => {
+      const prefix = "[DEBUG]";
+      if (fields) {
+        console.debug(`${prefix} ${message}`, fields);
+      } else {
+        console.debug(`${prefix} ${message}`);
+      }
+    },
+    info: (message: string, fields?: Record<string, unknown>) => {
+      const prefix = "[INFO]";
+      if (fields) {
+        console.info(`${prefix} ${message}`, fields);
+      } else {
+        console.info(`${prefix} ${message}`);
+      }
+    },
+    warn: (message: string, fields?: Record<string, unknown>) => {
+      const prefix = "[WARN]";
+      if (fields) {
+        console.warn(`${prefix} ${message}`, fields);
+      } else {
+        console.warn(`${prefix} ${message}`);
+      }
+    },
+    error: (message: string, error?: Error, fields?: Record<string, unknown>) => {
+      const prefix = "[ERROR]";
+      if (error || fields) {
+        const allFields = { ...fields, ...(error && { err: error }) };
+        console.error(`${prefix} ${message}`, allFields);
+      } else {
+        console.error(`${prefix} ${message}`);
+      }
+    },
+    child: (bindings: Record<string, unknown>) => {
+      // For console logger, just return the same logger with bindings noted in messages
+      return {
+        ...createConsoleLogger(),
+        trace: (message: string, fields?: Record<string, unknown>) => {
+          const prefix = `[TRACE] [${JSON.stringify(bindings)}]`;
+          if (fields) {
+            console.log(`${prefix} ${message}`, { ...bindings, ...fields });
+          } else {
+            console.log(`${prefix} ${message}`);
+          }
+        },
+        debug: (message: string, fields?: Record<string, unknown>) => {
+          const prefix = `[DEBUG] [${JSON.stringify(bindings)}]`;
+          if (fields) {
+            console.debug(`${prefix} ${message}`, { ...bindings, ...fields });
+          } else {
+            console.debug(`${prefix} ${message}`);
+          }
+        },
+        info: (message: string, fields?: Record<string, unknown>) => {
+          const prefix = `[INFO] [${JSON.stringify(bindings)}]`;
+          if (fields) {
+            console.info(`${prefix} ${message}`, { ...bindings, ...fields });
+          } else {
+            console.info(`${prefix} ${message}`);
+          }
+        },
+        warn: (message: string, fields?: Record<string, unknown>) => {
+          const prefix = `[WARN] [${JSON.stringify(bindings)}]`;
+          if (fields) {
+            console.warn(`${prefix} ${message}`, { ...bindings, ...fields });
+          } else {
+            console.warn(`${prefix} ${message}`);
+          }
+        },
+        error: (message: string, error?: Error, fields?: Record<string, unknown>) => {
+          const prefix = `[ERROR] [${JSON.stringify(bindings)}]`;
+          const allFields = { ...bindings, ...fields, ...(error && { err: error }) };
+          console.error(`${prefix} ${message}`, allFields);
+        },
+        child: (moreBindings: Record<string, unknown>) => {
+          return createConsoleLogger().child({ ...bindings, ...moreBindings });
+        },
+      };
+    },
   };
 }

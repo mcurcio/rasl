@@ -65,7 +65,7 @@ export class ConsoleSink extends BaseNode {
 
     const payload = frame.payload as MatrixPayload;
     if (this._logger) {
-      this._logger.debug(payload.describe(), "ConsoleSink payload");
+      this._logger.debug("ConsoleSink payload", { descriptor: payload.describe() });
     }
     const data = payload.flatten();
 
@@ -90,7 +90,7 @@ export class ConsoleSink extends BaseNode {
 
     const meta = this._includeMetadata ? { topic: frame.topic, ts: frame.timestamp } : undefined;
     if (meta) {
-      this._logger?.info(meta, `[${this.id}] t=${tick.t.toFixed(2)}s ${output}`);
+      this._logger?.info(`[${this.id}] t=${tick.t.toFixed(2)}s ${output}`, meta);
     } else {
       this._logger?.info(`[${this.id}] t=${tick.t.toFixed(2)}s ${output}`);
     }

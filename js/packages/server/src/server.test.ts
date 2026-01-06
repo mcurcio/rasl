@@ -2,11 +2,11 @@
  * Tests for RaslServer HTTP implementation.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { createEngineLogger } from "@rasl/engine";
 import { RaslServer } from "./server.js";
+import type { UnifiedScheduler } from "@rasl/engine";
 
-// Minimal mock scheduler for testing
 function createMockScheduler(nodes: Map<string, unknown> = new Map()) {
   const stats = new Map<string, unknown>();
   return {
@@ -37,7 +37,7 @@ describe("RaslServer", () => {
   const TEST_PORT = 19876; // Use high port to avoid conflicts
 
   beforeEach(() => {
-    server = new RaslServer({ port: TEST_PORT, host: "127.0.0.1" });
+    server = new RaslServer({ port: TEST_PORT, host: "127.0.0.1", logger: createEngineLogger({ level: "error" }) });
   });
 
   afterEach(async () => {

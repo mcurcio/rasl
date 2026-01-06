@@ -329,7 +329,7 @@ describe("UnifiedScheduler cycle handling", () => {
 
     // Should have logged cycle detection
     const cycleLogCalls = logger.trace.mock.calls.filter(
-      (call) => typeof call[1] === "string" && call[1].includes("Cycle detected"),
+      (call) => typeof call[0] === "string" && call[0].includes("Cycle detected"),
     );
     expect(cycleLogCalls.length).toBeGreaterThan(0);
   });

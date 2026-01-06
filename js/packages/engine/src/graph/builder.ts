@@ -160,11 +160,9 @@ export class GraphBuilder {
     // Warn about cycles
     if (cycles.length > 0) {
       this._logger.warn(
-        {
-          cycles: cycles.length,
-        },
         `Graph contains ${cycles.length} cycle(s). ` +
           `Cycles may cause nodes to receive stale data on the first frame.`,
+        { cycles: cycles.length },
       );
     }
 
