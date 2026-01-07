@@ -1,32 +1,38 @@
 /**
  * @rasl/engine - Graph builder, scheduler, and execution runtime
  *
- * This package provides the execution infrastructure for/**
- * RASL Engine package exports
+ * This package provides the execution infrastructure for RASL.
  */
 
-// Core types and interfaces
-export type { ILogger, LogFields, NodeContext } from "./runtime/nodes/index.js";
-export type { INode, BaseNode } from "./runtime/nodes/base.js";
-export type { Frame, Payload, Metadata } from "./runtime/frame.js";
-export type { PortGroup, InputPort, OutputPort } from "./runtime/ports/index.js";
+// Core domain - the fundamental entities
+export type { IEngine, IEngineConfig } from "./core/engine.js";
+export type { IGraph, IGraphConfig } from "./core/graph.js";
+export type { IEngineStats, IGraphStats } from "./core/stats.js";
+export { Engine } from "./core/engine.js";
 
-// Graph types
-export type { ExecutionPlan, IGraphDescription, INodeDescription, IEdgeDescription } from "./graph/plan.js";
-export type { Edge, IConnectOptions, IResolvedSlice } from "./graph/edge.js";
-export { GraphBuilder } from "./graph/builder.js";
+// Execution domain - graph execution machinery
+export type { ExecutionPlan, IGraphDescription, INodeDescription, IEdgeDescription } from "./execution/plan.js";
+export type { Edge, IConnectOptions, IResolvedSlice } from "./execution/edge.js";
+export type { UnifiedScheduler, ISchedulerConfig, INodeStats } from "./execution/scheduler.js";
+export { ExecutionPlan as ExecutionPlanImpl } from "./execution/plan.js";
+export { GraphBuilder } from "./execution/builder.js";
+export { UnifiedScheduler as SchedulerImpl } from "./execution/scheduler.js";
 
-// Scheduler
-export type { ISchedulerConfig, INodeStats } from "./scheduler/unified.js";
-export { UnifiedScheduler } from "./scheduler/unified.js";
+// Node domain - all node-related functionality
+export type { ILogger, LogFields } from "./nodes/index.js";
+export type { INode } from "./nodes/index.js";
+export type { NodeClass, PayloadClass } from "./nodes/index.js";
+export { BaseNode, NodeContext, getNodeClass, getPayloadType, node, payload } from "./nodes/index.js";
+export type { PortGroup, InputPort, OutputPort } from "./nodes/ports/index.js";
 
-// Logging
-export type { IEngineLoggerConfig, LogLevel } from "./log/index.js";
-export { createEngineLogger, createConsoleLogger } from "./log/index.js";
+// Runtime infrastructure - platform concerns
+export type { Frame, Metadata } from "./runtime/frame.js";
+export type { ITickContext } from "./runtime/tick.js";
+export type { FramePayload, MatrixPayload, BoolPayload } from "./runtime/payloads/index.js";
 
-// Engine (top-level)
-export type { IEngine, IEngineConfig, IGraph, IGraphConfig, IEngineStats, IGraphStats } from "./engine/index.js";
-export { Engine } from "./engine/index.js";
+// Logging domain
+export type { IEngineLoggerConfig, LogLevel } from "./logging/index.js";
+export { createEngineLogger, createConsoleLogger, childLogger } from "./logging/index.js";
 
 // Config loading
 export { loadRaslConfigFromSource } from "./config/rasl.js";

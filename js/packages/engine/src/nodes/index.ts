@@ -1,12 +1,24 @@
-export { CronNode, type ICronConfig } from "./effects/cron.js";
-export { CrossfadeNode, type ICrossfadeConfig } from "./effects/crossfade.js";
-export { type ITwinkleConfig, TwinkleEffectNode, type TwinkleMode } from "./effects/twinkle.js";
-export { ConsoleSink, type IConsoleSinkConfig } from "./sinks/console.js";
-export { type ILiteralConfig, LiteralNode } from "./sources/literal.js";
-export { type ISeededRandomConfig, type OutputType, SeededRandomNode } from "./sources/seeded-random.js";
-export { type IWaveformConfig, WaveformNode, type WaveShape } from "./sources/waveform.js";
-export { type IMathConfig, MathNode, type MathOperation } from "./transforms/math.js";
-export { type IMatrixMultiplyConfig, MatrixMultiplyNode } from "./transforms/matrix-multiply.js";
-export { type IRandomMapConfig, RandomMapNode } from "./transforms/random-map.js";
-export { type IRangeMapConfig, RangeMapNode } from "./transforms/range-map.js";
-export { type ISmoothConfig, SmoothNode } from "./transforms/smooth.js";
+/**
+ * Node domain exports
+ * 
+ * All node-related functionality: base classes, implementations, ports, and registry.
+ */
+
+// Core node infrastructure
+export { BaseNode } from "./base.js";
+export type { ILogger, LogFields } from "./context.js";
+export { NodeContext } from "./context.js";
+export { getInputs, getOutputs, type INode } from "./protocol.js";
+
+// Node registry and discovery
+export type { NodeClass, PayloadClass } from "./registry.js";
+export { getNodeClass, getPayloadType, node, payload } from "./registry.js";
+
+// Port system
+export * from "./ports/index.js";
+
+// Built-in node implementations
+export * from "./sources/index.js";
+export * from "./transforms/index.js";
+export * from "./sinks/index.js";
+export * from "./effects/index.js";

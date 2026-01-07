@@ -1,28 +1,15 @@
 /**
- * RASL Engine - Top-level object in the ecosystem
- * 
- * The Engine is the main entry point that manages one or more Graphs.
- * Each Graph owns its own scheduler for execution.
+ * Engine domain - top-level engine entity
  */
 
-import type { ILogger } from "../runtime/nodes/index.js";
-import type { ExecutionPlan } from "../graph/plan.js";
-import { ExecutionPlan as ExecutionPlanImpl } from "../graph/plan.js";
-import type { UnifiedScheduler } from "../scheduler/unified.js";
-import { UnifiedScheduler as SchedulerImpl } from "../scheduler/unified.js";
+import type { ILogger } from "../nodes/index.js";
+import type { IGraph, IGraphConfig } from "./graph.js";
+import type { IEngineStats } from "./stats.js";
+import { Graph } from "./graph.js";
 
 export interface IEngineConfig {
   /** Logger for engine operations */
   logger: ILogger;
-}
-
-export interface IGraphConfig {
-  /** Unique identifier for this graph */
-  id: string;
-  /** Execution plan for this graph */
-  plan: ExecutionPlan;
-  /** Whether this graph should auto-start when engine starts */
-  autoStart?: boolean;
 }
 
 export interface IEngine {
@@ -55,46 +42,6 @@ export interface IEngine {
   
   /** Get engine statistics */
   getStats(): IEngineStats;
-}
-
-export interface IGraph {
-  /** Unique graph identifier */
-  readonly id: string;
-  /** Execution plan */
-  readonly plan: ExecutionPlan;
-  /** Whether this graph is currently running */
-  get isRunning(): boolean;
-  
-  /** Start this graph */
-  start(): Promise<void>;
-  
-  /** Stop this graph */
-  stop(): Promise<void>;
-  
-  /** Get graph statistics */
-  getStats(): IGraphStats;
-}
-
-export interface IEngineStats {
-  /** Total graphs managed */
-  totalGraphs: number;
-  /** Currently running graphs */
-  runningGraphs: number;
-  /** Total nodes across all graphs */
-  totalNodes: number;
-  /** Engine uptime in milliseconds */
-  uptimeMs: number;
-}
-
-export interface IGraphStats {
-  /** Number of nodes in this graph */
-  nodeCount: number;
-  /** Current frame rate */
-  currentFps: number;
-  /** Frames processed since start */
-  framesProcessed: number;
-  /** Average frame time in milliseconds */
-  avgFrameTimeMs: number;
 }
 
 /**
@@ -218,60 +165,6 @@ export class Engine implements IEngine {
       totalNodes: Array.from(this._graphs.values())
         .reduce((sum, graph) => sum + graph.plan.nodes.size, 0),
       uptimeMs: this._running ? Date.now() - this._startTime : 0,
-    };
-  }
-}
-
-/**
- * Graph implementation
- */
-class Graph implements IGraph {
-  readonly id: string;
-  readonly plan: ExecutionPlan;
-  readonly _autoStart: boolean;
-  private readonly _scheduler: UnifiedScheduler;
-  private _running = false;
-
-  constructor(config: IGraphConfig, private readonly _logger: ILogger) {
-    this.id = config.id;
-    this.plan = config.plan;
-    this._autoStart = config.autoStart ?? true;
-    
-    // Graph creates and owns its scheduler
-    this._scheduler = new SchedulerImpl(this.plan, { logger: this._logger });
-  }
-
-  get isRunning(): boolean {
-    return this._running;
-  }
-
-  async start(): Promise<void> {
-    if (this._running) return;
-    
-    this._running = true;
-    this._logger.info(`Graph '${this.id}' started`);
-    
-    // Graph manages its own scheduler
-    await this._scheduler.run();
-  }
-
-  async stop(): Promise<void> {
-    if (!this._running) return;
-    
-    this._running = false;
-    this._logger.info(`Graph '${this.id}' stopped`);
-    
-    // Graph stops its own scheduler
-    this._scheduler.stop();
-  }
-
-  getStats(): IGraphStats {
-    // TODO: Implement real stats collection from scheduler
-    return {
-      nodeCount: this.plan.nodes.size,
-      currentFps: 30, // Will be discovered from sinks
-      framesProcessed: 0,
-      avgFrameTimeMs: 1000 / 30,
     };
   }
 }

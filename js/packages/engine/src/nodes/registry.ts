@@ -2,8 +2,8 @@
  * Registry for node and payload types.
  */
 
-import type { BaseNode } from "./nodes/base.js";
-import type { FramePayload } from "./payloads/base.js";
+import type { BaseNode } from "./base.js";
+import type { FramePayload } from "../runtime/payloads/base.js";
 
 /**
  * Node class constructor type.
