@@ -6,10 +6,17 @@
 
 import type { Server } from "node:http";
 
-import type { IEngine } from "@rasl/engine";
+import { isExternalWritableNode, type IEngine } from "@rasl/engine";
 import { WebSocket, WebSocketServer } from "ws";
 
-import type { IErrorMessage, ISubscribeMessage, IUnsubscribeMessage, IWsMessage } from "./websocket.js";
+import type {
+  IErrorMessage,
+  IExternalAckMessage,
+  IExternalUpdateMessage,
+  ISubscribeMessage,
+  IUnsubscribeMessage,
+  IWsMessage,
+} from "./websocket.js";
 
 /**
  * Metrics snapshot message.
@@ -90,7 +97,7 @@ export class WsHandler {
       this._wss = null;
     }
 
-    this._scheduler = null;
+    this._engine = null;
   }
 
   /**
@@ -133,9 +140,72 @@ export class WsHandler {
       case "unsubscribe":
         this._handleUnsubscribe(state, msg as IUnsubscribeMessage);
         break;
+      case "external:update":
+        this._handleExternalUpdate(ws, msg as IExternalUpdateMessage);
+        break;
       default:
-        this._sendError(ws, `Unknown message type: ${msg.type}`);
+        this._sendError(ws, `Unknown message type: ${msg.type}`, "unknown_message_type");
     }
+  }
+
+  private _handleExternalUpdate(ws: WebSocket, msg: IExternalUpdateMessage): void {
+    if (!this._engine) {
+      this._sendError(ws, "Engine not available", "engine_unavailable");
+      return;
+    }
+    if (typeof msg.graphId !== "string" || msg.graphId.length === 0) {
+      this._sendError(ws, "external:update requires graphId", "malformed_message");
+      return;
+    }
+    if (typeof msg.nodeId !== "string" || msg.nodeId.length === 0) {
+      this._sendError(ws, "external:update requires nodeId", "malformed_message");
+      return;
+    }
+    if (!Array.isArray(msg.values)) {
+      this._sendError(ws, "external:update values must be an array", "malformed_message");
+      return;
+    }
+
+    const graph = this._engine.getGraph(msg.graphId);
+    if (!graph) {
+      this._sendError(ws, `Unknown graph: ${msg.graphId}`, "unknown_graph");
+      return;
+    }
+
+    const node = graph.plan.nodes.get(msg.nodeId);
+    if (!node) {
+      this._sendError(ws, `Unknown node: ${msg.nodeId}`, "unknown_node");
+      return;
+    }
+    if (!isExternalWritableNode(node)) {
+      this._sendError(ws, `Node is not externally writable: ${msg.nodeId}`, "non_external_node");
+      return;
+    }
+
+    const values = new Float32Array(msg.values.length);
+    for (let i = 0; i < msg.values.length; i++) {
+      const value = msg.values[i];
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) {
+        this._sendError(ws, `Value at index ${i} must be a finite number in [0, 1]`, "invalid_value");
+        return;
+      }
+      values[i] = value;
+    }
+
+    try {
+      node.setExternalValues(values);
+    } catch (err) {
+      this._sendError(ws, (err as Error).message, "length_mismatch");
+      return;
+    }
+
+    const ack: IExternalAckMessage = {
+      type: "external:ack",
+      graphId: msg.graphId,
+      nodeId: msg.nodeId,
+      size: values.length,
+    };
+    ws.send(JSON.stringify(ack));
   }
 
   /**
@@ -156,7 +226,7 @@ export class WsHandler {
       // Send immediate metrics snapshot
       this._sendMetrics(ws);
     } else {
-      this._sendError(ws, `Unknown topic: ${topic}`);
+      this._sendError(ws, `Unknown topic: ${topic}`, "unknown_topic");
     }
   }
 
@@ -242,12 +312,13 @@ export class WsHandler {
   /**
    * Send error message to client.
    */
-  private _sendError(ws: WebSocket, message: string): void {
+  private _sendError(ws: WebSocket, message: string, code?: string): void {
     if (ws.readyState !== WebSocket.OPEN) return;
 
     const msg: IErrorMessage = {
       type: "error",
       message,
+      code,
     };
 
     ws.send(JSON.stringify(msg));

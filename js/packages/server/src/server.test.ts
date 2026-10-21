@@ -2,16 +2,19 @@
  * Tests for RaslServer HTTP implementation.
  */
 
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { createEngineLogger } from "@rasl/engine";
 import { RaslServer } from "./server.js";
-import type { UnifiedScheduler } from "@rasl/engine";
 
-function createMockScheduler(nodes: Map<string, unknown> = new Map()) {
+function createMockEngine(nodes: Map<string, unknown> = new Map()) {
   const stats = new Map<string, unknown>();
-  return {
-    _plan: {
+  const graph = {
+    id: "main",
+    isRunning: true,
+    plan: {
       nodes,
+      adjacency: new Map(),
+      topologicalOrder: Array.from(nodes.keys()),
       describe: () => ({
         nodes: Array.from(nodes.entries()).map(([id, n]) => ({
           id,
@@ -23,12 +26,37 @@ function createMockScheduler(nodes: Map<string, unknown> = new Map()) {
         topologicalOrder: Array.from(nodes.keys()),
       }),
     },
+    start: async () => {},
+    stop: async () => {},
+    getStats: () => ({
+      nodeCount: nodes.size,
+      currentFps: 0,
+      framesProcessed: 0,
+      avgFrameTimeMs: 0,
+    }),
     getNodeStats: (nodeId?: string) => {
       if (nodeId !== undefined) {
         return stats.get(nodeId) ?? null;
       }
       return stats;
     },
+  };
+  return {
+    addGraph: () => {},
+    removeGraph: () => {},
+    getGraph: (id: string) => (id === "main" ? graph : undefined),
+    listGraphs: () => ["main"],
+    start: async () => {},
+    stop: async () => {},
+    startGraph: async () => {},
+    stopGraph: async () => {},
+    isRunning: true,
+    getStats: () => ({
+      totalGraphs: 1,
+      runningGraphs: 1,
+      totalNodes: nodes.size,
+      uptimeMs: 0,
+    }),
   };
 }
 
@@ -48,7 +76,7 @@ describe("RaslServer", () => {
 
   describe("lifecycle", () => {
     it("should start and stop cleanly", async () => {
-      const scheduler = createMockScheduler();
+      const scheduler = createMockEngine();
       expect(server.isRunning).toBe(false);
 
       await server.start(scheduler as never);
@@ -60,7 +88,7 @@ describe("RaslServer", () => {
     });
 
     it("should not start twice", async () => {
-      const scheduler = createMockScheduler();
+      const scheduler = createMockEngine();
       await server.start(scheduler as never);
       await server.start(scheduler as never); // Should be no-op
       expect(server.isRunning).toBe(true);
@@ -74,7 +102,7 @@ describe("RaslServer", () => {
 
   describe("GET /health", () => {
     it("should return health status", async () => {
-      const scheduler = createMockScheduler();
+      const scheduler = createMockEngine();
       await server.start(scheduler as never);
 
       const res = await fetch(`http://127.0.0.1:${TEST_PORT}/health`);
@@ -93,7 +121,7 @@ describe("RaslServer", () => {
       const nodes = new Map<string, unknown>();
       nodes.set("testNode", { id: "testNode", constructor: { name: "TestNode" } });
 
-      const scheduler = createMockScheduler(nodes);
+      const scheduler = createMockEngine(nodes);
       await server.start(scheduler as never);
 
       const res = await fetch(`http://127.0.0.1:${TEST_PORT}/graph`);
@@ -109,7 +137,7 @@ describe("RaslServer", () => {
 
   describe("GET /stats", () => {
     it("should return execution statistics", async () => {
-      const scheduler = createMockScheduler();
+      const scheduler = createMockEngine();
       await server.start(scheduler as never);
 
       const res = await fetch(`http://127.0.0.1:${TEST_PORT}/stats`);
@@ -132,7 +160,7 @@ describe("RaslServer", () => {
         outputs: { names: ["out"] },
       });
 
-      const scheduler = createMockScheduler(nodes);
+      const scheduler = createMockEngine(nodes);
       await server.start(scheduler as never);
 
       const res = await fetch(`http://127.0.0.1:${TEST_PORT}/node/myNode`);
@@ -146,7 +174,7 @@ describe("RaslServer", () => {
     });
 
     it("should return 404 for unknown node", async () => {
-      const scheduler = createMockScheduler();
+      const scheduler = createMockEngine();
       await server.start(scheduler as never);
 
       const res = await fetch(`http://127.0.0.1:${TEST_PORT}/node/unknown`);
@@ -159,7 +187,7 @@ describe("RaslServer", () => {
 
   describe("error handling", () => {
     it("should return 404 for unknown routes", async () => {
-      const scheduler = createMockScheduler();
+      const scheduler = createMockEngine();
       await server.start(scheduler as never);
 
       const res = await fetch(`http://127.0.0.1:${TEST_PORT}/unknown`);
@@ -167,7 +195,7 @@ describe("RaslServer", () => {
     });
 
     it("should return 405 for non-GET methods", async () => {
-      const scheduler = createMockScheduler();
+      const scheduler = createMockEngine();
       await server.start(scheduler as never);
 
       const res = await fetch(`http://127.0.0.1:${TEST_PORT}/health`, {
@@ -179,7 +207,7 @@ describe("RaslServer", () => {
 
   describe("CORS", () => {
     it("should include CORS headers", async () => {
-      const scheduler = createMockScheduler();
+      const scheduler = createMockEngine();
       await server.start(scheduler as never);
 
       const res = await fetch(`http://127.0.0.1:${TEST_PORT}/health`);
@@ -187,7 +215,7 @@ describe("RaslServer", () => {
     });
 
     it("should handle OPTIONS preflight", async () => {
-      const scheduler = createMockScheduler();
+      const scheduler = createMockEngine();
       await server.start(scheduler as never);
 
       const res = await fetch(`http://127.0.0.1:${TEST_PORT}/health`, {

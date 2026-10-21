@@ -46,3 +46,17 @@ export interface IErrorMessage extends IWsMessage {
   message: string;
   code?: string;
 }
+
+export interface IExternalUpdateMessage extends IWsMessage {
+  type: "external:update";
+  graphId: string;
+  nodeId: string;
+  values: number[];
+}
+
+export interface IExternalAckMessage extends IWsMessage {
+  type: "external:ack";
+  graphId: string;
+  nodeId: string;
+  size: number;
+}

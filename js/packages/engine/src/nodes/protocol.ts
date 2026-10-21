@@ -4,10 +4,10 @@
  * Defines the Node interface that all DAG processing nodes must implement.
  */
 
-import type { PortGroup } from "../ports/group.js";
-import { EMPTY_INPUTS, EMPTY_OUTPUTS } from "../ports/group.js";
-import type { InputPort, OutputPort } from "../ports/port.js";
-import type { ITickContext } from "../tick.js";
+import type { ITickContext } from "../runtime/tick.js";
+import type { PortGroup } from "./ports/group.js";
+import { EMPTY_INPUTS, EMPTY_OUTPUTS } from "./ports/group.js";
+import type { InputPort, OutputPort } from "./ports/port.js";
 import type { NodeContext } from "./context.js";
 
 /**

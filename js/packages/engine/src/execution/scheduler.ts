@@ -14,11 +14,11 @@ import {
   NodeContext,
 } from "../runtime/index.js";
 
-import type { Edge } from "../graph/edge.js";
-import type { ExecutionPlan } from "../graph/plan.js";
-import { childLogger, createConsoleLogger } from "../log/index.js";
+import type { Edge } from "./edge.js";
+import type { ExecutionPlan } from "./plan.js";
+import { childLogger, createConsoleLogger } from "../logging/index.js";
 import { type INodeStats, NodeMonitor } from "./monitor.js";
-import { applyEdgeRouting, validateNonOverlappingTargets } from "./routing.js";
+import { composeInputFrame, validateNonOverlappingTargets } from "./routing.js";
 
 /**
  * Scheduler configuration options.
@@ -59,6 +59,7 @@ export class UnifiedScheduler {
   private readonly _monitor = new NodeMonitor();
   private readonly _disabledNodes = new Set<string>();
   private readonly _routes = new Map<string, Edge[]>();
+  private readonly _incomingRoutes = new Map<string, Edge[]>();
   private readonly _outputFrames = new Map<string, Frame | null>();
 
   private _running = false;
@@ -96,6 +97,11 @@ export class UnifiedScheduler {
         const existing = this._routes.get(key) ?? [];
         existing.push(edge);
         this._routes.set(key, existing);
+
+        const targetKey = `${edge.target}.${edge.targetPort}`;
+        const incoming = this._incomingRoutes.get(targetKey) ?? [];
+        incoming.push(edge);
+        this._incomingRoutes.set(targetKey, incoming);
       }
     }
 
@@ -113,6 +119,14 @@ export class UnifiedScheduler {
    */
   get monitor(): NodeMonitor {
     return this._monitor;
+  }
+
+  get isRunning(): boolean {
+    return this._running;
+  }
+
+  get tickCount(): number {
+    return this._tickCount;
   }
 
   /**
@@ -365,39 +379,32 @@ export class UnifiedScheduler {
     const inputs = getInputs(node);
 
     for (const inputPort of inputs) {
-      // Find edges targeting this port
-      for (const [, edges] of this._routes) {
-        for (const edge of edges) {
-          if (edge.target === node.id && edge.targetPort === inputPort.name) {
-            // Pull the source node
-            const sourceNode = this._plan.nodes.get(edge.source);
-            if (sourceNode && !this._disabledNodes.has(edge.source)) {
-              this._logger.trace("Routing edge", {
-                source: edge.source,
-                sourcePort: edge.sourcePort,
-                target: edge.target,
-                targetPort: edge.targetPort,
-              });
-              await this._pullNode(sourceNode, tick.t);
+      const edges = this._incomingRoutes.get(`${node.id}.${inputPort.name}`) ?? [];
+      const frames: Array<{ edge: Edge; frame: Frame }> = [];
 
-              // Route the frame to the input port with slice/repeat applied
-              const frame = this._outputFrames.get(`${edge.source}.${edge.sourcePort}`);
-              if (frame) {
-                try {
-                  const routedFrame = applyEdgeRouting(frame, edge);
-                  inputPort._setFrame(routedFrame);
-                  inputPort._setHasUpstream(true);
-                } catch (err) {
-                  this._logger.error("Frame routing failed", err as Error, {
-                    source: edge.source,
-                    sourcePort: edge.sourcePort,
-                    target: edge.target,
-                    targetPort: edge.targetPort,
-                  });
-                }
-              }
-            }
-          }
+      for (const edge of edges) {
+        const sourceNode = this._plan.nodes.get(edge.source);
+        if (sourceNode && !this._disabledNodes.has(edge.source)) {
+          this._logger.trace("Routing edge", {
+            source: edge.source,
+            sourcePort: edge.sourcePort,
+            target: edge.target,
+            targetPort: edge.targetPort,
+          });
+          await this._pullNode(sourceNode, tick.t);
+
+          const frame = this._outputFrames.get(`${edge.source}.${edge.sourcePort}`);
+          if (frame) frames.push({ edge, frame });
+        }
+      }
+
+      if (frames.length > 0) {
+        try {
+          const routedFrame = composeInputFrame(frames, inputPort.spec.fixedCount);
+          inputPort._setFrame(routedFrame);
+          inputPort._setHasUpstream(true);
+        } catch (err) {
+          this._logger.error("Frame routing failed", err as Error, { target: node.id, targetPort: inputPort.name });
         }
       }
     }

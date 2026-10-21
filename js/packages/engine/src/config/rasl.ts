@@ -13,8 +13,8 @@ import { createFsLoader } from "@rasl/config/node";
 import { ErrorCodes, RaslError } from "../errors.js";
 import { getNodeClass } from "../runtime/index.js";
 
-import { GraphBuilder } from "../graph/builder.js";
-import type { IConnectOptions, IResolvedSlice } from "../graph/edge.js";
+import { GraphBuilder } from "../execution/builder.js";
+import type { IConnectOptions, IResolvedSlice } from "../execution/edge.js";
 
 export interface IRaslConfigError {
   message: string;

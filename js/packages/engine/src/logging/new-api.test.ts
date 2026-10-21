@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { createEngineLogger, createConsoleLogger } from "./index.js";
-import type { ILogger } from "../runtime/nodes/index.js";
+import type { ILogger } from "../nodes/index.js";
 
 describe("New Logger API", () => {
   test("should support message-only logging", () => {
@@ -85,10 +85,10 @@ describe("New Logger API", () => {
     const logger = createConsoleLogger();
     const levels: Array<keyof Omit<ILogger, "error" | "child">> = ["trace", "debug", "info", "warn"];
     
-    levels.forEach(level => {
+    levels.forEach((level) => {
       expect(() => {
-        logger[level]("Test message");
-        logger[level]("Test message", { key: "value" });
+        logger[level as keyof Pick<ILogger, "trace" | "debug" | "info" | "warn">]("Test message");
+        logger[level as keyof Pick<ILogger, "trace" | "debug" | "info" | "warn">]("Test message", { key: "value" });
       }).not.toThrow();
     });
     

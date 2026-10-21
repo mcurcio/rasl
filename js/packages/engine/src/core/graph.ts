@@ -2,6 +2,7 @@
  * Graph domain - core graph entity and interfaces
  */
 
+import type { INodeStats } from "../execution/monitor.js";
 import type { ILogger } from "../nodes/index.js";
 import type { ExecutionPlan } from "../execution/plan.js";
 import type { UnifiedScheduler } from "../execution/scheduler.js";
@@ -33,6 +34,9 @@ export interface IGraph {
   
   /** Get graph statistics */
   getStats(): IGraphStats;
+
+  /** Get execution statistics for one node or all nodes */
+  getNodeStats(nodeId?: string): INodeStats | Map<string, INodeStats> | null;
 }
 
 /**
@@ -44,6 +48,7 @@ export class Graph implements IGraph {
   readonly _autoStart: boolean;
   private readonly _scheduler: UnifiedScheduler;
   private _running = false;
+  private _runPromise: Promise<void> | null = null;
 
   constructor(config: IGraphConfig, private readonly _logger: ILogger) {
     this.id = config.id;
@@ -64,8 +69,10 @@ export class Graph implements IGraph {
     this._running = true;
     this._logger.info(`Graph '${this.id}' started`);
     
-    // Graph manages its own scheduler
-    await this._scheduler.run();
+    this._runPromise = this._scheduler.run().catch((err: Error) => {
+      this._running = false;
+      this._logger.error(`Graph '${this.id}' scheduler failed`, err);
+    });
   }
 
   async stop(): Promise<void> {
@@ -76,15 +83,20 @@ export class Graph implements IGraph {
     
     // Graph stops its own scheduler
     this._scheduler.stop();
+    await this._runPromise;
+    this._runPromise = null;
   }
 
   getStats(): IGraphStats {
-    // TODO: Implement real stats collection from scheduler
     return {
       nodeCount: this.plan.nodes.size,
       currentFps: 30, // Will be discovered from sinks
-      framesProcessed: 0,
+      framesProcessed: this._scheduler.tickCount,
       avgFrameTimeMs: 1000 / 30,
     };
+  }
+
+  getNodeStats(nodeId?: string): INodeStats | Map<string, INodeStats> | null {
+    return this._scheduler.getNodeStats(nodeId);
   }
 }

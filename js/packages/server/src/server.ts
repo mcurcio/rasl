@@ -4,7 +4,8 @@
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
-import type { IGraphDescription, INodeStats, ILogger, IEngine } from "@rasl/engine";
+import type { INodeStats, ILogger, IEngine } from "@rasl/engine";
+import type { IGraphResponse, IHealthResponse, INodeResponse, IStatsResponse } from "./api.js";
 import { WsHandler } from "./ws-handler.js";
 
 /**
@@ -86,7 +87,7 @@ export class RaslServer {
     return new Promise((resolve) => {
       this._server!.close(() => {
         this._running = false;
-        this._scheduler = null;
+        this._engine = null;
         this._server = null;
         resolve();
       });
@@ -98,13 +99,6 @@ export class RaslServer {
    */
   get isRunning(): boolean {
     return this._running;
-  }
-
-  /**
-   * Get the current scheduler.
-   */
-  getScheduler(): UnifiedScheduler | null {
-    return this._scheduler;
   }
 
   /**
@@ -188,15 +182,14 @@ export class RaslServer {
    * Handle GET /graph
    */
   private _handleGraph(res: ServerResponse): void {
-    if (!this._scheduler) {
-      this._sendJson(res, 503, { error: "Scheduler not available" });
+    const graph = this._getDefaultGraph();
+    if (!graph) {
+      this._sendJson(res, 503, { error: "Graph not available" });
       return;
     }
 
-    // Access the plan from scheduler (need to expose this)
-    const plan = (this._scheduler as unknown as { _plan: { describe(): IGraphDescription } })._plan;
     const response: IGraphResponse = {
-      graph: plan.describe(),
+      graph: graph.plan.describe(),
     };
     this._sendJson(res, 200, response);
   }
@@ -205,12 +198,8 @@ export class RaslServer {
    * Handle GET /stats
    */
   private _handleStats(res: ServerResponse): void {
-    if (!this._scheduler) {
-      this._sendJson(res, 503, { error: "Scheduler not available" });
-      return;
-    }
-
-    const allStats = this._scheduler.getNodeStats() as Map<string, INodeStats> | null;
+    const graph = this._getDefaultGraph();
+    const allStats = graph?.getNodeStats() as Map<string, INodeStats> | null | undefined;
     const nodes: Record<string, INodeStats> = {};
     if (allStats) {
       for (const [id, stats] of allStats) {
@@ -220,7 +209,7 @@ export class RaslServer {
 
     const response: IStatsResponse = {
       running: this._running,
-      tickCount: 0, // TODO: expose from scheduler
+      tickCount: graph?.getStats().framesProcessed ?? 0,
       uptime: (Date.now() - this._startTime) / 1000,
       nodes,
     };
@@ -231,13 +220,13 @@ export class RaslServer {
    * Handle GET /node/:id
    */
   private _handleNode(res: ServerResponse, nodeId: string): void {
-    if (!this._scheduler) {
-      this._sendJson(res, 503, { error: "Scheduler not available" });
+    const graph = this._getDefaultGraph();
+    if (!graph) {
+      this._sendJson(res, 503, { error: "Graph not available" });
       return;
     }
 
-    const plan = (this._scheduler as unknown as { _plan: { nodes: Map<string, unknown> } })._plan;
-    const node = plan.nodes.get(nodeId) as
+    const node = graph.plan.nodes.get(nodeId) as
       | { id: string; inputs?: { names: string[] }; outputs?: { names: string[] }; constructor: { name: string } }
       | undefined;
 
@@ -246,7 +235,7 @@ export class RaslServer {
       return;
     }
 
-    const stats = this._scheduler.getNodeStats(nodeId) as INodeStats | null;
+    const stats = graph.getNodeStats(nodeId) as INodeStats | null;
 
     const response: INodeResponse = {
       id: node.id,
@@ -256,5 +245,10 @@ export class RaslServer {
       stats,
     };
     this._sendJson(res, 200, response);
+  }
+
+  private _getDefaultGraph(): ReturnType<IEngine["getGraph"]> {
+    const graphId = this._engine?.listGraphs()[0];
+    return graphId ? this._engine?.getGraph(graphId) : undefined;
   }
 }

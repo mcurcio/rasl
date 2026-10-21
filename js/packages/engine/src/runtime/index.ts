@@ -26,12 +26,14 @@ export {
   OutputPortSpec,
   PortGroup,
   type ProducesSpec,
-} from "./ports/index.js";
+} from "../nodes/ports/index.js";
 
 // Nodes
-export type { INode } from "./nodes/index.js";
-export type { ILogger, LogFields } from "./nodes/index.js";
-export { BaseNode, getInputs, getOutputs, NodeContext } from "./nodes/index.js";
+export type { INode } from "../nodes/protocol.js";
+export type { ILogger, LogFields } from "../nodes/context.js";
+export { BaseNode } from "../nodes/base.js";
+export { NodeContext } from "../nodes/context.js";
+export { getInputs, getOutputs } from "../nodes/protocol.js";
 
 // Tick context
 export type { ITickContext } from "./tick.js";
@@ -46,7 +48,7 @@ export {
   node,
   payload,
   resetRegistries,
-} from "./registry.js";
+} from "../nodes/registry.js";
 
 // Type compatibility
 export {

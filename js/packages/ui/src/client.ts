@@ -98,6 +98,13 @@ export class WebSocketClient {
   }
 
   /**
+   * Update a graph ExternalSource node with normalized values.
+   */
+  updateExternal(graphId: string, nodeId: string, values: number[]): void {
+    this._send({ type: "external:update", graphId, nodeId, values });
+  }
+
+  /**
    * Add an event handler.
    */
   on(event: string, handler: MessageHandler): void {

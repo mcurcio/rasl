@@ -3,11 +3,11 @@
  */
 
 import { ErrorCodes, RaslError } from "../errors.js";
-import type { ILogger } from "../runtime/nodes/index.js";
-import { type INode, getInputs, getOutputs } from "../runtime/nodes/index.js";
+import type { ILogger } from "../nodes/index.js";
+import { type INode, getInputs, getOutputs } from "../nodes/index.js";
 import { isTypeCompatible } from "../runtime/types/index.js";
 
-import { createConsoleLogger } from "../log/index.js";
+import { createConsoleLogger } from "../logging/index.js";
 import { Edge, type IConnectOptions } from "./edge.js";
 import { ExecutionPlan } from "./plan.js";
 
