@@ -1,0 +1,17 @@
+/* rasl config syntactic grammar, left-factored BNF for an LL(1) table check */
+%token WORD STRING NEWLINE
+%%
+document : stmts ;
+stmts    : seps rest ;
+seps     : sep seps | /* empty */ ;
+rest     : header after | /* empty */ ;
+after    : sep stmts | block stmts | /* empty */ ;
+header   : WORD values ;
+values   : value values | /* empty */ ;
+value    : WORD | STRING | list ;
+list     : '[' nls items ']' ;
+items    : value nls more | /* empty */ ;
+more     : ',' nls items | /* empty */ ;
+nls      : NEWLINE nls | /* empty */ ;
+sep      : ';' | NEWLINE ;
+block    : '{' stmts '}' ;

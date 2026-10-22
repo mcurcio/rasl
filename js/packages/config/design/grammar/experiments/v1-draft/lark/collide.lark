@@ -1,0 +1,26 @@
+// Draft rasl config grammar, Lark notation (LALR(1), basic lexer).
+// Syntactic grammar: tokens only; trivia (WS, comments) ignored; NEWLINE is structural.
+document: stmts
+stmts: sep* stmt* header?
+stmt: header sep+
+    | header block sep*
+header: WORD value*
+block: "{" stmts "}"
+sep: ";" | NEWLINE
+?value: WORD | STRING | list
+list: "[" NEWLINE* items? "]"
+items: value NEWLINE* ("," NEWLINE* value NEWLINE*)* ("," NEWLINE*)?
+
+// Lexical grammar
+// WORD: a head char (not delimiter, not '#', not ':', not '/' starting '//' or '/*'),
+// then any non-delimiter chars, then an optional attached slice; a '[' touching a word
+// must be a slice (follow restriction, the negative lookahead).
+WORD: /(?:[^ \t\r\n;{}\[\],"':\/\x00-\x1f\x7f]|\/(?![\/*]))[^ \t\r\n;{}\[\],"'\x00-\x1f\x7f]*(?:\[(?:[0-9]+:[0-9]*|:[0-9]+)\]|(?!\[))/
+STRING: /"(?:[^"\\\r\n]|\\[\\nrt"'])*"|'(?:[^'\\\r\n]|\\[\\nrt"'])*'/
+NEWLINE: /\r?\n/
+WS: /[ \t]+/
+LINE_COMMENT: /(?:#|\/\/)[^\r\n]*/
+BLOCK_COMMENT: /\/\*(?:[^*]|\*(?!\/))*\*\//
+%ignore WS
+%ignore LINE_COMMENT
+%ignore BLOCK_COMMENT

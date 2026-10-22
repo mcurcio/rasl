@@ -1,0 +1,1 @@
+for (const m of ["./good2.mjs","./draft.mjs"]) { const {parser}=await import(m); for (const c of ["a {}\n\nb\n","x\n"]) { const t=parser.configure({strict:true}).parse(c); let o=[]; let d=0; t.iterate({enter:n=>{o.push("(".repeat(0)+n.name)}}); console.log(m, JSON.stringify(c), o.join(" ")); } }

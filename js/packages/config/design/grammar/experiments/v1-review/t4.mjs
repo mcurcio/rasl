@@ -1,0 +1,2 @@
+const {parser}=await import("./good2.mjs"); const p=parser.configure({strict:true});
+for (const c of ['x "a"[0:3]','x a[0:3]b','x a[0:3]"s"','x ]', 'x y', '﻿server x', 'x a\u0001b']) { try { const t=p.parse(c); let o=[]; t.iterate({enter:n=>{ if(n.name!=="Document") o.push(n.name+(["Word","String"].includes(n.name)?"("+JSON.stringify(c.slice(n.from,n.to))+")":""))}}); console.log(JSON.stringify(c).padEnd(16),"ACCEPT",o.join(" ")); } catch(e){ console.log(JSON.stringify(c).padEnd(16),"REJECT",e.message.slice(0,30)); } }

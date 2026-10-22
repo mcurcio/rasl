@@ -1,0 +1,22 @@
+@top Document { stmts }
+stmts { sep* Directive* LastDirective? }
+Directive { Header (sep+ | Block sep*) }
+LastDirective { Header }
+Header { Word value* }
+Block { "{" stmts "}" }
+sep { ";" | Newline }
+value { Word | String | List }
+List { "[" Newline* (value Newline* ("," Newline* value Newline*)* ("," Newline*)?)? "]" }
+@skip { space | LineComment | BlockComment }
+@tokens {
+  space { $[ \t]+ }
+  Newline { "\r"? "\n" }
+  LineComment { ("#" | "//") ![\r\n]* }
+  BlockComment { "/*" blockRest }
+  blockRest { ![*] blockRest | "*" blockAfterStar }
+  blockAfterStar { "/" | "*" blockAfterStar | ![/*] blockRest }
+  String { '"' (![\\"\n\r] | "\\" $[\\nrt"'])* '"' }
+  tail { ![ \t\r\n;{}[\],"'] }
+  Word { (![ \t\r\n;{}[\],"':/] | "/" ![ \t\r\n;{}[\],"'/*]?) tail* ("[" (@digit+ ":" @digit* | ":" @digit+) "]")? }
+  "{" "}" "[" "]" ";" ","
+}

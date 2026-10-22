@@ -1,0 +1,435 @@
+State 12 conflicts: 2 reduce/reduce
+State 13 conflicts: 1 shift/reduce
+
+
+Grammar
+
+    0 $accept: document $end
+
+    1 document: stmts
+
+    2 stmts: seps stmt_list opt_header
+
+    3 stmt_list: /* empty */
+    4          | stmt_list stmt
+
+    5 stmt: header seps
+    6     | header block seps
+
+    7 opt_header: /* empty */
+    8           | header
+
+    9 seps: /* empty */
+   10     | seps sep
+
+   11 header: WORD values
+
+   12 values: /* empty */
+   13       | values value
+
+   14 value: WORD
+   15      | STRING
+   16      | list
+
+   17 list: '[' nls ']'
+   18     | '[' nls items ']'
+
+   19 items: value nls
+   20      | value nls ',' nls
+   21      | value nls ',' nls items
+
+   22 nls: /* empty */
+   23    | nls NEWLINE
+
+   24 sep: ';'
+   25    | NEWLINE
+
+   26 block: '{' stmts '}'
+
+
+Terminals, with rules where they appear
+
+$end (0) 0
+',' (44) 20 21
+';' (59) 24
+'[' (91) 17 18
+']' (93) 17 18
+'{' (123) 26
+'}' (125) 26
+error (256)
+WORD (258) 11 14
+STRING (259) 15
+NEWLINE (260) 23 25
+
+
+Nonterminals, with rules where they appear
+
+$accept (12)
+    on left: 0
+document (13)
+    on left: 1, on right: 0
+stmts (14)
+    on left: 2, on right: 1 26
+stmt_list (15)
+    on left: 3 4, on right: 2 4
+stmt (16)
+    on left: 5 6, on right: 4
+opt_header (17)
+    on left: 7 8, on right: 2
+seps (18)
+    on left: 9 10, on right: 2 5 6 10
+header (19)
+    on left: 11, on right: 5 6 8
+values (20)
+    on left: 12 13, on right: 11 13
+value (21)
+    on left: 14 15 16, on right: 13 19 20 21
+list (22)
+    on left: 17 18, on right: 16
+items (23)
+    on left: 19 20 21, on right: 18 21
+nls (24)
+    on left: 22 23, on right: 17 18 19 20 21 23
+sep (25)
+    on left: 24 25, on right: 10
+block (26)
+    on left: 26, on right: 6
+
+
+state 0
+
+    0 $accept: . document $end
+
+    $default  reduce using rule 9 (seps)
+
+    document  go to state 1
+    stmts     go to state 2
+    seps      go to state 3
+
+
+state 1
+
+    0 $accept: document . $end
+
+    $end  shift, and go to state 4
+
+
+state 2
+
+    1 document: stmts .
+
+    $default  reduce using rule 1 (document)
+
+
+state 3
+
+    2 stmts: seps . stmt_list opt_header
+   10 seps: seps . sep
+
+    NEWLINE  shift, and go to state 5
+    ';'      shift, and go to state 6
+
+    $default  reduce using rule 3 (stmt_list)
+
+    stmt_list  go to state 7
+    sep        go to state 8
+
+
+state 4
+
+    0 $accept: document $end .
+
+    $default  accept
+
+
+state 5
+
+   25 sep: NEWLINE .
+
+    $default  reduce using rule 25 (sep)
+
+
+state 6
+
+   24 sep: ';' .
+
+    $default  reduce using rule 24 (sep)
+
+
+state 7
+
+    2 stmts: seps stmt_list . opt_header
+    4 stmt_list: stmt_list . stmt
+
+    WORD  shift, and go to state 9
+
+    $default  reduce using rule 7 (opt_header)
+
+    stmt        go to state 10
+    opt_header  go to state 11
+    header      go to state 12
+
+
+state 8
+
+   10 seps: seps sep .
+
+    $default  reduce using rule 10 (seps)
+
+
+state 9
+
+   11 header: WORD . values
+
+    $default  reduce using rule 12 (values)
+
+    values  go to state 13
+
+
+state 10
+
+    4 stmt_list: stmt_list stmt .
+
+    $default  reduce using rule 4 (stmt_list)
+
+
+state 11
+
+    2 stmts: seps stmt_list opt_header .
+
+    $default  reduce using rule 2 (stmts)
+
+
+state 12
+
+    5 stmt: header . seps
+    6     | header . block seps
+    8 opt_header: header .
+
+    '{'  shift, and go to state 14
+
+    $end      reduce using rule 8 (opt_header)
+    $end      [reduce using rule 9 (seps)]
+    '}'       reduce using rule 8 (opt_header)
+    '}'       [reduce using rule 9 (seps)]
+    $default  reduce using rule 9 (seps)
+
+    seps   go to state 15
+    block  go to state 16
+
+
+state 13
+
+   11 header: WORD values .
+   13 values: values . value
+
+    WORD    shift, and go to state 17
+    STRING  shift, and go to state 18
+    '['     shift, and go to state 19
+
+    WORD      [reduce using rule 11 (header)]
+    $default  reduce using rule 11 (header)
+
+    value  go to state 20
+    list   go to state 21
+
+
+state 14
+
+   26 block: '{' . stmts '}'
+
+    $default  reduce using rule 9 (seps)
+
+    stmts  go to state 22
+    seps   go to state 3
+
+
+state 15
+
+    5 stmt: header seps .
+   10 seps: seps . sep
+
+    NEWLINE  shift, and go to state 5
+    ';'      shift, and go to state 6
+
+    $default  reduce using rule 5 (stmt)
+
+    sep  go to state 8
+
+
+state 16
+
+    6 stmt: header block . seps
+
+    $default  reduce using rule 9 (seps)
+
+    seps  go to state 23
+
+
+state 17
+
+   14 value: WORD .
+
+    $default  reduce using rule 14 (value)
+
+
+state 18
+
+   15 value: STRING .
+
+    $default  reduce using rule 15 (value)
+
+
+state 19
+
+   17 list: '[' . nls ']'
+   18     | '[' . nls items ']'
+
+    $default  reduce using rule 22 (nls)
+
+    nls  go to state 24
+
+
+state 20
+
+   13 values: values value .
+
+    $default  reduce using rule 13 (values)
+
+
+state 21
+
+   16 value: list .
+
+    $default  reduce using rule 16 (value)
+
+
+state 22
+
+   26 block: '{' stmts . '}'
+
+    '}'  shift, and go to state 25
+
+
+state 23
+
+    6 stmt: header block seps .
+   10 seps: seps . sep
+
+    NEWLINE  shift, and go to state 5
+    ';'      shift, and go to state 6
+
+    $default  reduce using rule 6 (stmt)
+
+    sep  go to state 8
+
+
+state 24
+
+   17 list: '[' nls . ']'
+   18     | '[' nls . items ']'
+   23 nls: nls . NEWLINE
+
+    WORD     shift, and go to state 17
+    STRING   shift, and go to state 18
+    NEWLINE  shift, and go to state 26
+    '['      shift, and go to state 19
+    ']'      shift, and go to state 27
+
+    value  go to state 28
+    list   go to state 21
+    items  go to state 29
+
+
+state 25
+
+   26 block: '{' stmts '}' .
+
+    $default  reduce using rule 26 (block)
+
+
+state 26
+
+   23 nls: nls NEWLINE .
+
+    $default  reduce using rule 23 (nls)
+
+
+state 27
+
+   17 list: '[' nls ']' .
+
+    $default  reduce using rule 17 (list)
+
+
+state 28
+
+   19 items: value . nls
+   20      | value . nls ',' nls
+   21      | value . nls ',' nls items
+
+    $default  reduce using rule 22 (nls)
+
+    nls  go to state 30
+
+
+state 29
+
+   18 list: '[' nls items . ']'
+
+    ']'  shift, and go to state 31
+
+
+state 30
+
+   19 items: value nls .
+   20      | value nls . ',' nls
+   21      | value nls . ',' nls items
+   23 nls: nls . NEWLINE
+
+    NEWLINE  shift, and go to state 26
+    ','      shift, and go to state 32
+
+    $default  reduce using rule 19 (items)
+
+
+state 31
+
+   18 list: '[' nls items ']' .
+
+    $default  reduce using rule 18 (list)
+
+
+state 32
+
+   20 items: value nls ',' . nls
+   21      | value nls ',' . nls items
+
+    $default  reduce using rule 22 (nls)
+
+    nls  go to state 33
+
+
+state 33
+
+   20 items: value nls ',' nls .
+   21      | value nls ',' nls . items
+   23 nls: nls . NEWLINE
+
+    WORD     shift, and go to state 17
+    STRING   shift, and go to state 18
+    NEWLINE  shift, and go to state 26
+    '['      shift, and go to state 19
+
+    $default  reduce using rule 20 (items)
+
+    value  go to state 28
+    list   go to state 21
+    items  go to state 34
+
+
+state 34
+
+   21 items: value nls ',' nls items .
+
+    $default  reduce using rule 21 (items)

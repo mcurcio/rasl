@@ -1,0 +1,1 @@
+for (const m of process.argv.slice(2)) { const {parser}=await import("./"+m); for (const c of ["x a[0:3]","x a[1]","x a"]) { const t=parser.parse(c); let o=[]; t.iterate({enter:n=>{ if(["Word","BadSlice","List","⚠"].includes(n.name)) o.push(n.name+"("+c.slice(n.from,n.to)+")")}}); console.log(m.padEnd(10), JSON.stringify(c).padEnd(12), o.join(" ")); } }
