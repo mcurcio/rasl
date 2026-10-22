@@ -2,6 +2,9 @@
 
 This file provides instructions and context for AI coding agents working on this project.
 
+Before creating a branch or worktree, read "Branches and worktrees" in `AGENTS.md`:
+work forks from `alpha`, never `main`.
+
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:7510c1e2 -->
 ## Beads Issue Tracker
 

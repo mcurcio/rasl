@@ -2,6 +2,25 @@
 
 Working agreement for collaborating with Cascade in this repo.
 
+## Branches and worktrees
+
+| Branch  | Role |
+|---------|------|
+| `alpha` | The working branch. All development happens here. |
+| `main`  | Initial commit only. Never base work on it or push to it. |
+| `beta`  | Initial commit only. Role not yet defined. |
+
+- **Fork every branch and worktree from `alpha`**, and target `alpha` with pull requests.
+  Tools that cut worktrees from the repository's default branch (`main`) give you an empty
+  tree: re-point the new branch at `alpha` before starting (`git checkout -B <branch> alpha`
+  on a branch with no commits of its own).
+- **The main checkout stays on `main`** (owner, 2026-10-21: "there is no issue leaving the
+  main checkout on main"). Never work, commit or switch branches in it; use a worktree.
+- **It still hosts the shared beads database.** Every worktree's `bd` resolves to the main
+  checkout's `.beads/` (`bd where` shows it). Because `main` has no `.beads/` files, that
+  folder holds untracked copies of `alpha`'s tracked `.beads/` files. When those change on
+  `alpha`, copy them over again (`git ls-files .beads` lists them).
+
 ## Collaboration preferences
 
 - **Brainstorming cadence**
