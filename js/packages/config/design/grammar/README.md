@@ -22,7 +22,9 @@ Owner requirements (2026-10-21):
 | [v1-review.md](v1-review.md) | Adversarial review of v1 (verdict: wrong premise) | Done |
 | `experiments/v1-draft/` | The v1 grammar written for Lezer, Lark, Bison, ANTLR and an LL(1) check, plus probe scripts run against today's lexer and parser | Evidence for v1 |
 | `experiments/v1-review/` | The reviewer's Lezer probes (precedence order, error-token encoding) | Evidence for the review |
-| v2 draft | One grammar file in plain EBNF, with every check run on that same file | In progress |
+| [config.ebnf](config.ebnf) | **Draft 2 of the grammar**: the one file that defines the language (W3C EBNF, REx layout) | Under review |
+| [v2-draft.md](v2-draft.md) | Revision 2: the grammar, the soundness evidence, the three layers, the three questions | Under review |
+| `experiments/v2/` | The REx and Bison checks, planted-bad grammars, the oracle and the test harnesses, and a repro of a REx bug | Evidence for v2 |
 | Answer page | The owner-gate page with at most 3 questions | After v2 |
 
 The experiment scripts were run from a scratch directory outside the repo, so their import

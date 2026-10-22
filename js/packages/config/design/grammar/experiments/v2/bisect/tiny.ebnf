@@ -1,0 +1,4 @@
+Document ::= Word* EOF
+<?TOKENS?>
+EOF          ::= $
+Word         ::= [a-z]+

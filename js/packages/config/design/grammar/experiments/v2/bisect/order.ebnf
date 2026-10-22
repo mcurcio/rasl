@@ -1,0 +1,6 @@
+Tokens ::= ( Short | Long | Sp )* EOF
+<?TOKENS?>
+EOF ::= $
+Short ::= 'x' | '/'
+Long ::= 'x' 'y'+ | '//' [a-z]*
+Sp ::= ' '

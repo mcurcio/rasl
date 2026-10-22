@@ -1,0 +1,5 @@
+Document ::= ( Word | Space )* EOF
+<?TOKENS?>
+EOF          ::= $
+Word         ::= [a-z]+
+Space        ::= ' '+

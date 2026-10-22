@@ -1,0 +1,57 @@
+/* @rasl/config language, grammar draft 2.
+   Notation: W3C EBNF (XML 1.0 section 6) in the REx layout: syntax rules,
+   then <?TOKENS?>, then the regular token definitions.
+   Tokenization: at each position the longest match among the token kinds
+   wins; kinds are pairwise disjoint, so a tie cannot happen.
+   Whitespace is explicit: there is no implicit whitespace anywhere.
+   Annotations of the form  cst: kind  name the spec concept a rule builds. */
+
+/* ---------------- syntax ---------------- */
+
+Document     ::= Bom? Statements EOF                       /* cst: document */
+Statements   ::= Filler* ( Directive Filler* )* LastDirective?
+Filler       ::= Space | Comment | Newline | ';'
+Directive    ::= Header ( Separator | Block )               /* cst: directive */
+LastDirective
+             ::= Header                                     /* cst: directive */
+Header       ::= Word Rest
+Rest         ::= ( Gap ( Value Rest )? )?
+Gap          ::= ( Space | Comment )+
+Separator    ::= ';' | Newline
+Block        ::= '{' Statements '}'                         /* cst: block */
+Value        ::= Word Slice?                                /* cst: value */
+               | String                                     /* cst: value */
+               | List                                       /* cst: list */
+Slice        ::= '[' ( Word ':' Word? | ':' Word ) ']'      /* cst: slice */
+List         ::= '[' ListGap? Items? ']'
+Items        ::= Value ListGap? ( ',' ListGap? Items? )?
+ListGap      ::= ( Space | Comment | Newline )*
+
+<?TOKENS?>
+
+/* ---------------- tokens ---------------- */
+
+EOF          ::= $
+Bom          ::= #xFEFF
+Space        ::= [#x20#x9]+
+Newline      ::= #xA | #xD #xA
+Comment      ::= '#' Char*
+Word         ::= NameStart NameChar* | NumberStart NumberChar*
+String       ::= '"' ( ( Char - ( '"' | '\' ) ) | '\' Char )* '"'
+               | "'" ( ( Char - ( "'" | '\' ) ) | '\' Char )* "'"
+
+/* error tokens: never used by the syntax, so any input holding one is invalid */
+UnterminatedString
+             ::= '"' ( ( Char - ( '"' | '\' ) ) | '\' Char )* '\'?
+               | "'" ( ( Char - ( "'" | '\' ) ) | '\' Char )* '\'?
+BadChar      ::= AnyChar - TokenStart
+
+/* ---------------- character sets ---------------- */
+
+AnyChar      ::= [#x0-#x10FFFF]
+Char         ::= #x9 | [#x20-#x7E] | [#x80-#xD7FF] | [#xE000-#x10FFFF]
+NameStart    ::= [A-Za-z_./@]
+NameChar     ::= [A-Za-z0-9_./@#+:] | '-'
+NumberStart  ::= [0-9] | '-'
+NumberChar   ::= [A-Za-z0-9_./@#+] | '-'
+TokenStart   ::= [#x9#xA#x20"#',./0-9:;@A-Z_a-z{}] | '[' | ']' | '-' | #xFEFF
