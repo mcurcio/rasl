@@ -26,10 +26,11 @@ Owner requirements (2026-10-21):
 | [v2-draft.md](v2-draft.md) | Revision 2: the grammar, the soundness evidence, the three layers, the three questions | Superseded in part by the answer page |
 | `experiments/v2/` | The REx and Bison checks, planted-bad grammars, the oracle and the test harnesses, and a repro of a REx bug | Evidence for v2 |
 | [v2-review.md](v2-review.md) | Adversarial review of v2: the grammar held; the evidence claims were corrected | Done |
-| [v3-generators.md](v3-generators.md) | After the answers: tree-sitter, ANTLR4, REx and Lark run on the same grammar; recommends tree-sitter | Under review |
+| [v3-generators.md](v3-generators.md) | After the answers: tree-sitter, ANTLR4, REx and Lark run on the same grammar; recommended tree-sitter | Superseded: failed review |
+| [v3-review.md](v3-review.md) | Review of the tree-sitter recommendation; the measured data favours ANTLR4 | Done |
 | [q2-examples.md](q2-examples.md) | 14 config lines showing what each Q2 option does, with points and counterpoints | Done |
 | `experiments/v3/`, `experiments/q2/` | The generator ports, planted conflicts, harnesses and Q2 cases | Evidence |
-| [gate.html](gate.html) | Source of the answer page, published at https://claude.ai/artifact/H64AiZ7yuHTkzod9WauPLf | Awaiting answers |
+| [gate.html](gate.html) | Source of the answer page (round 2: Q2 spacing, Q3 generator), published at https://claude.ai/artifact/H64AiZ7yuHTkzod9WauPLf | Awaiting answers |
 
 The experiment scripts were run from a scratch directory outside the repo, so their import
 paths and tool installs (npx, uvx) are not wired into this package. They are a record, not a
