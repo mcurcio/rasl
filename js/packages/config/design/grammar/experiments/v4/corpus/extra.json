@@ -1,0 +1,142 @@
+[
+{
+"name": "glob-abs",
+"src": "include /*.conf"
+},
+{
+"name": "glob-rel",
+"src": "include *.conf\n"
+},
+{
+"name": "glob-q",
+"src": "include conf.d/?x*.conf;"
+},
+{
+"name": "glob-num",
+"src": "x 1*2 -? 0?"
+},
+{
+"name": "glob-colon",
+"src": "x *:a ?:b"
+},
+{
+"name": "glob-slice",
+"src": "x a*[0:2]"
+},
+{
+"name": "rec-block-error",
+"src": "server {\n  listen 80 ]\n  root /x\n}\nnext 1\n"
+},
+{
+"name": "rec-stray-bracket",
+"src": "x ]\ny 1\n"
+},
+{
+"name": "rec-stray-bracket-block",
+"src": "a {\n x ] z\n y 1\n}\nb 2\n"
+},
+{
+"name": "rec-unclosed-list-block",
+"src": "server {\n  listen [80\n}\nnext 1\n"
+},
+{
+"name": "rec-unclosed-list-eof",
+"src": "x [a,\n b\ny 1\n"
+},
+{
+"name": "rec-brace-own-line",
+"src": "a\n{\n b 1\n}\nc 2\n"
+},
+{
+"name": "rec-brace-own-line-indent",
+"src": "a {\n b\n   {\n }\n}\nc 2\n"
+},
+{
+"name": "rec-unclosed-brace",
+"src": "a {\n b 1\n"
+},
+{
+"name": "rec-stray-rbrace",
+"src": "a 1\n}\nb 2\n"
+},
+{
+"name": "rec-two-errors",
+"src": "a ]\nb 1\nc \"x\nd 2\n"
+},
+{
+"name": "rec-slice-empty",
+"src": "x a[:]\ny 1"
+},
+{
+"name": "rec-slice-bad",
+"src": "x a[1:b c]\ny 1"
+},
+{
+"name": "rec-badchar",
+"src": "x \ud83d\ude00 y\nz 1\n"
+},
+{
+"name": "rec-touch",
+"src": "x a\"b\"\ny 1\n"
+},
+{
+"name": "rec-nested",
+"src": "a {\n b {\n  c ]\n  d 1\n }\n e 2\n}\nf 3\n"
+},
+{
+"name": "rec-semi",
+"src": "x ]; y 1\n"
+},
+{
+"name": "rec-list-midline",
+"src": "x [a b\nc 1\n]\nd 2\n"
+},
+{
+"name": "rec-header-block",
+"src": "x a\"b\" {\n c 1\n}\nd 2\n"
+},
+{
+"name": "rec-lone-cr",
+"src": "x 1\ry\nz 2\n"
+},
+{
+"name": "rec-bom-mid",
+"src": "x 1\n\ufeffy 2\n"
+},
+{
+"name": "surrogate-str",
+"src": "x \"\ud800\""
+},
+{
+"name": "surrogate-comment",
+"src": "x # \udc00\ny 1"
+},
+{
+"name": "surrogate-bare",
+"src": "x \ud800 y"
+},
+{
+"name": "empty-list-ok",
+"src": "x []\n"
+},
+{
+"name": "deep-ok",
+"src": "a { b { c { d [1, [2, e[0:1]]] } } }"
+},
+{
+"name": "rec-junk-block-start",
+"src": "a {\n ]\n b 1\n}\nc 2"
+},
+{
+"name": "rec-junk-top-start",
+"src": "]\nx 1"
+},
+{
+"name": "rec-str-block-start",
+"src": "a {\n \"s\"\n b 1\n}\n"
+},
+{
+"name": "rec-many",
+"src": "a ]\nb ]\nc {\n d ]\n e [\n}\nf 1\n"
+}
+]

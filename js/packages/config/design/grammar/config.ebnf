@@ -63,8 +63,8 @@ Exponent     ::= [eE] [-+]? [0-9]+
 
 AnyChar      ::= [#x1-#x10FFFF]      /* U+0000 is also BadChar; REx reserves it as end of input */
 Char         ::= #x9 | [#x20-#x7E] | [#x80-#xD7FF] | [#xE000-#x10FFFF]
-NameStart    ::= [A-Za-z_./@]
-NameChar     ::= [A-Za-z0-9_./@#+:] | '-'
+NameStart    ::= [A-Za-z_./@*?]
+NameChar     ::= [A-Za-z0-9_./@#+:*?] | '-'
 NumberStart  ::= [0-9] | '-'
-NumberChar   ::= [A-Za-z0-9_./@#+] | '-'
-TokenStart   ::= [#x9#xA#x20"#',./0-9:;@A-Z_a-z{}] | '[' | ']' | '-' | #xFEFF
+NumberChar   ::= [A-Za-z0-9_./@#+*?] | '-'
+TokenStart   ::= [#x9#xA#x20"#',./0-9:;@A-Z_a-z{}*?] | '[' | ']' | '-' | #xFEFF
