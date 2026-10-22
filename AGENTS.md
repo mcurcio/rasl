@@ -1,11 +1,32 @@
 # AGENTS.md
 
-Working agreement for collaborating with Cascade in this repo.
+Instructions for every AI coding agent working in this repo (Claude Code, Codex, Windsurf and
+others). This is the only agent instruction file: `CLAUDE.md` is a symlink to it, because
+Claude Code reads `CLAUDE.md` and not `AGENTS.md`. Edit this file; `CLAUDE.md` follows.
+
+## Repository layout
+
+- `src/rasl/`, `tests/`: Python runtime (Python 3.11, `uv`; `pyproject.toml`).
+- `js/`: pnpm workspace (`js/packages/*`: engine, config, color, lighting, server, ui, govee,
+  lifx). Node version in `js/.nvmrc`. Style guide: `js/STYLE.md`.
+- `v2/`: Rust experiment.
+- `docs/`: reference documentation.
+
+## Build and test
+
+```bash
+cd js && pnpm install && pnpm build && pnpm test   # JS: also pnpm lint, pnpm typecheck
+uv run pytest                                      # Python (repo root)
+```
+
+CI is disabled (owner, 2026-10-21: "Disable the workflows"). `.github/workflows/build.yml`
+is stale (it expects npm at the repo root) and its `publish` job runs `lerna publish` on
+push. Run the checks above locally until `rasl-4v6` is resolved.
 
 ## Branches and worktrees
 
 The three branches are release channels: the `publish` job in `.github/workflows/build.yml`
-runs `lerna publish` on every push to them, once `lint` and `test` pass.
+runs `lerna publish` on every push to them once `lint` and `test` pass (currently disabled).
 
 | Branch  | Role | Publishes |
 |---------|------|-----------|
@@ -24,93 +45,63 @@ runs `lerna publish` on every push to them, once `lint` and `test` pass.
   folder holds untracked copies of `alpha`'s tracked `.beads/` files. When those change on
   `alpha`, copy them over again (`git ls-files .beads` lists them).
 
+## Task tracking: beads
+
+All planned work lives in beads (`bd`). There are no plan, roadmap or TODO files; do not
+create them. Agents manage beads themselves, without being asked (owner, 2026-10-21: "I want
+to use beads, and want you to auto manage it").
+
+- **Before work:** `bd ready` to find work, `bd show <id>` for detail, `bd update <id> --claim`.
+- **During work:** file a bead for every follow-up, bug or open question you find
+  (`bd create`, with `--deps` for what blocks it); record decided rules in the bead's design
+  field, not in a new file.
+- **After work:** `bd close <id>` for finished work; update the rest.
+- **Persist:** there is no beads sync remote. Run `bd export -o .beads/issues.jsonl` and
+  commit that file with the work, so the issue list reaches GitHub through the PR.
+- A `SessionStart` hook (`.claude/settings.json`) runs `bd prime` for workflow context.
+
+## Landing work
+
+1. Run the checks under "Build and test" for the packages you changed.
+2. Update beads and commit `.beads/issues.jsonl` (see above).
+3. Commit with Conventional Commits, push your branch, and open or update a pull request
+   into `alpha`. The owner reviews and merges; do not merge it yourself.
+
 ## Collaboration preferences
 
 - **Brainstorming cadence**
   - When we are ideating / brainstorming, keep responses concise and optimize for quick back-and-forth.
 
 - **Opinions vs decisions**
-  - I will offer **opinions and options**.
-  - I will not present choices as “decided” unless you explicitly ask me to decide.
+  - Offer **opinions and options**.
+  - Do not present choices as "decided" unless the owner explicitly asks you to decide.
 
 - **Specificity & intent**
-  - I will ask targeted clarifying questions when requirements are ambiguous.
-  - I will avoid lingering or guessing your intentions; when in doubt, I will present explicit assumptions and ask you to confirm.
-  - If a request specifies *interfaces* (ports/config) but leaves *runtime semantics* underspecified (e.g., timing, edge cases, shape rules, default behaviors), I will **pause implementation** and ask for clarification rather than inventing defaults.
+  - Ask targeted clarifying questions when requirements are ambiguous.
+  - Do not guess intentions; when in doubt, present explicit assumptions and ask for confirmation.
+  - If a request specifies *interfaces* (ports/config) but leaves *runtime semantics* underspecified (e.g., timing, edge cases, shape rules, default behaviors), **pause implementation** and ask for clarification rather than inventing defaults.
 
 - **No implicit semantic changes**
-  - I will not change node semantics, runtime semantics, config semantics, or payload contracts “implicitly”.
-  - If a change might affect behavior (even if tests still pass), I will call it out **before** implementing and confirm you want it.
+  - Do not change node semantics, runtime semantics, config semantics, or payload contracts implicitly.
+  - If a change might affect behavior (even if tests still pass), call it out **before** implementing and confirm it is wanted.
 
 - **Breaking changes / renames**
-  - For renames or behavior changes, I will:
-    - propose a migration strategy (aliases, deprecation period, tests/docs updates)
-    - confirm with you before making it the default
-
-- **No aliases / deprecations / migration shims**
-  - I will not introduce aliases, deprecated exports, migration messages, or compatibility shims unless you explicitly ask.
+  - Confirm renames and behavior changes with the owner before making them.
+  - Do not add aliases, deprecated exports, migration messages, or compatibility shims unless explicitly asked.
 
 - **Scope discipline**
-  - I will keep diffs minimal and tied to the request.
-  - I will avoid drive-by refactors unless you ask.
+  - Keep diffs minimal and tied to the request.
+  - Avoid drive-by refactors unless asked; file a bead instead.
 
 - **Config ergonomics**
-  - When adding DSL/config sugar, I will:
+  - When adding DSL/config sugar:
     - propose exact semantics (including edge cases)
     - avoid ambiguous behavior
-    - confirm constraints (e.g., “only supported without slicing”) up front
+    - confirm constraints (e.g., "only supported without slicing") up front
 
 - **Change reporting**
-  - After edits, I will summarize:
+  - After edits, summarize:
     - what changed
     - why
     - any behavior-impacting implications
     - what to run to validate
-
-<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:7510c1e2 -->
-## Beads Issue Tracker
-
-This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
-
-### Quick Reference
-
-```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --claim  # Claim work
-bd close <id>         # Complete work
-```
-
-### Rules
-
-- Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
-- Run `bd prime` for detailed command reference and session close protocol
-- Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
-
-**Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
-
-## Session Completion
-
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
-
-**MANDATORY WORKFLOW:**
-
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
-
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
-<!-- END BEADS INTEGRATION -->
