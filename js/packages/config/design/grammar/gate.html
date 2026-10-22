@@ -1,0 +1,468 @@
+<title>RASL Config Grammar</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column like a language spec; grammar blocks get a ruled margin; questions sit inline as answer slips. */
+:root {
+  --bg: #f6f7f9;
+  --paper: #ffffff;
+  --ink: #1b2330;
+  --muted: #5b6676;
+  --rule: #d9dee6;
+  --accent: #2b55a8;
+  --accent-soft: #e6ecf8;
+  --slip: #fff6e3;
+  --slip-rule: #e0b35a;
+  --ok: #2f7d4f;
+  --code-bg: #eef1f5;
+  --display: "Fraunces", Georgia, "Times New Roman", serif;
+  --body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12161d; --paper: #1a2029; --ink: #e4e8ee; --muted: #9aa5b4; --rule: #2e3746;
+    --accent: #8fb0f0; --accent-soft: #1f2b42; --slip: #2a2416; --slip-rule: #b08a3c;
+    --ok: #6cc28f; --code-bg: #151a22; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12161d; --paper: #1a2029; --ink: #e4e8ee; --muted: #9aa5b4; --rule: #2e3746;
+  --accent: #8fb0f0; --accent-soft: #1f2b42; --slip: #2a2416; --slip-rule: #b08a3c;
+  --ok: #6cc28f; --code-bg: #151a22; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 96px;
+}
+main { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 44px; padding-top: 32px; }
+section { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+h1, h2 { font-family: var(--display); font-weight: 600; text-wrap: balance; margin: 0; line-height: 1.2; }
+h1 { font-size: 2.1rem; }
+h2 { font-size: 1.45rem; }
+h3 { font-size: 1.02rem; margin: 0; }
+p { margin: 0; max-width: 66ch; }
+.eyebrow { font: 600 0.72rem/1 var(--mono); letter-spacing: 0.09em; text-transform: uppercase; color: var(--accent); }
+.muted { color: var(--muted); }
+code, kbd { font-family: var(--mono); font-size: 0.88em; background: var(--code-bg); padding: 0.05em 0.3em; border-radius: 3px; }
+a { color: var(--accent); }
+.layers { display: flex; flex-wrap: wrap; gap: 6px; font: 0.8rem var(--mono); }
+.layers span { padding: 4px 10px; border: 1px solid var(--rule); border-radius: 999px; color: var(--muted); }
+.layers span.on { background: var(--accent); border-color: var(--accent); color: var(--paper); }
+.ask { background: var(--accent-soft); border-radius: 6px; padding: 12px 14px; }
+.scroll { overflow-x: auto; min-width: 0; }
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+th, td { text-align: left; vertical-align: top; padding: 7px 10px 7px 0; border-bottom: 1px solid var(--rule); }
+th { font-weight: 700; color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+td.tag { font-family: var(--mono); font-size: 0.8rem; white-space: nowrap; color: var(--muted); }
+pre.ebnf, pre.ts {
+  margin: 0; font: 0.8rem/1.6 var(--mono); background: var(--paper); border-left: 3px solid var(--accent);
+  padding: 12px 14px; overflow-x: auto; white-space: pre;
+}
+pre.mermaid { margin: 0; background: var(--paper); padding: 12px; border-radius: 6px; overflow-x: auto; }
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.rule { background: var(--paper); border: 1px solid var(--rule); border-radius: 6px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+.rule b { font-family: var(--mono); font-size: 0.75rem; color: var(--accent); }
+.slip { background: var(--slip); border: 1px solid var(--slip-rule); border-radius: 6px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.slip h3 { font-family: var(--display); font-size: 1.12rem; }
+.slip .qid { font: 600 0.75rem var(--mono); color: var(--slip-rule); letter-spacing: 0.06em; }
+.opt { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; background: var(--paper); border: 1px solid var(--rule); border-radius: 5px; padding: 10px 12px; cursor: pointer; }
+.opt:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.opt input { margin-top: 4px; accent-color: var(--accent); }
+.opt .t { font-weight: 700; }
+.opt .c { color: var(--muted); font-size: 0.9rem; }
+.rec { font: 600 0.68rem var(--mono); color: var(--ok); letter-spacing: 0.05em; text-transform: uppercase; margin-left: 6px; }
+textarea { width: 100%; min-height: 56px; font: 0.92rem var(--body); color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 5px; padding: 8px 10px; resize: vertical; }
+textarea:focus-visible, .opt:focus-within, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rest { border-top: 1px dashed var(--rule); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; font-size: 0.92rem; }
+.rest label { color: var(--muted); font-size: 0.85rem; }
+ul.tight { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 4px; max-width: 66ch; }
+.status { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.status div { background: var(--paper); border: 1px solid var(--rule); border-radius: 6px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
+.pill { display: inline-block; font: 600 0.7rem var(--mono); padding: 2px 8px; border-radius: 999px; letter-spacing: 0.04em; width: fit-content; }
+.pill.proven { background: var(--ok); color: var(--paper); }
+.pill.tested { background: var(--accent); color: var(--paper); }
+.pill.notrun { background: var(--rule); color: var(--ink); }
+.bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; background: var(--paper); border-top: 1px solid var(--rule);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 10px calc(10px + env(safe-area-inset-bottom, 0px));
+}
+.bar .in { max-width: 760px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.bar .count { font: 600 0.85rem var(--mono); margin-right: auto; }
+button { font: 700 0.9rem var(--body); border-radius: 5px; padding: 8px 14px; cursor: pointer; border: 1px solid var(--accent); }
+button.primary { background: var(--accent); color: var(--paper); }
+button.ghost { background: transparent; color: var(--accent); }
+#saveState { font-size: 0.85rem; color: var(--muted); }
+footer { font-size: 0.82rem; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 12px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<main>
+
+<header style="display:flex;flex-direction:column;gap:12px">
+  <div class="eyebrow">@rasl/config · owner gate · draft 2 · 2026-10-22</div>
+  <h1>A formal grammar for the config language</h1>
+  <div class="layers" aria-label="Design layer"><span class="on">System design</span><span>Module</span><span>Feature</span></div>
+  <p class="ask"><b>What you're asked:</b> answer 3 questions, about bare words and comments (Q1), values touching (Q2), and the tool that checks the grammar (Q3), and say whether the shape is right. Your answers are saved here and recorded in beads; the record lands in <a href="https://github.com/mcurcio/rasl/pull/2">PR #2</a>.</p>
+</header>
+
+<section>
+  <div class="eyebrow">Today</div>
+  <h2>The language is defined only by the code</h2>
+  <p>There is no grammar. The lexer guesses numbers, counts brackets instead of parsing them, and every consumer re-parses what it gets.</p>
+  <pre class="mermaid">
+flowchart LR
+  T[".conf text"] --> L["lexer.ts<br/>Number token, 3 comment styles"]
+  L --> P["parser.ts<br/>brackets = depth counter"]
+  P --> E["engine rasl.ts<br/>re-parses slices and numbers"]
+  L -. "200ms = 2 values<br/>1e = 1 silently" .-> X1(("✗"))
+  P -. "error in a block<br/>drops the whole block" .-> X2(("✗"))
+  P -. "stray ] swallows<br/>the next lines" .-> X3(("✗"))
+  </pre>
+</section>
+
+<section>
+  <div class="eyebrow">Requirements</div>
+  <h2>What the design must meet</h2>
+  <div class="scroll"><table>
+    <tr><th>#</th><th>Requirement</th><th>Source</th></tr>
+    <tr><td class="tag">R1</td><td>"I think we need a formal EBNF that describes the language so that we can prove its sound"</td><td class="tag">you, 2026-10-21</td></tr>
+    <tr><td class="tag">R2</td><td>Sound = "Both": (a) the grammar is unambiguous, checked by a tool; (b) the parser accepts exactly the grammar's language</td><td class="tag">you, 2026-10-21</td></tr>
+    <tr><td class="tag">R3</td><td>"An EBNF gives a language independent syntax. And then parsers can be written against it, and then finally language-specific idiomatic sugar APIs can be layered on top"</td><td class="tag">you, 2026-10-21</td></tr>
+    <tr><td class="tag">R4</td><td>"the TS <i>config</i> is canonical. The python version of the full runtime is still more comprehensive"</td><td class="tag">you, 2026-10-21</td></tr>
+    <tr><td class="tag">R5</td><td>Slices <code>[n:m]</code>, <code>[n:]</code>, <code>[:m]</code> are allowed; <code>[:]</code> is rejected with a located error</td><td class="tag">rasl-9ze.1</td></tr>
+    <tr><td class="tag">D1</td><td>Byte-identical round trip: printing the parse gives back the exact file</td><td class="tag">rasl-m8w</td></tr>
+    <tr><td class="tag">D2</td><td>"Bracket expressions stay separate tokens in the CST"</td><td class="tag">rasl-9ze</td></tr>
+    <tr><td class="tag">D3</td><td>An error inside a block keeps the block; parsing resumes on the next line</td><td class="tag">rasl-bzv.1</td></tr>
+    <tr><td class="tag">D4</td><td>Errors are 0-based, with stable codes; the core does no I/O</td><td class="tag">rasl-bzv, rasl-m8w</td></tr>
+  </table></div>
+  <h3>New terms</h3>
+  <div class="scroll"><table>
+    <tr><th>Term</th><th>Meaning</th><th>Why it is needed</th></tr>
+    <tr><td><b>grammar file</b></td><td><code>config.ebnf</code>, the one definition of the language</td><td>R1; it is "the EBNF" of rasl-g7n</td></tr>
+    <tr><td><b>longest match</b></td><td>at each position, the lexer takes the longest token any rule matches</td><td>makes splitting text into tokens independent of rule order</td></tr>
+    <tr><td><b>touching</b></td><td>two tokens with no space or comment between them</td><td>the slice rule and Q2; rasl-9ze calls it "postfix with no whitespace"</td></tr>
+    <tr><td><b>value rule</b></td><td>a rule that reads one word's whole text as a number, boolean or slice bound, after parsing</td><td>one place decides what <code>80</code> is</td></tr>
+    <tr><td><b>test parser</b></td><td>a parser generated from the grammar file, used only in tests, that prints the expected tokens, parse tree and first error</td><td>judges the hand-written parser (R2b) without it grading itself</td></tr>
+    <tr><td><b>LALR(1)</b></td><td>a standard check, run by a tool, that a grammar never offers two ways to read the same input</td><td>this check is what proves R2(a)</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <div class="eyebrow">The proposed shape</div>
+  <h2>One grammar file; everything else is checked against it</h2>
+  <p>The grammar file is the language. Tools check it, generate a test parser from it, and that parser writes the expected results every real parser must match.</p>
+  <pre class="mermaid">
+flowchart TB
+  G["config.ebnf<br/>tokens + grammar + value rules"]
+  G --> C["REx + Bison<br/>ambiguity checks (CI)"]
+  G --> O["test parser<br/>generated from the file"]
+  O --> K["conformance cases (JSON)<br/>tokens, tree, first error"]
+  K -- judges --> TS["Layer 2: TS parser<br/>hand-written, canonical"]
+  K -- judges --> PY["Layer 2: Python port"]
+  TS --> S["Layer 3: TS sugar<br/>typed values, delegator,<br/>declarative definitions"]
+  S --> EN["engine"]
+  </pre>
+  <div class="rules">
+    <div class="rule"><b>design rule 1</b>One file defines the language: tokens, grammar, value rules and tree-node names. Every check reads it.</div>
+    <div class="rule"><b>design rule 2</b>Every character lands in exactly one token, so printing the tokens gives back the file. Types are read after parsing, never by the lexer.</div>
+    <div class="rule"><b>design rule 3</b>Parse-tree kinds are language concepts (directive, block, list, slice), not however the grammar happens to be split into rules.</div>
+  </div>
+  <p class="muted">These are design choices, not requirements, and can be revised.</p>
+</section>
+
+<section>
+  <div class="eyebrow">The grammar · syntax</div>
+  <h2>Directives, blocks, lists and slices</h2>
+  <p>This is the syntax half of <a href="https://github.com/mcurcio/rasl/blob/claude/friendly-saha-6a52d1/js/packages/config/design/grammar/config.ebnf"><code>config.ebnf</code></a>, in W3C EBNF. Spaces and comments are written out explicitly, so the grammar fixes exactly where they may go.</p>
+  <pre class="ebnf">Document     ::= Bom? Statements EOF                  /* cst: document */
+Statements   ::= Filler* ( Directive Filler* )* LastDirective?
+Filler       ::= Space | Comment | Newline | ';'
+Directive    ::= Header ( Separator | Block )          /* cst: directive */
+LastDirective::= Header                                /* before } or end of file */
+Header       ::= Word Rest
+Rest         ::= ( Gap ( Value Rest )? )?
+Gap          ::= ( Space | Comment )+
+Separator    ::= ';' | Newline
+Block        ::= '{' Statements '}'                    /* cst: block */
+Value        ::= Word | String | SlicedWord | List
+SlicedWord   ::= Word '[' Bounds ']'                   /* cst: slice, touching */
+Bounds       ::= Word ':' Word? | ':' Word
+List         ::= '[' ListGap? Items? ']'               /* cst: list */
+Items        ::= Value ListGap? ( ',' ListGap? Items? )?
+ListGap      ::= ( Space | Comment | Newline )+</pre>
+  <p class="muted">A directive ends at <code>;</code> or a newline. <code>{</code> must be on the header's line. Lists take commas (a trailing comma is allowed) and may span lines.</p>
+
+  <div class="slip" id="Q2">
+    <div class="qid">QUESTION 2 OF 3</div>
+    <h3>Must values be separated by a space, everywhere in the language?</h3>
+    <p>Today <code>"a""b"</code>, <code>a"b"</code>, <code>[a][b]</code> and <code>a[0:3]b</code> are read as separate values without a word, and <code>x a [0:3]</code> reads the same as <code>x a[0:3]</code>.</p>
+    <label class="opt"><input type="radio" name="Q2" value="A" id="Q2A"><span><span class="t">Values must be separated by a space or comment; a slice must touch its word; punctuation may touch anything</span><span class="rec">recommended</span><br><span class="c">Cost: the examples above become errors (E2005), and <code>x a [0:3]</code> is an error too, never a silent list. nginx does the same after a closing quote.</span></span></label>
+    <label class="opt"><input type="radio" name="Q2" value="B" id="Q2B"><span><span class="t">Only slices must touch; other values may touch</span><br><span class="c">Cost: <code>a"b"</code> stays two values without warning, so that kind of typo goes unnoticed.</span></span></label>
+    <label class="opt"><input type="radio" name="Q2" value="C" id="Q2C"><span><span class="t">Allow a space before a slice</span><br><span class="c">Cost: reverses rasl-9ze's "postfix with no whitespace", and lists would need to accept <code>:</code>.</span></span></label>
+    <textarea id="Q2note" placeholder="Note (optional)"></textarea>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">The grammar · tokens</div>
+  <h2>Words, comments, strings and numbers</h2>
+  <pre class="ebnf">Comment     ::= '#' Char*                  /* only where a token starts */
+Word        ::= NameStart NameChar* | NumberStart NumberChar*
+NameStart   ::= [A-Za-z_./@]
+NameChar    ::= [A-Za-z0-9_./@#+:] | '-'
+NumberStart ::= [0-9] | '-'
+NumberChar  ::= [A-Za-z0-9_./@#+] | '-'   /* no ':' (see Q1) */
+String      ::= '"' ( ( Char - ( '"' | '\' ) ) | '\' Char )* '"'   /* and '…' */
+
+/* value rules: read one word's whole text, after parsing */
+NumberText  ::= '-'? Digits Fraction? Exponent?     /* JSON number */
+BooleanText ::= 'true' | 'false'</pre>
+  <div class="scroll"><table>
+    <tr><th>Input</th><th>Today</th><th>Draft 2</th></tr>
+    <tr><td><code>delay 200ms</code></td><td>2 values: <code>200</code>, <code>ms</code></td><td>1 word; a later layer reads units</td></tr>
+    <tr><td><code>gain 1e</code></td><td>the number 1, no warning</td><td>a word (not a JSON number)</td></tr>
+    <tr><td><code>id 0x10</code></td><td><code>0</code> and <code>x10</code></td><td>1 word</td></tr>
+    <tr><td><code>color:hsl</code>, <code>/etc/x</code>, <code>-0.5</code></td><td>1 value each</td><td>1 word each</td></tr>
+    <tr><td><code>include /*.conf</code></td><td>opens an unterminated comment</td><td>1 word (under Q1 A or B)</td></tr>
+  </table></div>
+
+  <div class="slip" id="Q1">
+    <div class="qid">QUESTION 1 OF 3</div>
+    <h3>How are comments written, and may a word that starts with a digit contain <code>:</code>?</h3>
+    <p>Every repo <code>.conf</code> uses <code>#</code>, but the old rule says <code>//</code> and <code>/* */</code> only, and today all three work. Allowing all three clashes with <code>/</code> inside words. Draft 2 also bars <code>:</code> from words that start with a digit, so that <code>[144:152]</code> reads as a slice. That breaks <code>server 127.0.0.1:3000;</code> (a test fixture in <code>parser.test.ts</code>), MAC addresses like <code>00:11:22:33:44:55</code>, and <code>10:30</code>.</p>
+    <label class="opt"><input type="radio" name="Q1" value="A" id="Q1A"><span><span class="t"><code>#</code> comments only; <code>:</code> allowed inside any word; a slice's bounds are read from the one word between its brackets</span><span class="rec">recommended</span><br><span class="c"><code>127.0.0.1:3000</code>, MACs and <code>10:30</code> stay plain words, and <code>[144:152]</code> is still a slice, with the brackets as separate tokens. Costs: no block comments (comment out line by line); reverses the old comment rule; this variant has not yet been re-run through REx and Bison, which happens before it is adopted. The 5 repo files need no edits.</span></span></label>
+    <label class="opt"><input type="radio" name="Q1" value="B" id="Q1B"><span><span class="t"><code>#</code> comments only; no <code>:</code> in words that start with a digit (draft 2 as checked)</span><br><span class="c">Cost: addresses, MACs and times must be quoted (<code>"127.0.0.1:3000"</code>), and the <code>parser.test.ts</code> fixture changes. The tools have already checked this one.</span></span></label>
+    <label class="opt"><input type="radio" name="Q1" value="C" id="Q1C"><span><span class="t"><code>//</code> and <code>/* */</code> only, as the old rule says</span><br><span class="c">Cost: all 5 repo configs move from <code>#</code> to <code>//</code>; <code>/</code> may not start a word, so every path is quoted.</span></span></label>
+    <textarea id="Q1note" placeholder="Note (optional)"></textarea>
+  </div>
+
+  <div class="rest">
+    <span><b>The rest of the grammar is recommended as shown:</b></span>
+    <ul class="tight">
+      <li>Numbers are JSON numbers read from a whole word, so JS and Python agree exactly. <code>1_000</code>, <code>0x10</code> and <code>.5</code> stay words.</li>
+      <li>An invalid escape like <code>\q</code> becomes an error (today it is a warning), so <code>\u</code> can be added later without changing what any file means.</li>
+      <li>A lone carriage return is an error, and CRLF is one newline. A byte-order mark is allowed only at the start.</li>
+      <li>Outside strings and comments only ASCII is allowed, as today. In strings and comments, control characters are excluded, tab aside.</li>
+      <li>Error positions count characters (code points), not UTF-16 units or bytes. The cost: the TS parser converts, because JS strings index in UTF-16.</li>
+      <li><code>x {} y</code> on one line is valid: a block needs no separator after it.</li>
+    </ul>
+    <label for="restGrammar">Reopen any of these?</label>
+    <textarea id="restGrammar" placeholder="Note (optional)"></textarea>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">Soundness</div>
+  <h2>What is proven, what is tested, what is not run yet</h2>
+  <p>R2(a) is proven by two tools. R2(b) can only be shown by testing, since there is no tool that proves a hand-written parser equals a grammar, and the shipping TS parser hasn't been rebuilt yet.</p>
+  <div class="status">
+    <div><span class="pill proven">PROVEN</span><b>(a) one parse per input</b><span class="muted">REx: "grammar is LALR(1)". Bison: 0 conflicts. Both run on the real file and fail on 5 deliberately broken grammars.</span></div>
+    <div><span class="pill proven">PROVEN</span><b>tokens never overlap</b><span class="muted">REx finds no string two token kinds both match. Planted overlaps are caught.</span></div>
+    <div><span class="pill tested">TESTED</span><b>(b) test parser = grammar</b><span class="muted">14,830 generated inputs: REx's and Bison's parsers agree on every verdict and error position. 0 round-trip failures. All 5 repo files are valid.</span></div>
+    <div><span class="pill notrun">NOT RUN</span><b>(b) TS parser = grammar</b><span class="muted">The TS parser gets judged by the same cases once it is rebuilt. Python likewise.</span></div>
+  </div>
+  <h3>Gaps the review found, fixed in the first build step</h3>
+  <ul class="tight">
+    <li>The test parser treats a NUL character as the end of the file, so it accepts some input the grammar rejects. It must follow the grammar's character rules, and the test cases must include control characters, emoji and NUL.</li>
+    <li>Both checks rely on REx's lexer, so the lexer needs an independent check. REx also has a lexer bug, which I reproduced: I'll pin a released REx and report the bug upstream.</li>
+    <li>The rules for which error comes first, and for recovery, live in test code today. They move into the spec, beside the grammar.</li>
+  </ul>
+  <div class="scroll"><table>
+    <tr><th></th><th>A. Hand-written TS parser, judged by the test parser</th><th>B. Ship parsers generated by REx</th></tr>
+    <tr><td><b>R2(b)</b></td><td>shown by testing</td><td>holds by construction for valid input</td></tr>
+    <tr><td><b>Recovery (D3)</b></td><td>written into the parser</td><td>none: the generated parser stops at the first error, so a second, hand-written parser is needed for broken files</td></tr>
+    <tr><td><b>Code shipped</b></td><td>an idiomatic module per language</td><td>about 20 KB of generated code per language</td></tr>
+    <tr><td><b>Build</b></td><td>REx needed only in tests</td><td>REx needed to build the package</td></tr>
+  </table></div>
+
+  <div class="slip" id="Q3">
+    <div class="qid">QUESTION 3 OF 3</div>
+    <h3>Drop ANTLR4, and check the EBNF file with REx and Bison?</h3>
+    <p>The plan marked "adopt ANTLR4" as confirmed (rasl-k2e), so this needs your explicit answer. ANTLR's <code>.g4</code> format is not EBNF, and in v1 it built a parser from a deliberately ambiguous grammar without a warning.</p>
+    <label class="opt"><input type="radio" name="Q3" value="A" id="Q3A"><span><span class="t">Drop ANTLR4. REx and Bison check <code>config.ebnf</code>; hand-written parsers are judged by the test parser (shape A)</span><span class="rec">recommended</span><br><span class="c">Costs: CI builds REx from C++ (about 25 s); REx has one maintainer (Apache-2.0, active this month); about 440 lines of scripts in the repo.</span></span></label>
+    <label class="opt"><input type="radio" name="Q3" value="B" id="Q3B"><span><span class="t">Drop ANTLR4, and ship REx-generated parsers (shape B)</span><br><span class="c">Cost: as in the table above. Recovery still needs a second parser.</span></span></label>
+    <label class="opt"><input type="radio" name="Q3" value="C" id="Q3C"><span><span class="t">Keep ANTLR4</span><br><span class="c">Cost: the grammar is a <code>.g4</code>, not the EBNF you asked for; a second tool is still needed for the ambiguity check; and it adds a runtime library per language.</span></span></label>
+    <textarea id="Q3note" placeholder="Note (optional)"></textarea>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">The three layers</div>
+  <h2>Grammar, then parser output, then sugar</h2>
+  <pre class="ts">// Layer 1: the spec as data. One conformance case, written by the test parser.
+interface ICorpusCase {
+  readonly input: string;                    // document text
+  readonly tokens: readonly INormToken[];    // every character in exactly one token
+  readonly cst: INormNode | null;            // null when the input is invalid
+  readonly first: INormDiagnostic | null;    // earliest error, null when valid
+}</pre>
+  <pre class="ts">// Layer 2: the TS parser (core, no I/O). Existing names kept.
+export function parseDocument(source: string): IParseResult;
+export function valueOf(doc: ICstDocument, value: ValueRef): IValue;  // the one decider
+
+export interface IToken {
+  readonly type: TokenType;     // Number token removed
+  readonly text: string;        // the raw text; no decoded `value` field
+  readonly span: ISourceSpan;
+}
+
+export type CstKind =
+  | "document"
+  | "directive"
+  | "block"
+  | "list"
+  | "slice"
+  | "error";                    // a recovered region (D3)</pre>
+  <pre class="ts">// Layer 3: TS sugar. Reads IValue and never re-parses text.
+export type IValue =
+  | { readonly kind: "word";    readonly text: string }
+  | { readonly kind: "number";  readonly text: string; readonly number: number }
+  | { readonly kind: "boolean"; readonly boolean: boolean }
+  | { readonly kind: "string";  readonly decoded: string }
+  | { readonly kind: "slice";   readonly target: string;
+                                readonly start: number | null;   // null in [:m]
+                                readonly end: number | null }    // null in [n:]
+  | { readonly kind: "list";    readonly items: readonly IValue[] };
+  // each variant also carries span: ISourceSpan
+
+export interface IAstDirective {
+  readonly name: string;
+  readonly values: readonly IValue[];   // replaces args / argValues
+  readonly body: IAstDirectiveList | null;
+}
+// DirectiveDelegator (rasl-stq) and declarative definitions (rasl-xlo) take IValue.</pre>
+  <div class="scroll"><table>
+    <tr><th>Today</th><th>Becomes</th><th>Cost</th></tr>
+    <tr><td>Number token, <code>token.value</code></td><td>value rules in <code>valueOf</code></td><td>lexer rewrite; breaking, no shims</td></tr>
+    <tr><td>bracket depth counter</td><td><code>list</code> and <code>slice</code> tree nodes</td><td>parser rewrite</td></tr>
+    <tr><td><code>args</code> / <code>argValues</code></td><td><code>values: IValue[]</code></td><td>AST facade and delegator tests</td></tr>
+    <tr><td>engine <code>coerceScalar</code>, <code>parseSliceTokens</code></td><td>deleted</td><td>engine loader change (rasl-ccm)</td></tr>
+    <tr><td>W1004 warning</td><td>E1004 error</td><td>no repo file is affected</td></tr>
+  </table></div>
+  <p class="muted">The Python port gets <code>config.ebnf</code> and the conformance cases as its acceptance test.</p>
+  <div class="rest">
+    <label for="restLayers"><b>The layer cut and these interfaces are recommended as shown.</b> Reopen anything?</label>
+    <textarea id="restLayers" placeholder="Note (optional)"></textarea>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">Costs and deferrals</div>
+  <h2>What this gives up</h2>
+  <ul class="tight">
+    <li><b>Costs:</b> an external C++ tool with one maintainer in CI; about 440 lines of scripts; breaking changes in tokens, tree and offsets, with no shims; recovery test cases reviewed by hand.</li>
+    <li><b>Not proven:</b> R2(b) for the shipping parser rests on testing, not proof (shape A).</li>
+    <li><b>Deferred:</b> <code>\u</code> escapes (rasl-m8w.2); the porting guide (rasl-ss7); fuzzing (rasl-a82).</li>
+    <li><b>Not planned:</b> units like <code>200ms</code> in the grammar (a consumer reads them); block comments, under Q1 A or B.</li>
+  </ul>
+</section>
+
+<section>
+  <div class="eyebrow">What happens next</div>
+  <h2>First slice, then the work under rasl-g7n</h2>
+  <p><b>First slice (tracer bullet):</b> <code>connect hyperhdr_color[144:152];</code> → <code>config.ebnf</code> → REx and Bison checks in CI → a conformance case → the rebuilt TS parser passes it → <code>valueOf</code> gives a slice → the engine uses it, and <code>parseSliceTokens</code> is deleted.</p>
+  <ul class="tight">
+    <li><b>rasl-g7n</b> grammar epic
+      <ul class="tight">
+        <li>Grammar file and its checks in CI: a pinned REx, Bison, broken grammars rebuilt from the current file, an independent token check</li>
+        <li>Test parser and conformance cases: follows the grammar's character rules; first-error and recovery rules written into the spec</li>
+        <li>TS lexer and parser rebuilt, judged by the cases (the tracer)</li>
+        <li>Value rules and <code>valueOf</code>, feeding rasl-9ze typed values</li>
+        <li>Recovery that meets rasl-bzv.1</li>
+      </ul>
+    </li>
+    <li>Later: the Python port (rasl-9pn) against the same cases.</li>
+  </ul>
+  <label for="feedback"><b>Anything else?</b></label>
+  <textarea id="feedback" placeholder="Free-form feedback (optional)"></textarea>
+</section>
+
+<footer>History: v1 (Lezer as the grammar file) failed review on 2026-10-21. v2 (one W3C EBNF file checked by REx and Bison) passed on the grammar and was revised here for the evidence gaps, 2026-10-22. Working files: <code>js/packages/config/design/grammar/</code> in PR #2.</footer>
+</main>
+
+<div class="bar" role="region" aria-label="Answers">
+  <div class="in">
+    <span class="count" id="count">0 of 3 answered</span>
+    <a href="#Q1" id="next">Next question</a>
+    <span id="saveState"></span>
+    <button class="ghost" id="copy" type="button">Copy as text</button>
+    <button class="primary" id="save" type="button" hidden>Save answers</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  var QS = ["Q1", "Q2", "Q3"];
+  var NOTES = ["restGrammar", "restLayers", "feedback"];
+  var db = null, docRef = null;
+
+  function choice(q) { var el = document.querySelector('input[name="' + q + '"]:checked'); return el ? el.value : null; }
+  function collect() {
+    var out = {};
+    QS.forEach(function (q) { out[q] = { choice: choice(q), note: document.getElementById(q + "note").value }; });
+    NOTES.forEach(function (n) { out[n] = { note: document.getElementById(n).value }; });
+    return out;
+  }
+  function refresh() {
+    var open = QS.filter(function (q) { return !choice(q); });
+    document.getElementById("count").textContent = (QS.length - open.length) + " of " + QS.length + " answered";
+    var next = document.getElementById("next");
+    next.hidden = open.length === 0;
+    if (open.length) next.href = "#" + open[0];
+  }
+  function apply(data) {
+    if (!data) return;
+    QS.forEach(function (q) {
+      var a = data[q] || {};
+      if (a.choice) { var el = document.getElementById(q + a.choice); if (el) el.checked = true; }
+      if (typeof a.note === "string") document.getElementById(q + "note").value = a.note;
+    });
+    NOTES.forEach(function (n) { var a = data[n] || {}; if (typeof a.note === "string") document.getElementById(n).value = a.note; });
+    refresh();
+  }
+  function asText() {
+    var d = collect(), lines = [];
+    QS.forEach(function (q) { lines.push(q + ": " + (d[q].choice || "(no answer)") + (d[q].note ? " - " + d[q].note : "")); });
+    NOTES.forEach(function (n) { if (d[n].note) lines.push(n + ": " + d[n].note); });
+    return lines.join("\n");
+  }
+  document.addEventListener("change", refresh);
+  document.getElementById("copy").addEventListener("click", function () {
+    var text = asText(), state = document.getElementById("saveState");
+    try {
+      navigator.clipboard.writeText(text).then(function () { state.textContent = "Copied"; }, function () { state.textContent = "Copy failed: select the text below"; showText(text); });
+    } catch (e) { showText(text); }
+  });
+  function showText(text) {
+    var ta = document.getElementById("feedback");
+    var pre = document.createElement("textarea"); pre.value = text; pre.readOnly = true;
+    ta.parentNode.appendChild(pre); pre.select();
+  }
+  document.getElementById("save").addEventListener("click", function () {
+    if (!docRef) return;
+    var state = document.getElementById("saveState");
+    var data = collect(); data.savedAt = new Date().toISOString();
+    state.textContent = "Saving…";
+    docRef.set(data).then(function () { state.textContent = "Saved"; }, function (e) { state.textContent = "Not saved: " + ((e && e.message) || "try Copy as text"); });
+  });
+  refresh();
+  if (window.claude && window.claude.use) {
+    window.claude.use("db").then(function (d) {
+      if (!d) return;
+      db = d; docRef = db.doc("gate/answers");
+      document.getElementById("save").hidden = false;
+      var first = true;
+      docRef.onSnapshot(function (snap) {
+        if (first && snap.exists) apply(snap.data());
+        first = false;
+      }, function () {});
+    }, function () {});
+  }
+})();
+</script>
