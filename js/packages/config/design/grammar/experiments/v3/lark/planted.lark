@@ -1,0 +1,20 @@
+// @rasl/config ported from config.ebnf. LALR(1), explicit whitespace (no %ignore).
+start: BOM? statements
+statements: (_filler | directive)* last_directive?
+_filler: SPACE | COMMENT | NEWLINE | ";"
+directive: _header (";" | NEWLINE)? | _header block
+last_directive: _header
+_header: WORD (_gap _value)* _gap?
+_gap: (SPACE | COMMENT)+
+block: "{" statements "}"
+_value: WORD | STRING | slice | list
+slice: WORD "[" (WORD ":" WORD? | ":" WORD) "]"
+list: "[" _list_gap? _items? "]"
+_items: _value _list_gap? ("," _list_gap? _items?)?
+_list_gap: (SPACE | COMMENT | NEWLINE)+
+BOM: "﻿"
+SPACE: /[ \t]+/
+NEWLINE: /\r?\n/
+COMMENT: /#[\t\x20-\x7e\x80-퟿-\U0010ffff]*/
+WORD: /[A-Za-z_.\/@][A-Za-z0-9_.\/@#+:\-]*|[0-9\-][A-Za-z0-9_.\/@#+\-]*/
+STRING: /"([^"\\\x00-\x08\n-\x1f\x7f]|\\[\t\x20-\x7e\x80-퟿-\U0010ffff])*"|'([^'\\\x00-\x08\n-\x1f\x7f]|\\[\t\x20-\x7e\x80-퟿-\U0010ffff])*'/

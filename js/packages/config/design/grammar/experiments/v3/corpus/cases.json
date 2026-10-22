@@ -1,0 +1,142 @@
+[
+{
+"name": "real-external-test.conf",
+"src": "graph {\n    node ExternalSource browser_input {\n        size 3;\n        channels 1;\n        initial 0;\n    }\n\n    node ConsoleSink console {\n        max_channels 3;\n        fps 2;\n        connect browser_input;\n    }\n}\n"
+},
+{
+"name": "real-family_room.conf",
+"src": "# RASL Virtual Source/Sink Configuration\n# Sawtooth-driven rainbow with TwinkleEffect transform\n\nui {\n    port 8080;\n}\n\ngraph {\n    # ─────────────────────────────────────────────────────────────────\n    # COLOR GENERATION PIPELINE\n    # Sawtooth wave drives hue for uniform rainbow cycling\n    # Using OkHSL for perceptually uniform hue distribution\n    # ─────────────────────────────────────────────────────────────────\n\n    # Sawtooth wave for uniform hue cycling (rainbow effect)\n    # Unlike sine, sawtooth gives equal time to each hue\n    node Waveform hue_ramp {\n        shape sine;\n        frequency_hz 0.01;\n        output_channels 150;\n        fps 30;\n    }\n\n    node literal xmas_light_colors color:hsl [\n        [0, 1, 0.5],\n        [0.04, 1, 0.5],\n        #[0.16, 1, 0.5],\n        [0.35, 1, 0.5],\n        [0.64, 1, 0.5],\n    ];\n\n    node SacnSource hyperhdr {\n        bind_port 5568;\n        universes 1;\n    }\n\n  node Color hyperhdr_color srgb {\n        connect hyperhdr universe1;\n    }\n\n\n    # node ConsoleSink console_hyperhdr {\n    #     max_channels 24;\n    #     include_metadata true;\n    #     fps 1;\n\n    #     connect hyperhdr;\n    # }\n\n\n\n#     node ConsoleSink hypderhdr_debug {\n#         connect hyperhdr;\n#         fps 1;\n#     }\n\n    node literal pure_white color:srgb [[1, 1, 1]];\n\n    # Compose into OkHSL color (hue, saturation, lightness)\n    # OkHSL provides perceptually uniform hue distribution\n    # NOTE: S=0.7, L=0.6 gives most uniform brightness across hues\n    # S=1.0, L=0.5 has a dark spot at blue-purple (h≈0.74) due to gamut limits\n    node Compose hsl {\n        ports {\n            hue; saturation; lightness;\n        }\n        output_type hsl;\n        #output_channels 512;  # Required when all ports use fill\n\n        connect hue_ramp hue;\n        fill saturation 1;\n        fill lightness 0.5;\n    }\n\n    node Color hsl_rgb rgb {\n        connect hsl {\n            repeat 30;\n        }\n    }\n\n    node Color rgb_150 rgb {\n        connect hsl_rgb {\n            repeat 30;\n        }\n    }\n\n#     node ConsoleSink hsl_console {\n#         connect hsl_rgb[0:1];\n#         fps 1;\n#     }\n\n    # ─────────────────────────────────────────────────────────────────\n    # TWINKLE EFFECT (transform)\n    # Modulates brightness of incoming color\n    # ─────────────────────────────────────────────────────────────────\n\n    # TwinkleEffect modes:\n    # - brightness: fade to black (classic twinkle) [default]\n    # - whiteness: fade to white (sparkle)\n    node TwinkleEffect twinkle {\n        seed 11337;\n        mode brightness;\n        frequency_hz 0.3;\n        attack_ratio 0.33;\n        min_speed 1.0;\n        max_speed 3.0;\n\n        connect rgb_150;\n    }\n\n    node Color white_150 rgb {\n        connect pure_white {\n            repeat 120;\n        }\n    }\n\n    node TwinkleEffect white_twinkle {\n        seed 11337;\n        mode brightness;\n        frequency_hz 0.3;\n        attack_ratio 0.33;\n        min_speed 1.0;\n        max_speed 3.0;\n\n        connect white_150;\n    }\n\n    node cron minute_selector {\n        schedule \"*/2 * * * *\";\n    }\n\n    node Crossfade minute_crossfade {\n        connect twinkle input0;\n        connect white_twinkle input1;\n        connect minute_selector selector;\n    }\n\n    node Color crossfade_rgb rgb {\n        connect minute_crossfade;\n    }\n\n    # Convert sRGB to linear RGB for color correction\n    # sACN outputs 512 DMX channels, slice to 432 (144 RGB pixels)\n    # node Color toRgb linear {\n    #     connect hyperhdr[0:432];\n    # }\n\n    # ─────────────────────────────────────────────────────────────────\n    # COLOR CORRECTION PROFILES\n    # Apply per-LED-type corrections for better saturation and color\n    # ─────────────────────────────────────────────────────────────────\n\n    # Profile A: Ray Wu 12V WS2811 Bullet Pixels (good color accuracy)\n    # node ColorCorrection profile_a {\n    #     gamma 2.0;           # Close to sRGB curve, not too aggressive\n    #     saturation 1.1;      # Small boost; bullets already show color well\n    #     brightness 1.0;\n\n    #     r_scale 1.0;         # Neutral white balance\n    #     g_scale 1.0;\n    #     b_scale 1.0;\n\n    #     connect toRgb;\n    # }\n\n    # # Profile B: Ray Wu 12V WS2811 Icicle Pixels (washed-out lows)\n    # node ColorCorrection profile_b {\n    #     gamma 1.2;           # LOWER gamma: preserves dark colors, fixes purple→white washout\n    #     saturation 1.25;     # A bit more saturation to counter low-end smearing\n    #     brightness 0.8;\n\n    #     r_scale 1.00;        # Slight green reduction, slight blue boost\n    #     g_scale 0.96;        # icicles often lean green/teal in the lows\n    #     b_scale 1.05;\n\n    #     connect toRgb;\n    # }\n\n    # ─────────────────────────────────────────────────────────────────\n    # OUTPUT SINKS\n    # ─────────────────────────────────────────────────────────────────\n\n    node ConsoleSink console {\n        max_channels 24;\n        as_bytes true;\n        fps 1;\n\n        connect crossfade_rgb;\n    }\n\n    # DDP sink with per-LED-type color correction\n    # First 50 pixels use profile_a, next 200 pixels use profile_b\n    node DdpSink leds {\n        target \"10.0.60.30\";\n        fps 20hz;\n        input_port pixels;\n        max_count 2284;\n\n        # 2284 total pixels\n\n        # # First 50 pixels from profile_a\n        connect crossfade_rgb pixels {\n            repeat_until 2284;\n        }\n\n        # connect hsl_rgb[0:100] pixels {\n        #         repeat 20;\n        # }\n    }\n}\n"
+},
+{
+"name": "real-hyperhdr.conf",
+"src": "# RASL Virtual Source/Sink Configuration\n# Sawtooth-driven rainbow with TwinkleEffect transform\n\ngraph {\n    # produces 149 channels\n    # group 0 is 144 channels of 16x9 = 432 bytes\n    # group 1 is 4 channels of 2x2 = 12 bytes\n    # group 2 is 1 channel of 1x1 = 3 bytes\n    \n    node SacnSource hyperhdr {\n        bind_port 5568;\n\n        universe 1 {\n            channels 144;  # 16x9\n        }\n\n        universe 2 {\n            channels 8; # 2x4\n        }\n    }\n\n    node Color hyperhdr_color rec709_rgb_prime {\n        connect hyperhdr.channels;\n    }\n\n    node ConsoleSink u2_raw_console {\n        fps 1;\n        as_bytes true;\n        connect hyperhdr_color[144:152];\n    }\n\n    node ConsoleSink u2_range_console {\n        fps 1;\n        as_bytes true;\n        connect hyperhdr_range_map[144:152];\n    }\n\n    node ConsoleSink hyperhdr_console {\n        connect hyperhdr_color;\n        fps 1;\n    }\n\n    node RangeMap hyperhdr_range_map {\n        ranges 0.0627 0.922;\n        ranges 0.0627 0.922;\n        ranges 0.0627 0.922;\n        clamp true;\n\n        connect hyperhdr_color;\n    }\n\n    node MatrixMultiply hyperhdr_matrix {\n        matrix 0.96409927 0.02731212 0.00858861;\n        matrix 0.00451189 1.01313961 -0.01765150;\n        matrix 0.00899431 0.01377757 0.97722811;\n\n        connect hyperhdr_range_map;\n    }\n\n    node Smooth hyperhdr_smooth {\n        connect hyperhdr_matrix input;\n        smooth_period 200ms;\n    }\n\n    node Color rec709_to_rgb rgb {\n        connect hyperhdr_smooth;\n    }\n\n    node Color rec709_to_srgb srgb {\n        connect hyperhdr_smooth;\n    }\n\n    node ConsoleSink console {\n        max_channels 24;\n        as_bytes true;\n        fps 1;\n\n        connect rec709_to_rgb;\n    }\n\n    node RandomMap leds_random_map {\n        channel_count 2284;\n        seed 424242;\n\n        # ddp pixels (sACN universe 1)\n        connect rec709_to_rgb[0:144];\n    }\n\n    node DdpSink leds {\n        target \"10.0.60.30\";\n        fps 20hz;\n        input_port pixels;\n        max_count 2284;\n\n        connect leds_random_map pixels;\n    }\n\n    node MatrixMultiply lifx_rgb_dim {\n        matrix 0.3 0 0;\n        matrix 0 0.3 0;\n        matrix 0 0 0.3;\n    \n        connect rec709_to_rgb[144:152];\n    }\n    \n    node Color lifx_dimmed_rgb rgb {\n        connect lifx_rgb_dim;\n    }\n\n    # node LifxSink lifx_fam_fireplace_tv {\n    #     target \"10.10.59.1\";\n    #     fps 20hz;\n\n    #     connect lifx_dimmed_rgb[1:2];\n    # }\n\n    # node LifxSink lifx_fam_fireplace_fan {\n    #     target \"10.10.59.2\";\n    #     fps 20hz;\n\n    #     connect lifx_dimmed_rgb[3:4];\n    # }\n\n    # node LifxSink lifx_fam_fireplace_mid {\n    #     target \"10.10.59.3\";\n    #     fps 20hz;\n\n    #     connect lifx_dimmed_rgb[5:6];\n    # }\n\n    # node LifxSink lifx_fam_fireplace_kitchen {\n    #     target \"10.10.59.4\";\n    #     fps 20hz;\n\n    #     connect lifx_dimmed_rgb[7:8];\n    # }\n\n    # node LifxSink lifx_fam_window_tv {\n    #     target \"10.10.59.8\";\n    #     fps 20hz;\n\n    #     connect lifx_dimmed_rgb[0:1];\n    # }\n\n    # node LifxSink lifx_fam_window_fan {\n    #     target \"10.10.59.7\";\n    #     fps 20hz;\n\n    #     connect lifx_dimmed_rgb[2:3];\n    # }\n\n    # node LifxSink lifx_fam_window_mid {\n    #     target \"10.10.59.6\";\n    #     fps 20hz;\n\n    #     connect lifx_dimmed_rgb[4:5];\n    # }\n\n    # node LifxSink lifx_fam_window_kitchen {\n    #     target \"10.10.59.5\";\n    #     fps 20hz;\n\n    #     connect lifx_dimmed_rgb[6:7];\n    # }\n}\n\n"
+},
+{
+"name": "real-test.conf",
+"src": "# Simple RASL test configuration\n# Sawtooth wave output to console\n\ngraph {\n    node Waveform hue_ramp {\n        shape sawtooth;\n        frequency_hz 0.1;\n        output_channels 12;\n        fps 30;\n    }\n\n    node ConsoleSink console {\n        max_channels 12;\n        fps 1;\n        connect hue_ramp;\n    }\n}\n"
+},
+{
+"name": "real-virtual.conf",
+"src": "# RASL Virtual Source/Sink Configuration\n# Sawtooth-driven rainbow with TwinkleEffect transform\n\ngraph {\n    # ─────────────────────────────────────────────────────────────────\n    # COLOR GENERATION PIPELINE\n    # Sawtooth wave drives hue for uniform rainbow cycling\n    # Using OkHSL for perceptually uniform hue distribution\n    # ─────────────────────────────────────────────────────────────────\n\n    # Sawtooth wave for uniform hue cycling (rainbow effect)\n    # Unlike sine, sawtooth gives equal time to each hue\n    node Waveform hue_ramp {\n        shape sawtooth;\n        frequency_hz 0.1;\n        output_channels 512;\n        fps 30;\n    }\n\n    # Compose into OkHSL color (hue, saturation, lightness)\n    # OkHSL provides perceptually uniform hue distribution\n    # NOTE: S=0.7, L=0.6 gives most uniform brightness across hues\n    # S=1.0, L=0.5 has a dark spot at blue-purple (h≈0.74) due to gamut limits\n    node Compose okhsl_color {\n        ports {\n            hue; saturation; lightness;\n        }\n        output_type color:okhsl;\n\n        connect hue_ramp hue;\n        fill saturation 1;\n        fill lightness 0.5;\n    }\n\n    # ─────────────────────────────────────────────────────────────────\n    # TWINKLE EFFECT (transform)\n    # Modulates brightness of incoming color\n    # ─────────────────────────────────────────────────────────────────\n\n    # TwinkleEffect modes:\n    # - brightness: fade to black (classic twinkle) [default]\n    # - whiteness: fade to white (sparkle)\n    node TwinkleEffect twinkle {\n        seed 11337;\n        mode brightness;\n        frequency_hz 0.3;\n        attack_ratio 0.33;\n        min_speed 1.0;\n        max_speed 3.0;\n\n        connect okhsl_color;\n    }\n\n    node literal static_hsl color:hsl [[0.0, 1.0, 0.5], [0.33333333, 1.0, 0.5], [0.66666667, 1.0, 0.5]];\n\n    # Convert OkHSL to RGB for output\n    # This is REQUIRED - sinks expect RGB data!\n    node Color toRgb rgb {\n        connect okhsl_color;\n    }\n\n    # ─────────────────────────────────────────────────────────────────\n    # OUTPUT SINKS\n    # ─────────────────────────────────────────────────────────────────\n\n    node ConsoleSink console {\n        max_channels 24;\n        include_metadata true;\n        as_bytes true;\n        fps 1;\n\n        connect toRgb;\n    }\n}\n"
+},
+{
+"name": "simple",
+"src": "listen 80;"
+},
+{
+"name": "slices",
+"src": "x a[0:3] [1, b[2:]] c[:3]"
+},
+{
+"name": "slice-empty-rejected",
+"src": "x a[:]"
+},
+{
+"name": "list-multiline",
+"src": "x [a,\n  b, # c\n\n  c,\n]\n"
+},
+{
+"name": "touch-strings",
+"src": "x \"a\"\"b\""
+},
+{
+"name": "touch-word-string",
+"src": "x a\"b\""
+},
+{
+"name": "touch-lists",
+"src": "x [a][b]"
+},
+{
+"name": "space-before-slice",
+"src": "x a [0:3]"
+},
+{
+"name": "hash-in-word",
+"src": "x a#b"
+},
+{
+"name": "hash-comment",
+"src": "x a #b"
+},
+{
+"name": "include-glob",
+"src": "include /*.conf"
+},
+{
+"name": "block-comment",
+"src": "server {\n  listen 80 # c\n}\n"
+},
+{
+"name": "block-then-dir",
+"src": "x {} y"
+},
+{
+"name": "brace-next-line",
+"src": "a\n{\n}"
+},
+{
+"name": "stray-bracket",
+"src": "x ]\ny 1\n"
+},
+{
+"name": "broken-block",
+"src": "server {\n  listen [80\n}\nnext 1\n"
+},
+{
+"name": "bom",
+"src": "﻿x 1"
+},
+{
+"name": "crlf",
+"src": "x 1\r\ny 2"
+},
+{
+"name": "lone-cr",
+"src": "x 1\ry"
+},
+{
+"name": "unicode-str",
+"src": "x \"é\" # ü"
+},
+{
+"name": "emoji-bare",
+"src": "x 😀"
+},
+{
+"name": "emoji-str",
+"src": "x \"😀\" y"
+},
+{
+"name": "ip-port",
+"src": "x 127.0.0.1:3000"
+},
+{
+"name": "colon-word",
+"src": "x color:hsl"
+},
+{
+"name": "nul",
+"src": "x a\u0000}"
+},
+{
+"name": "empty",
+"src": ""
+},
+{
+"name": "semis",
+"src": ";;"
+},
+{
+"name": "last-at-eof",
+"src": "x"
+},
+{
+"name": "last-before-brace",
+"src": "a { b }"
+},
+{
+"name": "unterminated",
+"src": "x \"abc\ny 1\n"
+}
+]

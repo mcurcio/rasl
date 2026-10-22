@@ -1,0 +1,20 @@
+connect hyperhdr_color[144:152];
+connect sine[50:150] dmx[0:100];
+node literal pure_white color:srgb [[1, 1, 1]];
+ranges 0.0627 0.922;
+label "a""b";
+label "front room"fps 30;
+name"x";
+connect [a][b];
+connect a[0:3]b;
+connect x a [0:3];
+connect x a[ 0:3 ];
+connect foo[1];
+label "str"[0:3];
+node literal m matrix [1,2];
+node literal m matrix [[1,2][3,4]];
+server{ port 8080; }
+frequency 20 hz;
+delay 200ms;
+fps 1;# once a second
+path "/etc/rasl"/x.conf;
