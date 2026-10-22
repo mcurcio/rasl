@@ -38,11 +38,12 @@ runs `lerna publish` on every push to them once `lint` and `test` pass (currentl
   Tools that cut worktrees from the repository's default branch (`main`) give you an empty
   tree: re-point the new branch at `alpha` before starting (`git checkout -B <branch> alpha`
   on a branch with no commits of its own).
-- **The main checkout stays on `main`** (owner, 2026-10-21: "there is no issue leaving the
-  main checkout on main"). Never work, commit or switch branches in it; use a worktree.
-- **It hosts the shared beads database.** Every worktree's `bd` resolves to the main
-  checkout's `.beads/` (`bd where` shows it). The tracked `.beads/` files are on `main` too
-  (owner, 2026-10-21: "Push the beads to main"), so the main checkout has its settings.
+- **Every session works in its own worktree; the main checkout stays on `main`** (owner,
+  2026-10-21: "the main checkout can sit on main, and new sessions should create worktrees").
+  Never work, commit or switch branches in the main checkout.
+- **The main checkout hosts the shared beads database.** Every worktree's `bd` resolves to
+  its `.beads/` (`bd where` shows it). The tracked `.beads/` files are on `main` too (owner,
+  2026-10-21: "Push the beads to main"), so the main checkout has its settings.
 
 ## Code search: codegraph
 
@@ -53,17 +54,26 @@ before grep or reading files.
 
 ## Task tracking: beads
 
-All planned work lives in beads (`bd`). There are no plan, roadmap or TODO files; do not
-create them. Agents manage beads themselves, without being asked (owner, 2026-10-21: "I want
-to use beads, and want you to auto manage it").
+All planned work is tracked in beads (`bd`). Agents manage beads themselves, without being
+asked (owner, 2026-10-21: "I want to use beads, and want you to auto manage it").
+
+The plan documents (`plans/`, `js/plans/`, `js/packages/config/plans/`, `design.md`) stay in
+the repo as source material (owner, 2026-10-21: "don't delete the plans"). Their items were
+converted to beads; each bead's notes cite its source section. Track new and changed work in
+beads, not by editing the plans (owner, 2026-10-21: "so we can stop maintaining those files").
 
 - **Before work:** `bd ready` to find work, `bd show <id>` for detail, `bd update <id> --claim`.
 - **During work:** file a bead for every follow-up, bug or open question you find
   (`bd create`, with `--deps` for what blocks it); record decided rules in the bead's design
   field, not in a new file.
 - **After work:** `bd close <id>` for finished work; update the rest.
-- **Persist:** there is no beads sync remote. Run `bd export -o .beads/issues.jsonl` and
-  commit that file with the work, so the issue list reaches GitHub through the PR.
+- **Sync to GitHub** (owner, 2026-10-21: ".beads should be kept up to date on GitHub"): the
+  beads database's Dolt remote is `origin`, stored at `refs/dolt/data` on GitHub. A `Stop`
+  hook in `.claude/settings.json` runs `bd dolt push` in the background after every Claude
+  turn (failures go to `$TMPDIR/rasl-beads-push.log`). Agents without that hook run
+  `bd dolt push` after changing beads. On a new machine, `bd dolt pull` fetches it.
+- **Readable snapshot:** also run `bd export -o .beads/issues.jsonl` and commit it with the
+  work, so each PR shows the issue changes.
 - A `SessionStart` hook (`.claude/settings.json`) runs `bd prime` for workflow context.
 
 ## Landing work

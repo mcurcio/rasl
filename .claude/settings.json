@@ -11,6 +11,17 @@
         "matcher": ""
       }
     ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "(bd dolt push >/dev/null 2>&1 || echo \"$(date) bd dolt push failed in $PWD\" >> \"${TMPDIR:-/tmp}/rasl-beads-push.log\") &",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ],
     "SessionStart": [
       {
         "hooks": [
