@@ -44,6 +44,13 @@ runs `lerna publish` on every push to them once `lint` and `test` pass (currentl
   checkout's `.beads/` (`bd where` shows it). The tracked `.beads/` files are on `main` too
   (owner, 2026-10-21: "Push the beads to main"), so the main checkout has its settings.
 
+## Code search: codegraph
+
+The index (`.codegraph/codegraph.db`) is local to each checkout and never committed; only
+`.codegraph/.gitignore` is tracked. In a new worktree run `codegraph index .` once (under a
+second), then `codegraph sync .` after pulling. Use `codegraph explore "<symbols or question>"`
+before grep or reading files.
+
 ## Task tracking: beads
 
 All planned work lives in beads (`bd`). There are no plan, roadmap or TODO files; do not
