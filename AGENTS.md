@@ -4,11 +4,14 @@ Working agreement for collaborating with Cascade in this repo.
 
 ## Branches and worktrees
 
-| Branch  | Role |
-|---------|------|
-| `alpha` | The working branch. All development happens here. |
-| `main`  | Initial commit only. Never base work on it or push to it. |
-| `beta`  | Initial commit only. Role not yet defined. |
+The three branches are release channels: the `publish` job in `.github/workflows/build.yml`
+runs `lerna publish` on every push to them, once `lint` and `test` pass.
+
+| Branch  | Role | Publishes |
+|---------|------|-----------|
+| `alpha` | The working branch. All development happens here. | `-alpha` prereleases |
+| `beta`  | Promotion target after `alpha`. Initial commit only so far. | `-beta` prereleases |
+| `main`  | Stable releases. Initial commit only so far. Never base work on it or push to it. | graduated stable versions |
 
 - **Fork every branch and worktree from `alpha`**, and target `alpha` with pull requests.
   Tools that cut worktrees from the repository's default branch (`main`) give you an empty
