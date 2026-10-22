@@ -32,7 +32,7 @@ runs `lerna publish` on every push to them once `lint` and `test` pass (currentl
 |---------|------|-----------|
 | `alpha` | The working branch. All development happens here. | `-alpha` prereleases |
 | `beta`  | Promotion target after `alpha`. Initial commit only so far. | `-beta` prereleases |
-| `main`  | Stable releases. Initial commit only so far. Never base work on it or push to it. | graduated stable versions |
+| `main`  | Stable releases. Holds only the beads files so far. Never base work on it or push code to it. | graduated stable versions |
 
 - **Fork every branch and worktree from `alpha`**, and target `alpha` with pull requests.
   Tools that cut worktrees from the repository's default branch (`main`) give you an empty
@@ -40,10 +40,9 @@ runs `lerna publish` on every push to them once `lint` and `test` pass (currentl
   on a branch with no commits of its own).
 - **The main checkout stays on `main`** (owner, 2026-10-21: "there is no issue leaving the
   main checkout on main"). Never work, commit or switch branches in it; use a worktree.
-- **It still hosts the shared beads database.** Every worktree's `bd` resolves to the main
-  checkout's `.beads/` (`bd where` shows it). Because `main` has no `.beads/` files, that
-  folder holds untracked copies of `alpha`'s tracked `.beads/` files. When those change on
-  `alpha`, copy them over again (`git ls-files .beads` lists them).
+- **It hosts the shared beads database.** Every worktree's `bd` resolves to the main
+  checkout's `.beads/` (`bd where` shows it). The tracked `.beads/` files are on `main` too
+  (owner, 2026-10-21: "Push the beads to main"), so the main checkout has its settings.
 
 ## Task tracking: beads
 
