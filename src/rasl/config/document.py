@@ -26,8 +26,8 @@ from typing import Any
 import structlog
 from knobly import (
     DiagnosticError,
+    Diagnostics,
     LocatedDiagnostic,
-    Severity,
     memory_source,
     rendered,
     written,
@@ -118,7 +118,7 @@ def config_error(
 
 def _render(graph: written.DocumentGraph) -> Rendered:
     tree = rendered.render(graph)
-    errors = tuple(d for d in tree.diagnostics if d.severity is Severity.ERROR)
+    errors = Diagnostics(tree.diagnostics).errors
     if errors:
         raise ConfigError.from_diagnostics(errors, graph)
     for warning in tree.diagnostics:

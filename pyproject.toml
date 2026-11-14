@@ -20,7 +20,7 @@ dependencies = [
     "uvicorn>=0.34.0",
     "websockets>=14.0",
     "pint>=0.24",
-    "knobly @ https://github.com/mcurcio/knobly/releases/download/v1.0.0/knobly-1.0.0-py3-none-any.whl",
+    "knobly>=1.1,<2",
 ]
 
 [project.scripts]
