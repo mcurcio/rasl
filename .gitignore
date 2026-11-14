@@ -143,3 +143,6 @@ __pycache__
 .dolt/
 *.db
 .beads-credential-key
+
+# bd's lock file, left in the repo root by every bd command
+.beads.gate.lock

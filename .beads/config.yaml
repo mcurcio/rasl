@@ -54,4 +54,5 @@
 # - linear.api_key  → use LINEAR_API_KEY env var instead
 # - github.token    → use GITHUB_TOKEN env var instead
 
-sync.remote: "https://github.com/mcurcio/rasl.git"
+# No sync.remote: the beads database is local to each checkout and is never pushed.
+# .beads/issues.jsonl, committed with the work, is the shared copy (AGENTS.md).
