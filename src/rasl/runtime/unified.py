@@ -69,6 +69,8 @@ class NodeRuntime:
     bound_outputs: PortGroup | None
     ctx: NodeContext
     last_invoke_time: float = 0.0
+    background: List[anyio.CancelScope] = field(default_factory=list)
+    """One scope per background task the node started; cancelled when it is stopped."""
 
 
 @dataclass
@@ -270,10 +272,22 @@ class UnifiedScheduler:
         assert self._pending_update is not None
         update, done = self._pending_update
         started = time.monotonic()
+        old_plan = self._plan
         try:
+            # Work out the new schedule and routing before anything is stopped: if
+            # that fails, the old plan goes on running and nothing was touched.
+            self._plan = update.plan
+            try:
+                self._derive_from_plan()
+            except Exception as e:
+                self._plan = old_plan
+                self._derive_from_plan()
+                logger.error("plan_update_failed", error=str(e))
+                return
+
             # Stop what goes away: removed nodes, and old objects of replaced ones
             stopping = set(update.removed) | set(update.restarted)
-            for node_id in reversed(self._plan.topological_order):
+            for node_id in reversed(old_plan.topological_order):
                 if node_id in stopping:
                     await self._stop_node(node_id)
                     self._node_runtimes.pop(node_id, None)
@@ -298,11 +312,8 @@ class UnifiedScheduler:
                 except Exception as e:
                     logger.error("node_update_failed", node_id=node_id, error=str(e))
 
-            self._plan = update.plan
-            self._derive_from_plan()
-
+            self._bind_ports()
             for node_id in self._plan.topological_order:
-                self._bind_ports(node_id)
                 if node_id not in self._node_runtimes:
                     try:
                         await self._start_node(node_id)
@@ -520,34 +531,48 @@ class UnifiedScheduler:
 
     async def _initialize_nodes(self) -> None:
         """Initialize all nodes and their runtime state."""
+        self._bind_ports()
         for node_id in self._plan.topological_order:
-            self._bind_ports(node_id)
             await self._start_node(node_id)
 
-    def _bind_ports(self, node_id: str) -> None:
-        """Tell a node's ports how the plan connects them.
+    def _bind_ports(self) -> None:
+        """Tell every node's ports how the plan connects them.
 
-        Run for every node at start and again after a plan update, since a node
-        that keeps running may have gained or lost connections.
+        Run at start and again after a plan update, since a node that keeps
+        running may have gained or lost connections.
+
+        Nodes of one class share that class's port objects unless a node makes
+        its own, so a port counts as connected when any node holding it is, and
+        is a push source's when any node holding it is one.
         """
-        node = self._plan.nodes[node_id]
-        inputs = get_inputs(node)
-        outputs = get_outputs(node)
-
-        # Mark connected inputs
-        connected = {edge.target_port for edge in self._incoming[node_id]}
-        if inputs:
+        input_ports: Dict[int, InputPort] = {}
+        connected: Set[int] = set()
+        for node_id, node in self._plan.nodes.items():
+            inputs = get_inputs(node)
+            if not inputs:
+                continue
+            targets = {edge.target_port for edge in self._incoming[node_id]}
             for port in inputs:
                 if isinstance(port, InputPort):
-                    port._has_upstream = port.name in connected
+                    input_ports[id(port)] = port
+                    if port.name in targets:
+                        connected.add(id(port))
+        for key, port in input_ports.items():
+            # A port that lost its last connection must not go on handing out the
+            # frame that connection gave it
+            if port._has_upstream and key not in connected:
+                port._clear()
+            port._has_upstream = key in connected
 
-        # Configure output ports for push sources (no incoming edges)
-        if outputs:
-            is_push_source = not self._incoming[node_id]
-            for output_port in outputs:
-                if isinstance(output_port, OutputPort):
-                    output_port._node_id = node_id
-                    output_port._on_write = self._on_push_write if is_push_source else None
+        # Configure output ports for push sources (no incoming edges). In plan
+        # order, as a port shared by several push sources reports the last one's id.
+        for node_id in self._plan.topological_order:
+            outputs = get_outputs(self._plan.nodes[node_id])
+            if not self._incoming[node_id] and outputs:
+                for output_port in outputs:
+                    if isinstance(output_port, OutputPort):
+                        output_port._node_id = node_id
+                        output_port._on_write = self._on_push_write
 
     async def _start_node(self, node_id: str) -> None:
         """Give a node its runtime state and start it."""
@@ -563,9 +588,19 @@ class UnifiedScheduler:
         def _inject(port: str, frame: Frame) -> None:
             self.inject(node_id, port, frame)
 
+        background: List[anyio.CancelScope] = []
+
         def _start_background(fn: Any, args: Tuple[Any, ...]) -> None:
             if self._task_group:
-                self._task_group.start_soon(fn, *args)
+                # Its own scope, so stopping this node ends the task (_stop_node)
+                scope = anyio.CancelScope()
+                background.append(scope)
+
+                async def _scoped() -> None:
+                    with scope:
+                        await fn(*args)
+
+                self._task_group.start_soon(_scoped)
 
         ctx = NodeContext(
             node_id=node_id,
@@ -590,19 +625,31 @@ class UnifiedScheduler:
             bound_outputs=outputs,
             ctx=ctx,
             last_invoke_time=time.monotonic(),
+            background=background,
         )
 
         await node.start(ctx)
         logger.debug("node_started", node_id=node_id)
 
     async def _stop_node(self, node_id: str) -> None:
-        """Stop one node, whatever it raises."""
+        """Stop one node, whatever it raises, and end what it left running.
+
+        A node's ``stop`` need not end the background tasks it started, and its
+        output ports stay hooked to this scheduler; left alone, a node replaced
+        in a plan update would go on writing frames under its successor's id.
+        """
         runtime = self._node_runtimes.get(node_id)
         if runtime:
             with anyio.CancelScope(shield=True):
                 with contextlib.suppress(Exception):
                     await runtime.node.stop(runtime.ctx)
                     logger.debug("node_stopped", node_id=node_id)
+            for scope in runtime.background:
+                scope.cancel()
+            if runtime.bound_outputs:
+                for output_port in runtime.bound_outputs:
+                    if isinstance(output_port, OutputPort):
+                        output_port._on_write = None
 
     async def _shutdown_nodes(self) -> None:
         """Stop all nodes gracefully."""

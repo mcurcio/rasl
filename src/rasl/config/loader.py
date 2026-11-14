@@ -251,7 +251,7 @@ def node_id_of(directive: Directive) -> str | None:
     return args[0] if len(args) == 1 else args[1]
 
 
-def _node_spec(directive: Directive, tree: Rendered) -> tuple[str, str, dict[str, Any]]:
+def node_spec(directive: Directive, tree: Rendered) -> tuple[str, str, dict[str, Any]]:
     """A ``node`` directive's type name, id and the config its positional values give.
 
     Raises:
@@ -374,7 +374,7 @@ def build_plan(
 
         # First pass: build all nodes
         for directive in children(graph_directive(tree), "node"):
-            node_type, node_id, extra_args = _node_spec(directive, tree)
+            node_type, node_id, extra_args = node_spec(directive, tree)
             if node_id in keep:
                 node = keep[node_id]
             else:

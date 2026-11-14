@@ -19,13 +19,18 @@ changed ``@set`` variable or included file shows up as changes to the nodes that
 read it. A reload that fails for any reason changes nothing: the session keeps
 the last good config, and the caller keeps the running plan.
 
+``reload()`` only works the update out. The session goes on describing what is
+running until the caller, having applied the update, says so with ``commit()``.
+
 Example:
     >>> session = ConfigSession("config.conf")
     >>> scheduler = UnifiedScheduler(session.plan)
     >>> # ... later, after config.conf was edited:
     >>> update = session.reload()
     >>> if update is not None:
-    ...     scheduler.request_update(update)
+    ...     await scheduler.request_update(update).wait()
+    ...     if scheduler.plan is update.plan:
+    ...         session.commit(update)
 """
 
 from __future__ import annotations
@@ -35,8 +40,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from rasl.config.document import Directive, Rendered, load_document
-from rasl.config.loader import _node_spec, build_plan, graph_directive, node_id_of
+from rasl.config.document import ConfigError, Directive, Rendered, children, load_document
+from rasl.config.loader import build_plan, graph_directive, node_id_of, node_spec
 from rasl.engine.graph import ExecutionPlan
 from rasl.engine.registry import get_node_class
 
@@ -53,7 +58,8 @@ class PlanUpdate:
 
     Attributes:
         plan: The new plan. Nodes that keep running are the same objects as in
-            the old plan.
+            the old plan. The running plan itself when no node changes.
+        tree: The render the plan was built from (``ConfigSession.commit``).
         added: Nodes to start.
         removed: Nodes to stop.
         restarted: Nodes to stop, whose new objects (in ``plan``) are then started.
@@ -67,6 +73,7 @@ class PlanUpdate:
     """
 
     plan: ExecutionPlan
+    tree: Rendered
     added: tuple[str, ...] = ()
     removed: tuple[str, ...] = ()
     restarted: tuple[str, ...] = ()
@@ -74,6 +81,11 @@ class PlanUpdate:
     rerouted: tuple[str, ...] = ()
     changes: tuple[str, ...] = ()
     ignored: tuple[str, ...] = ()
+
+    @property
+    def changes_graph(self) -> bool:
+        """False when every change is in ``ignored``: there is nothing to swap."""
+        return bool(self.added or self.removed or self.restarted or self.updated or self.rerouted)
 
 
 def _is_graph_node(directive: Directive) -> bool:
@@ -97,7 +109,7 @@ class ConfigSession:
 
     Attributes:
         path: The root config file.
-        tree: The last good render of it (knobly's rendered tree).
+        tree: The render of it that is running (knobly's rendered tree).
         plan: The plan built from that render.
     """
 
@@ -111,14 +123,34 @@ class ConfigSession:
         self.path = Path(path)
         self.tree: Rendered = load_document(self.path)
         self.plan: ExecutionPlan = build_plan(self.tree)[0]
+        self._attempted: tuple[str, ...] = ()
 
     @property
     def documents(self) -> tuple[str, ...]:
-        """Every file the last good load read: the root and the files it includes."""
+        """Every file of the running config: the root and the files it includes."""
         return tuple(self.tree.graph.documents)
+
+    @property
+    def watched(self) -> tuple[str, ...]:
+        """The files whose change calls for a reload: the running config's, and
+        those the last ``reload()`` read, which may include new or broken files
+        that the running config does not."""
+        return tuple(dict.fromkeys((*self.documents, *self._attempted)))
+
+    def commit(self, update: PlanUpdate) -> None:
+        """Record that ``update`` is now what runs.
+
+        Call it once the scheduler has applied the update. Until then the session
+        describes the old config, so an update that was never applied is worked
+        out again by the next ``reload()``.
+        """
+        self.tree = update.tree
+        self.plan = update.plan
 
     def reload(self) -> PlanUpdate | None:
         """Load the files again and work out how the plan changes.
+
+        The session itself is not changed (see ``commit``).
 
         Returns:
             The update to hand to the scheduler, or None when nothing a program
@@ -130,7 +162,12 @@ class ConfigSession:
                 node in a ``connect``, a duplicate id, ...). In every case the
                 session, the plan and the running nodes are left as they were.
         """
-        tree = load_document(self.path)
+        try:
+            tree = load_document(self.path)
+        except ConfigError as error:
+            self._attempted = error.documents
+            raise
+        self._attempted = tuple(tree.graph.documents)
         changes = self.tree.diff(tree, key=_node_key)
         if not changes:
             self.tree = tree  # the same directives, at their new places in the files
@@ -167,13 +204,20 @@ class ConfigSession:
         added |= {n for n in replaced | settings | connections if n not in old_nodes}
         removed &= old_nodes.keys()
 
-        new_directives = {
-            node_id_of(d): d for d in graph_directive(tree).block or () if d.name == "node"
-        }
+        if not (added or removed or replaced or settings or connections):
+            # Nothing a node reads changed: the running plan stands
+            return PlanUpdate(
+                plan=self.plan,
+                tree=tree,
+                changes=tuple(f"{change.kind} {change.address}" for change in changes),
+                ignored=tuple(ignored),
+            )
+
+        new_directives = {node_id_of(d): d for d in children(graph_directive(tree), "node")}
         update: dict[str, Any] = {}
         for node_id in settings - replaced - added - removed:
             running = old_nodes[node_id]
-            node_type = _node_spec(new_directives[node_id], tree)[0]
+            node_type = node_spec(new_directives[node_id], tree)[0]
             if hasattr(running, "update_config") and get_node_class(node_type) is type(running):
                 update[node_id] = running
         restarted = (replaced | settings) - added - removed - update.keys()
@@ -185,10 +229,9 @@ class ConfigSession:
 
         plan, configs = build_plan(tree, keep=keep, update=update)
 
-        self.tree = tree
-        self.plan = plan
         return PlanUpdate(
             plan=plan,
+            tree=tree,
             added=tuple(sorted(added)),
             removed=tuple(sorted(removed)),
             restarted=tuple(sorted(restarted)),

@@ -55,39 +55,49 @@ async def watch_config(
             have stayed the same for one interval, so a save in progress or
             several files saved together make one reload.
     """
-    seen = _stamps(session.documents)
+    seen = _stamps(session.watched)
     while True:
         await anyio.sleep(interval)
-        now = _stamps(session.documents)
+        now = _stamps(session.watched)
         if now == seen:
             continue
 
         # Let the writer finish: wait until nothing changes for one interval
         while True:
             await anyio.sleep(interval)
-            again = _stamps(session.documents)
+            again = _stamps(session.watched)
             if again == now:
                 break
             now = again
-        seen = now
 
         logger.info("config_changed", path=str(session.path))
+        update = None
         try:
             update = await anyio.to_thread.run_sync(session.reload)
         except Exception as e:
             logger.error("config_reload_failed", path=str(session.path))
             print(f"Config reload failed; the graph keeps running as it was.\n{e}", file=sys.stderr)
-            continue
+        else:
+            if update is None:
+                logger.info("config_reloaded", changes=0)
 
-        # The new config may include other files than the old one did
-        seen = _stamps(session.documents)
+        # What the reload read is as it was before the reload started (``now``), so
+        # a save that landed while it ran is still seen as a change. The reload may
+        # have read files not watched until now (a new include, broken or not).
+        fresh = _stamps(session.watched)
+        seen = {path: now.get(path, stamp) for path, stamp in fresh.items()}
 
         if update is None:
-            logger.info("config_reloaded", changes=0)
             continue
 
         for ignored in update.ignored:
             logger.warning("config_change_needs_restart", change=ignored)
         logger.info("config_reloaded", changes=len(update.changes), detail=list(update.changes))
-        applied = scheduler.request_update(update)
-        await applied.wait()
+        if update.changes_graph:
+            applied = scheduler.request_update(update)
+            await applied.wait()
+            if scheduler.plan is not update.plan:
+                # The scheduler refused it and said why (plan_update_failed)
+                print("Config reload failed; the graph keeps running as it was.", file=sys.stderr)
+                continue
+        session.commit(update)

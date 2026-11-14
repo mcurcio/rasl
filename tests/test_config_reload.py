@@ -46,6 +46,21 @@ def edit(path: Path, old: str, new: str) -> None:
     path.write_text(text.replace(old, new))
 
 
+def reload_and_commit(session: ConfigSession):
+    """What a caller does when the update needs no scheduler: work it out, record it."""
+    update = session.reload()
+    if update is not None:
+        session.commit(update)
+    return update
+
+
+async def until(condition, timeout: float = 3.0) -> None:
+    """Wait for ``condition()`` to hold, so no test depends on how fast ticks come."""
+    with anyio.fail_after(timeout):
+        while not condition():
+            await anyio.sleep(0.005)
+
+
 class TestReload:
     """ConfigSession.reload: what each kind of edit does to the plan."""
 
@@ -67,7 +82,7 @@ class TestReload:
         assert update is not None
         assert (update.added, update.removed, update.restarted) == ((), (), ("out",))
         assert update.changes == ('changed graph > node "out" > fps',)
-        assert update.plan is session.plan
+        assert update.changes_graph
         assert update.plan.nodes["out"] is not before["out"]
         assert update.plan.nodes["out"]._fps == 25
         for kept in ("wave", "other", "smooth"):
@@ -114,17 +129,17 @@ class TestReload:
     def test_added_removed_and_renamed_nodes(self, config: Path) -> None:
         session = ConfigSession(config)
         edit(config, "    node Waveform other { output_channels 4; }\n", "")
-        update = session.reload()
+        update = reload_and_commit(session)
         assert update is not None
         assert (update.added, update.removed, update.restarted) == ((), ("other",), ())
 
         edit(config, "graph {\n", "graph {\n    node Waveform extra { output_channels 2; }\n")
-        update = session.reload()
+        update = reload_and_commit(session)
         assert update is not None
         assert (update.added, update.removed) == (("extra",), ())
 
         edit(config, "node ConsoleSink out ", "node ConsoleSink console ")
-        update = session.reload()
+        update = reload_and_commit(session)
         assert update is not None
         assert (update.added, update.removed) == (("console",), ("out",))
 
@@ -159,8 +174,41 @@ class TestReload:
 
         assert update is not None
         assert update.ignored == ("changed ui > port",)
-        assert (update.added, update.removed, update.restarted, update.rerouted) == ((), (), (), ())
+        assert not update.changes_graph  # nothing for the scheduler to swap
+        assert update.plan is session.plan
         assert update.plan.nodes == before
+
+    def test_reload_does_not_change_the_session_until_commit(self, config: Path) -> None:
+        session = ConfigSession(config)
+        plan, tree = session.plan, session.tree
+        edit(config, "fps 50;", "fps 25;")
+
+        update = session.reload()
+
+        assert update is not None
+        assert (session.plan, session.tree) == (plan, tree)
+        again = session.reload()  # never applied, so it is worked out again
+        assert again is not None and again.restarted == ("out",)
+
+        session.commit(again)
+        assert (session.plan, session.tree) == (again.plan, again.tree)
+        assert session.reload() is None
+
+    def test_a_failed_reload_still_watches_the_files_it_read(self, tmp_path: Path) -> None:
+        main = tmp_path / "main.conf"
+        main.write_text("graph {\n    node Waveform wave { fps 30; }\n}\n")
+        porch = tmp_path / "porch.conf"
+        porch.write_text("node ConsoleSink out { fps 1 connect wave; }\n")  # a missing ;
+        session = ConfigSession(main)
+        assert session.watched == (str(main),)
+
+        edit(main, "graph {\n", 'graph {\n    @include "porch.conf";\n')
+        with pytest.raises(ConfigError) as failed:
+            session.reload()
+
+        assert failed.value.documents == (str(main), str(porch))
+        assert session.documents == (str(main),)  # what runs is unchanged
+        assert session.watched == (str(main), str(porch))  # but the fix will be seen
 
     def test_an_included_file_is_part_of_the_config(self, tmp_path: Path) -> None:
         main = tmp_path / "main.conf"
@@ -237,12 +285,24 @@ class Recorder:
 
 
 async def run_then(scheduler: UnifiedScheduler, body) -> None:
-    """Run the scheduler, run ``body`` beside it, then shut the scheduler down."""
+    """Run the scheduler, run ``body`` beside it once every node has started, then
+    shut the scheduler down."""
     async with anyio.create_task_group() as tg:
         tg.start_soon(scheduler.run)
-        await anyio.sleep(0.1)
+        await until(lambda: len(scheduler._node_runtimes) == len(scheduler.plan.nodes))
         await body()
         tg.cancel_scope.cancel()
+
+
+async def apply(scheduler: UnifiedScheduler, session: ConfigSession):
+    """Reload, hand the update to the running scheduler, and record it."""
+    update = session.reload()
+    assert update is not None
+    with anyio.fail_after(3):
+        await scheduler.request_update(update).wait()
+    if scheduler.plan is update.plan:
+        session.commit(update)
+    return update
 
 
 class TestSchedulerUpdate:
@@ -257,17 +317,14 @@ class TestSchedulerUpdate:
         smooth = session.plan.nodes["smooth"]
 
         async def body() -> None:
+            await until(lambda: smooth._state is not None)  # it has run
             ticks = scheduler._tick
-            assert ticks > 0
             recorder.events.clear()
             edit(config, "fps 50;", "fps 100;")
             edit(config, "smooth_period 50ms;", "smooth_period 2s;")
             edit(config, "    node Waveform other { output_channels 4; }\n", "")
             edit(config, "graph {\n", "graph {\n    node Waveform extra { output_channels 2; }\n")
-            update = session.reload()
-            assert update is not None
-            with anyio.fail_after(2):
-                await scheduler.request_update(update).wait()
+            update = await apply(scheduler, session)
 
             assert sorted(recorder.events) == [
                 ("start", "extra"),
@@ -282,10 +339,8 @@ class TestSchedulerUpdate:
             assert smooth._tau_seconds == pytest.approx(2.0)
             assert smooth._state is not None  # the running state survived
 
-            await anyio.sleep(0.1)
-            assert scheduler._tick > ticks  # and the graph still ticks, at the new rate
-            out = scheduler.plan.nodes["out"]
-            assert out._counter > 0
+            out = scheduler.plan.nodes["out"]  # and the graph still ticks, at the new rate
+            await until(lambda: scheduler._tick > ticks and out._counter > 0)
 
         await run_then(scheduler, body)
         assert ("stop", "extra") in recorder.events  # shutdown stops what the update started
@@ -303,21 +358,85 @@ class TestSchedulerUpdate:
         scheduler = UnifiedScheduler(session.plan)
         out = session.plan.nodes["out"]
 
-        def reads() -> list[float]:
+        def reads() -> list[float] | None:
             frame = out.inputs.dmx.read()
-            assert frame is not None
-            return [float(x) for x in frame.payload.data.reshape(-1)]
+            return None if frame is None else [float(x) for x in frame.payload.data.reshape(-1)]
 
         async def body() -> None:
-            assert reads() == [1.0, 1.0]
+            await until(lambda: reads() == [1.0, 1.0])
             edit(path, "connect ones;", "connect twos;")
-            update = session.reload()
-            assert update is not None and update.rerouted == ("out",)
-            with anyio.fail_after(2):
-                await scheduler.request_update(update).wait()
-            await anyio.sleep(0.05)
+            update = await apply(scheduler, session)
+            assert update.rerouted == ("out",)
             assert scheduler.plan.nodes["out"] is out
-            assert reads() == [2.0, 2.0]
+            await until(lambda: reads() == [2.0, 2.0])
+
+            # A connection taken away leaves nothing behind on the port
+            edit(path, " connect twos;", "")
+            update = await apply(scheduler, session)
+            assert update.rerouted == ("out",)
+            assert reads() is None and not out.inputs.dmx.connected
+
+        await run_then(scheduler, body)
+
+    async def test_a_stopped_node_leaves_no_background_task_writing(self, tmp_path: Path) -> None:
+        path = tmp_path / "main.conf"
+        path.write_text(
+            "graph {\n"
+            "    node SineSource wave { output_channels 2; fps 200; topic before; }\n"
+            "    node ConsoleSink out { fps 100; connect wave; }\n"
+            "}\n"
+        )
+        session = ConfigSession(path)
+        scheduler = UnifiedScheduler(session.plan)
+
+        def topic() -> str | None:
+            frame = scheduler._previous_outputs.get(("wave", "dmx"))
+            return None if frame is None else frame.topic
+
+        async def body() -> None:
+            await until(lambda: topic() == "before")
+            old = scheduler._node_runtimes["wave"]  # its start() runs a loop its stop() never ends
+            assert len(old.background) == 1
+
+            edit(path, "topic before;", "topic after;")
+            update = await apply(scheduler, session)
+            assert update.restarted == ("wave",)
+            assert scheduler._node_runtimes["wave"] is not old
+            assert all(scope.cancel_called for scope in old.background)
+
+            await until(lambda: topic() == "after")
+            seen = set()
+            for _ in range(20):  # twenty periods of the old loop, had it lived
+                await anyio.sleep(0.005)
+                seen.add(topic())
+            assert seen == {"after"}
+
+        await run_then(scheduler, body)
+
+    async def test_an_update_the_scheduler_cannot_schedule_is_refused_whole(
+        self, config: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        session = ConfigSession(config)
+        scheduler = UnifiedScheduler(session.plan)
+        recorder = Recorder(monkeypatch, session.plan.nodes)
+
+        async def body() -> None:
+            plan, ticks = scheduler.plan, scheduler._tick
+            recorder.events.clear()
+            edit(config, "fps 50;", "fps 25;")
+            update = session.reload()
+            assert update is not None
+            # A sink whose rate cannot be read once it is in the plan
+            monkeypatch.setattr(type(update.plan.nodes["out"]), "_fps", None, raising=False)
+            update.plan.nodes["out"]._fps = "not a rate"
+            with anyio.fail_after(3):
+                await scheduler.request_update(update).wait()
+
+            assert scheduler.plan is plan  # the old plan goes on
+            assert recorder.events == []  # nothing was stopped or started
+            assert scheduler._rate_drivers == {"out": 50.0}
+            await until(lambda: scheduler._tick > ticks)
+            assert session.plan is plan  # and the session was not told otherwise
 
         await run_then(scheduler, body)
 
@@ -331,16 +450,13 @@ class TestSchedulerUpdate:
         async def body() -> None:
             assert scheduler._schedule == []  # nothing drives a tick yet
             edit(path, "}\n}\n", "}\n" + sink + "}\n")
-            with anyio.fail_after(2):
-                await scheduler.request_update(session.reload()).wait()
-            await anyio.sleep(0.1)
-            assert scheduler._tick > 0
+            await apply(scheduler, session)
+            await until(lambda: scheduler._tick > 0)
 
             edit(path, sink, "")
-            with anyio.fail_after(2):
-                await scheduler.request_update(session.reload()).wait()
+            await apply(scheduler, session)
             ticks = scheduler._tick
-            await anyio.sleep(0.1)
+            await anyio.sleep(0.05)  # five periods of the sink that is gone
             assert scheduler._schedule == [] and scheduler._tick == ticks
 
         await run_then(scheduler, body)
@@ -372,28 +488,58 @@ class TestWatch:
             stamp = os.stat(config).st_mtime_ns + 1_000_000
             os.utime(config, ns=(stamp, stamp))
 
-        async def until(condition, what: str) -> None:
-            with anyio.fail_after(3):
-                while not condition():
-                    await anyio.sleep(0.01)
-
         async def body() -> None:
             save("fps 50;", "fps 25;")
-            await until(lambda: scheduler._rate_drivers == {"out": 25.0}, "the new rate")
+            await until(lambda: scheduler._rate_drivers == {"out": 25.0})
+            await until(lambda: session.plan is scheduler.plan)  # committed once applied
 
             save("fps 25;", "fps 25")  # broken: the graph must keep running as it was
-            await until(lambda: "Config reload failed" in capsys.readouterr().err, "the report")
+            await until(lambda: "Config reload failed" in capsys.readouterr().err)
             plan = scheduler.plan
             ticks = scheduler._tick
-            await anyio.sleep(0.1)
-            assert scheduler.plan is plan and scheduler._tick > ticks
+            await until(lambda: scheduler._tick > ticks)
+            assert scheduler.plan is plan
 
             save("fps 25 ", "fps 10; ")  # fixed: the next save applies
-            await until(lambda: scheduler._rate_drivers == {"out": 10.0}, "the fixed rate")
+            await until(lambda: scheduler._rate_drivers == {"out": 10.0})
+
+            save("port 8080;", "port 9090;")  # outside any node: recorded, nothing swapped
+            plan = scheduler.plan
+            await until(lambda: session.tree.block.directives("ui")[0].block[0].values[0].text == "9090")
+            assert scheduler.plan is plan and session.plan is plan
 
         async with anyio.create_task_group() as tg:
             tg.start_soon(scheduler.run)
             tg.start_soon(lambda: watch_config(session, scheduler, interval=0.02))
-            await anyio.sleep(0.1)
+            await until(lambda: len(scheduler._node_runtimes) == len(scheduler.plan.nodes))
             await body()
+            tg.cancel_scope.cancel()
+
+    async def test_a_save_made_while_a_reload_runs_is_not_lost(
+        self, config: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        session = ConfigSession(config)
+        scheduler = UnifiedScheduler(session.plan)
+        reload = session.reload
+        saved_during = []
+
+        def slow_reload():
+            update = reload()  # reads the file ...
+            if not saved_during:  # ... and the next save lands before it returns
+                edit(config, "fps 25;", "fps 10;")
+                stamp = os.stat(config).st_mtime_ns + 5_000_000
+                os.utime(config, ns=(stamp, stamp))
+                saved_during.append(True)
+            return update
+
+        monkeypatch.setattr(session, "reload", slow_reload)
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(scheduler.run)
+            tg.start_soon(lambda: watch_config(session, scheduler, interval=0.02))
+            await until(lambda: len(scheduler._node_runtimes) == len(scheduler.plan.nodes))
+            edit(config, "fps 50;", "fps 25;")
+            stamp = os.stat(config).st_mtime_ns + 1_000_000
+            os.utime(config, ns=(stamp, stamp))
+            await until(lambda: scheduler._rate_drivers == {"out": 10.0})
             tg.cancel_scope.cancel()

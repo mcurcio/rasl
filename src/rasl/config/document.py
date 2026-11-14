@@ -60,6 +60,9 @@ class ConfigError(Exception):
         diagnostics: Every problem, as knobly located diagnostics (file, span and the
             include / snippet / variable steps that led there). Empty when the error
             was made without a place.
+        documents: Every file the load read, the broken ones included (what a
+            watcher must watch to see the fix). Empty when the error was made
+            without a place.
     """
 
     def __init__(
@@ -69,12 +72,14 @@ class ConfigError(Exception):
         column: int | None = None,
         *,
         diagnostics: tuple[LocatedDiagnostic, ...] = (),
+        documents: tuple[str, ...] = (),
         formatted: str | None = None,
     ) -> None:
         self.message = message
         self.line = line
         self.column = column
         self.diagnostics = diagnostics
+        self.documents = documents
         if formatted is None:
             formatted = f"Line {line}: {message}" if line else message
         super().__init__(formatted)
@@ -93,6 +98,7 @@ class ConfigError(Exception):
             line=start.line + 1,
             column=start.column,
             diagnostics=diagnostics,
+            documents=tuple(graph.documents),
             formatted="\n".join(written.format_diagnostic(d, graph) for d in diagnostics),
         )
 
