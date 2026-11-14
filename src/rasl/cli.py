@@ -23,10 +23,10 @@ import anyio
 import structlog
 
 from rasl import __version__
-from rasl.config import load_config
-from rasl.config.document import arg_texts, children, load_document
+from rasl.config.document import Rendered, arg_texts, children
+from rasl.config.reload import ConfigSession
 from rasl.engine.graph import ExecutionPlan
-from rasl.runtime import UnifiedScheduler
+from rasl.runtime import UnifiedScheduler, watch_config
 
 # Configure structured logging
 structlog.configure(
@@ -45,9 +45,8 @@ structlog.configure(
 logger = structlog.get_logger()
 
 
-def _get_ui_settings(config_path: Path) -> tuple[bool, str, int]:
+def _get_ui_settings(tree: Rendered) -> tuple[bool, str, int]:
     """Return (enabled, host, port) from top-level `ui {}` config block."""
-    tree = load_document(config_path)
     ui_blocks = tree.block.directives("ui")
     if not ui_blocks:
         return False, "127.0.0.1", 8080
@@ -111,6 +110,11 @@ def _create_parser() -> argparse.ArgumentParser:
         help="Host for web API server (default: 127.0.0.1)",
     )
     parser.add_argument(
+        "--no-watch",
+        action="store_true",
+        help="Do not reload the config when its files change",
+    )
+    parser.add_argument(
         "--profile",
         action="store_true",
         help="Enable detailed profiling of graph execution",
@@ -123,6 +127,7 @@ async def _run_with_shutdown(
     plan: "ExecutionPlan",
     api_host: Optional[str] = None,
     api_port: Optional[int] = None,
+    session: Optional[ConfigSession] = None,
 ) -> None:
     """Run the scheduler with graceful shutdown handling.
 
@@ -134,6 +139,7 @@ async def _run_with_shutdown(
         plan: The ExecutionPlan for the API server.
         api_host: Host for the API server (if enabled).
         api_port: Port for the API server (if enabled).
+        session: The loaded config, to reload when its files change (if given).
     """
     def _signal_handler(signum: int) -> None:
         logger.info("shutdown_signal_received", signal=signal.Signals(signum).name)
@@ -149,6 +155,8 @@ async def _run_with_shutdown(
 
             tg.start_soon(_wait_for_signal)
             tg.start_soon(scheduler.run)
+            if session is not None:
+                tg.start_soon(watch_config, session, scheduler)
             
             # Start API server if requested
             if api_port is not None:
@@ -183,7 +191,8 @@ def main(args: Optional[list[str]] = None) -> int:
 
     try:
         logger.info("loading_config", path=str(config_path))
-        plan = load_config(config_path)
+        session = ConfigSession(config_path)
+        plan = session.plan
         logger.info(
             "config_loaded",
             nodes=len(plan.nodes),
@@ -211,7 +220,7 @@ def main(args: Optional[list[str]] = None) -> int:
     
     logger.info("starting_scheduler")
 
-    ui_enabled, ui_host, ui_port = _get_ui_settings(config_path)
+    ui_enabled, ui_host, ui_port = _get_ui_settings(session.tree)
 
     api_host: Optional[str] = None
     api_port: Optional[int] = None
@@ -229,6 +238,7 @@ def main(args: Optional[list[str]] = None) -> int:
             plan,
             api_host,
             api_port,
+            None if parsed.no_watch else session,
         )
     except BaseExceptionGroup as eg:
         logger.error("runtime_error", error=str(eg))

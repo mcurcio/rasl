@@ -142,6 +142,25 @@ graph {
 
 A problem in a config is reported with its file, line and column and a caret under the text.
 
+## Live reload
+
+rasl watches the config file, and every file it includes, while it runs. Save a change and the running graph
+follows within about a second, at the next tick; nothing restarts but what changed:
+
+| You change | What happens |
+|---|---|
+| a comment, the layout, the order of nodes | nothing |
+| a node's settings | that node is restarted with the new settings (a node that can take them while running, like `Smooth`, keeps its state) |
+| a node's `connect` lines | the routing changes; the node keeps running |
+| a `@set` variable or an included file | the nodes that read it change, as above |
+| add or remove a node | it is started or stopped |
+| the `ui` block | nothing until rasl is restarted (a warning says so) |
+
+A config with a problem is never applied, in whole or in part. The problem is printed with its file, line and
+column, and the graph keeps running as it was until the files are valid again.
+
+Run with `--no-watch` to turn this off.
+
 ## Development
 
 ### Running Tests
