@@ -37,6 +37,15 @@ wheels = [
 ]
 
 [[package]]
+name = "antlr4-python3-runtime"
+version = "4.13.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/33/5f/2cdf6f7aca3b20d3f316e9f505292e1f256a32089bd702034c29ebde6242/antlr4_python3_runtime-4.13.2.tar.gz", hash = "sha256:909b647e1d2fc2b70180ac586df3933e38919c85f98ccc656a96cd3f25ef3916", size = 117467, upload-time = "2024-08-03T19:00:12.757Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/89/03/a851e84fcbb85214dc637b6378121ef9a0dd61b4c65264675d8a5c9b1ae7/antlr4_python3_runtime-4.13.2-py3-none-any.whl", hash = "sha256:fe3835eb8d33daece0e799090eda89719dbccee7aa39ef94eed3818cafa5a7e8", size = 144462, upload-time = "2024-08-03T19:00:11.134Z" },
+]
+
+[[package]]
 name = "anyio"
 version = "4.12.0"
 source = { registry = "https://pypi.org/simple" }
@@ -269,15 +278,6 @@ toml = [
 ]
 
 [[package]]
-name = "crossplane"
-version = "0.5.8"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/dd/56/6d38195b422d5c2871cf2e1d85870eaeb7ae759d96392729a03f1a48434d/crossplane-0.5.8.tar.gz", hash = "sha256:b193bd8b963a041d5414ea18dcbb1c55b5424fee3d73bfa1809124605b322101", size = 40346, upload-time = "2022-09-22T09:51:50.873Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d6/ff/adf98ea07e9ac704dd60d81782c5810e3c51313d741f957a900727d3d4ee/crossplane-0.5.8-py2.py3-none-any.whl", hash = "sha256:ede8e83c9e3a58dfc37c69f5ee065d4b3adc44ae42749ced496962a0e7f545b7", size = 31399, upload-time = "2022-09-22T09:51:48.339Z" },
-]
-
-[[package]]
 name = "fastapi"
 version = "0.123.0"
 source = { registry = "https://pypi.org/simple" }
@@ -372,6 +372,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/64/73/7570847b9da026e07053da3bbe2ac7ea6cde6bb2cbd3c7a5a950fa0ae40b/InquirerPy-0.3.4.tar.gz", hash = "sha256:89d2ada0111f337483cb41ae31073108b2ec1e618a49d7110b0d7ade89fc197e", size = 44431, upload-time = "2022-06-27T23:11:20.598Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ce/ff/3b59672c47c6284e8005b42e84ceba13864aa0f39f067c973d1af02f5d91/InquirerPy-0.3.4-py3-none-any.whl", hash = "sha256:c65fdfbac1fa00e3ee4fb10679f4d3ed7a012abf4833910e63c295827fe2a7d4", size = 67677, upload-time = "2022-06-27T23:11:17.723Z" },
+]
+
+[[package]]
+name = "knobly"
+version = "1.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "antlr4-python3-runtime" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8d/01/9bb9cf7f7a0cdfd6ae3b98b6e2ecd41f96f72ffe096a76da5cfe79d4eae6/knobly-1.1.0.tar.gz", hash = "sha256:077efb5434596d36c61f6ddb5b6d96cf933a05be0f71769aa89b91c8666a7c50", size = 183200, upload-time = "2026-11-14T16:15:00.836Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/53/cf/b7c7a01e47d2a73b88f76b78bcb7987775b6736c45cff0f766f8f573eb70/knobly-1.1.0-py3-none-any.whl", hash = "sha256:91b4e78996476040cb660e8f9d309a17f3c760464518f4dba7d259b54107e140", size = 124159, upload-time = "2026-11-14T16:14:59.581Z" },
 ]
 
 [[package]]
@@ -723,8 +735,8 @@ dependencies = [
     { name = "aiolifx" },
     { name = "anyio" },
     { name = "colour-science" },
-    { name = "crossplane" },
     { name = "fastapi" },
+    { name = "knobly" },
     { name = "numpy" },
     { name = "pint" },
     { name = "pydantic" },
@@ -747,8 +759,8 @@ requires-dist = [
     { name = "aiolifx", specifier = ">=0.11.10" },
     { name = "anyio", specifier = ">=4.12.0" },
     { name = "colour-science", specifier = ">=0.4.4" },
-    { name = "crossplane", specifier = ">=0.5.8" },
     { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "knobly", specifier = ">=1.1,<2" },
     { name = "numpy", specifier = ">=2.3.5" },
     { name = "pint", specifier = ">=0.24" },
     { name = "pydantic", specifier = ">=2.12.5" },

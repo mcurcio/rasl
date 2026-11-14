@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from rasl.config.directive import Directive
+from rasl.config.document import Directive, parse_document
 from rasl.config.loader import _extract_config_dict
 from rasl.engine.frames import MatrixPayload, Frame
 from rasl.engine.graph import Edge, GraphBuilder
@@ -229,23 +229,17 @@ class TestComposeNodeHandle:
         assert len(emitted) == 0
 
 
+def _directive(text: str) -> Directive:
+    """The one directive `text` holds."""
+    return parse_document(text).block[0]
+
+
 class TestExtractBlockDictAccumulation:
     """Tests for repeated directive accumulation in config loader."""
 
     def test_accumulates_repeated_directives(self) -> None:
         """Repeated directives are accumulated as list-of-lists."""
-        # Create Directive tree for:
-        # fill saturation 1;
-        # fill lightness 0.5;
-        directive = Directive(
-            keyword="node",
-            args=(),
-            block=(
-                Directive("fill", ("saturation", "1"), (), 0),
-                Directive("fill", ("lightness", "0.5"), (), 0),
-            ),
-            line=0,
-        )
+        directive = _directive("node { fill saturation 1; fill lightness 0.5; }")
 
         result = _extract_config_dict(directive)
 
@@ -254,14 +248,7 @@ class TestExtractBlockDictAccumulation:
 
     def test_single_directive_not_wrapped(self) -> None:
         """Single directive is not wrapped in extra list."""
-        directive = Directive(
-            keyword="node",
-            args=(),
-            block=(
-                Directive("fill", ("saturation", "1"), (), 0),
-            ),
-            line=0,
-        )
+        directive = _directive("node { fill saturation 1; }")
 
         result = _extract_config_dict(directive)
 
@@ -269,23 +256,7 @@ class TestExtractBlockDictAccumulation:
 
     def test_nested_ports_block(self) -> None:
         """Nested ports block is extracted as list of names."""
-        directive = Directive(
-            keyword="node",
-            args=(),
-            block=(
-                Directive(
-                    keyword="ports",
-                    args=(),
-                    block=(
-                        Directive("hue", (), (), 0),
-                        Directive("saturation", (), (), 0),
-                        Directive("lightness", (), (), 0),
-                    ),
-                    line=0,
-                ),
-            ),
-            line=0,
-        )
+        directive = _directive("node { ports { hue; saturation; lightness; } }")
 
         result = _extract_config_dict(directive)
 

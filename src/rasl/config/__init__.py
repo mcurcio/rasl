@@ -1,7 +1,8 @@
 """RASL Config - Configuration parsing and graph construction.
 
 This package provides utilities for loading RASL graph configurations
-from crossplane-syntax config files.
+from config files written in knobly, rasl's config language
+(https://github.com/mcurcio/knobly).
 
 Example:
     >>> from rasl.config import load_config
@@ -10,10 +11,11 @@ Example:
     >>> # plan is an ExecutionPlan ready for Runtime
 
 New config dispatch system:
-    >>> from rasl.config import Directive, ConfigDispatch, config
+    >>> from rasl.config import ConfigDispatch, config, load_document
     >>>
-    >>> root = Directive.from_file("config.conf")
-    >>> # Use ConfigDispatch to route directives to handlers
+    >>> tree = load_document("config.conf")
+    >>> # tree.block holds the top-level directives;
+    >>> # use ConfigDispatch to route directives to handlers
 """
 
 from .channel_mapping import (
@@ -35,8 +37,8 @@ from .connection import (
     parse_connect_directive,
     parse_port_ref,
 )
-from .directive import Directive
-from .dispatch import ConfigDispatch, ConfigError, config
+from .dispatch import ConfigDispatch, config
+from .document import ConfigError, Directive, load_document, parse_document
 from .loader import load_config, parse_config
 # Re-export node config models from new location for backward compatibility
 from rasl.nodes.models import (
@@ -54,6 +56,7 @@ __all__ = [
     "ConnectionDescriptor",
     "ConnectionSpec",
     "Directive",
+    "load_document",
     "parse_connect_directive",
     "parse_port_ref",
     "PortRef",
@@ -64,6 +67,7 @@ __all__ = [
     "ConnectParseError",
     "load_config",
     "parse_config",
+    "parse_document",
     "parse_connect",
     "parse_connect_batch",
     "ParsedConnect",

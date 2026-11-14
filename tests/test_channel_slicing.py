@@ -73,13 +73,13 @@ class TestConfigParserWithSlices:
     def test_parse_nested_sliced_connect(self):
         """Test parsing nested connect with channel slices."""
         config = """
-        rasl {
+        graph {
             node SineSource sine {
                 output_channels 512;
             }
             node ConsoleSink console {
                 input_port dmx;
-                connect sine[50:150] dmx[0:100];
+                connect sine[50~150] dmx[0~100];
             }
         }
         """
@@ -92,14 +92,14 @@ class TestConfigParserWithSlices:
     def test_parse_multiple_sliced_connects(self):
         """Test parsing multiple sliced connects to same target."""
         config = """
-        rasl {
+        graph {
             node SineSource sine {
                 output_channels 512;
             }
             node ConsoleSink console {
                 input_port dmx;
-                connect sine[0:100] dmx[0:100];
-                connect sine[0:100] dmx[100:200];
+                connect sine[0~100] dmx[0~100];
+                connect sine[0~100] dmx[100~200];
             }
         }
         """
@@ -120,7 +120,7 @@ class TestConfigParserWithSlices:
 class TestRepeatWithoutSlices:
     def test_parse_repeat_without_slices_creates_single_edge_with_repeat(self):
         config = """
-        rasl {
+        graph {
             node literal src matrix [[1,2,3]];
             node ConsoleSink sink {
                 fps 1;
@@ -140,7 +140,7 @@ class TestRepeatWithoutSlices:
 
     def test_parse_repeat_until_without_slices_creates_single_edge(self):
         config = """
-        rasl {
+        graph {
             node literal src matrix [[1,2,3]];
             node ConsoleSink sink {
                 fps 1;
@@ -161,13 +161,13 @@ class TestRepeatWithoutSlices:
 
     def test_repeat_until_with_slices_raises(self):
         config = """
-        rasl {
+        graph {
             node SineSource wave {
                 output_channels 512;
             }
             node ConsoleSink sink {
                 fps 1;
-                connect wave[0:100] {
+                connect wave[0~100] {
                     repeat_until 200;
                 }
             }

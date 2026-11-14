@@ -93,7 +93,7 @@ class TestLiteralNodeConfig:
     def test_parse_color_literal(self) -> None:
         """Test parsing color literal from config."""
         config = """
-        rasl {
+        graph {
             node literal static_hsl color:hsl [[1, 0, 0], [0.5, 0, 0], [0.3, 0, 0]];
         }
         """
@@ -107,7 +107,7 @@ class TestLiteralNodeConfig:
     def test_parse_matrix_literal(self) -> None:
         """Test parsing matrix literal from config."""
         config = """
-        rasl {
+        graph {
             node literal gains matrix [[1.0, 0.9, 0.8, 0.7]];
         }
         """
@@ -118,7 +118,7 @@ class TestLiteralNodeConfig:
     def test_parse_color_without_subtype(self) -> None:
         """Test parsing color literal without subtype defaults to srgb."""
         config = """
-        rasl {
+        graph {
             node literal rgb_color color [[1, 0, 0]];
         }
         """
@@ -129,7 +129,7 @@ class TestLiteralNodeConfig:
     def test_parse_literal_missing_value(self) -> None:
         """Test literal node without value raises error."""
         config = """
-        rasl {
+        graph {
             node literal test color:hsl;
         }
         """
@@ -139,7 +139,7 @@ class TestLiteralNodeConfig:
     def test_literal_connected_to_sink(self) -> None:
         """Test literal node can be connected to a sink."""
         config = """
-        rasl {
+        graph {
             node literal static_hsl color:hsl [[1, 0, 0], [0.5, 0, 0]];
             node ConsoleSink console {
                 fps 1;

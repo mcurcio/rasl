@@ -11,69 +11,9 @@ from typing import Any, Callable, Type, TypeVar, get_origin, get_args
 
 from pydantic import BaseModel
 
-from .directive import Directive
+from .document import ConfigError, Directive, arg_texts, children, line_of
 
 T = TypeVar("T", bound=BaseModel)
-
-
-class ConfigError(Exception):
-    """Configuration parsing error with source location.
-
-    Attributes:
-        message: Description of the error.
-        line: Line number where error occurred (1-indexed).
-        column: Column number where error occurred (0-indexed).
-        source_line: The source line text for display.
-    """
-
-    def __init__(
-        self,
-        message: str,
-        line: int = 0,
-        column: int | None = None,
-        source_line: str | None = None,
-    ) -> None:
-        self.message = message
-        self.line = line
-        self.column = column
-        self.source_line = source_line
-        super().__init__(self._format())
-
-    def _format(self) -> str:
-        """Format error with source location and caret indicator."""
-        parts = []
-        if self.line:
-            parts.append(f"Line {self.line}: {self.message}")
-        else:
-            parts.append(self.message)
-        
-        # Show source line with caret if available
-        if self.source_line is not None:
-            parts.append(f"\n  {self.source_line}")
-            if self.column is not None:
-                parts.append(f"\n  {' ' * self.column}^")
-        
-        return "".join(parts)
-    
-    def with_source(self, source_text: str) -> "ConfigError":
-        """Return new ConfigError with source line extracted from full text.
-        
-        Args:
-            source_text: Full source file content.
-            
-        Returns:
-            New ConfigError with source_line populated.
-        """
-        if self.line > 0:
-            lines = source_text.splitlines()
-            if 0 < self.line <= len(lines):
-                return ConfigError(
-                    self.message,
-                    line=self.line,
-                    column=self.column,
-                    source_line=lines[self.line - 1],
-                )
-        return self
 
 
 def config(keyword: str, model: Type[BaseModel] | None = None):
@@ -81,7 +21,7 @@ def config(keyword: str, model: Type[BaseModel] | None = None):
 
     The decorated method will be called for each directive matching
     the keyword. If a model is specified, the directive's block will
-    be pre-parsed into that model and available via directive.config.
+    be pre-parsed into that model and passed as the second argument.
 
     Args:
         keyword: The directive keyword this method handles.
@@ -92,9 +32,11 @@ def config(keyword: str, model: Type[BaseModel] | None = None):
 
     Example:
         @config("connect", model=ConnectOptions)
-        def handle_connect(self, directive: Directive) -> list[ConnectionSpec]:
-            # directive.config is pre-parsed ConnectOptions
-            return expand_connections(directive)
+        def handle_connect(
+            self, directive: Directive, options: ConnectOptions
+        ) -> list[ConnectionSpec]:
+            # options is the pre-parsed ConnectOptions
+            return expand_connections(directive, options)
     """
 
     def decorator(method: Callable) -> Callable:
@@ -121,7 +63,7 @@ class ConfigDispatch:
 
             @config("custom")
             def handle_custom(self, directive: Directive) -> Something:
-                return Something(directive.args[0])
+                return Something(arg_texts(directive)[0])
 
         # Later:
         config, results = node.dispatch.process(directive, MyNode.Config)
@@ -180,20 +122,18 @@ class ConfigDispatch:
         field_data = self._extract_arg_fields(directive, config_class)
         handler_results: dict[str, list[Any]] = {}
 
-        for child in directive.block:
-            keyword = child.keyword
+        for child in children(directive):
+            keyword = child.name
 
             # Check for @config handler
             if keyword in self._handlers:
                 method, model = self._handlers[keyword]
 
-                # Pre-parse model if specified
+                # Pre-parse model if specified, and hand it to the handler
                 if model is not None:
-                    parsed_config = self.parse_model(child, model)
-                    # Attach to directive (bypass frozen)
-                    object.__setattr__(child, "_config", parsed_config)
-
-                result = method(child)
+                    result = method(child, self.parse_model(child, model))
+                else:
+                    result = method(child)
                 if result is not None:
                     if isinstance(result, list):
                         handler_results.setdefault(keyword, []).extend(result)
@@ -211,7 +151,7 @@ class ConfigDispatch:
                     field_data[keyword] = value
 
             else:
-                raise ConfigError(f"Unknown keyword '{keyword}'", line=child.line)
+                raise ConfigError(f"Unknown keyword '{keyword}'", line=line_of(child))
 
         config = config_class(**field_data)
         return config, handler_results
@@ -235,10 +175,10 @@ class ConfigDispatch:
         """
         data = self._extract_arg_fields(directive, model)
 
-        for child in directive.block:
-            if child.keyword in model.model_fields:
-                field_info = model.model_fields[child.keyword]
-                data[child.keyword] = self._parse_field(child, field_info)
+        for child in children(directive):
+            if child.name in model.model_fields:
+                field_info = model.model_fields[child.name]
+                data[child.name] = self._parse_field(child, field_info)
 
         return model(**data)
 
@@ -261,13 +201,14 @@ class ConfigDispatch:
         """
         data: dict[str, Any] = {}
         arg_fields: list[str] = getattr(model, "arg_fields", [])
+        args = arg_texts(directive)
 
         for i, field_name in enumerate(arg_fields):
-            if i < len(directive.args):
+            if i < len(args):
                 field_info = model.model_fields.get(field_name)
                 if field_info:
                     data[field_name] = self._coerce(
-                        directive.args[i],
+                        args[i],
                         field_info.annotation,
                     )
 
@@ -294,8 +235,9 @@ class ConfigDispatch:
             return self.parse_model(directive, inner_type)
 
         # Primitive → coerce first arg
-        if directive.args:
-            return self._coerce(directive.args[0], inner_type)
+        args = arg_texts(directive)
+        if args:
+            return self._coerce(args[0], inner_type)
 
         return None
 

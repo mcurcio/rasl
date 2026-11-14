@@ -1,7 +1,7 @@
-"""Configuration loader using Directive-based parsing.
+"""Configuration loader over knobly's rendered directive tree.
 
-This module provides the config loader that uses the Directive tree
-for parsing RASL graph configurations.
+This module provides the config loader that builds a RASL graph from the
+directives of a loaded config (see ``rasl.config.document``).
 
 The loader handles:
 - `graph` block: Top-level graph container
@@ -18,40 +18,25 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from rasl.config.connection import parse_port_ref
-from rasl.config.directive import Directive
-from rasl.config.dispatch import ConfigError
+from rasl.config.document import (
+    ConfigError,
+    Directive,
+    Rendered,
+    arg_texts,
+    children,
+    config_error,
+    load_document,
+    parse_document,
+    scalar,
+)
 from rasl.engine.graph import ExecutionPlan, GraphBuilder
 from rasl.engine.registry import ensure_nodes_loaded, get_node_class
-
-
-def _coerce_value(value: str) -> str | int | float | bool:
-    """Coerce a string value to appropriate Python type."""
-    lowered = value.lower()
-    if lowered in ("true", "on", "yes"):
-        return True
-    if lowered in ("false", "off", "no"):
-        return False
-    # Try integer
-    try:
-        return int(value)
-    except ValueError:
-        pass
-    # Try float
-    try:
-        return float(value)
-    except ValueError:
-        pass
-    # Strip surrounding quotes from strings
-    if len(value) >= 2 and value[0] == '"' and value[-1] == '"':
-        return value[1:-1]
-    return value
 
 
 def _extract_config_dict(
     directive: Directive,
     exclude: set[str] | None = None,
-    line_map: dict[str, int] | None = None,
+    placed: dict[str, Directive] | None = None,
 ) -> dict[str, Any]:
     """Extract config dict from directive block.
 
@@ -61,7 +46,8 @@ def _extract_config_dict(
     Args:
         directive: Directive to extract config from.
         exclude: Keywords to skip (e.g., "connect").
-        line_map: Optional dict to populate with key -> line number mapping.
+        placed: Optional dict to populate with key -> the directive that set it
+            (the last one, for a repeated key), for error reporting.
 
     Returns:
         Dict suitable for Pydantic model_validate().
@@ -69,12 +55,12 @@ def _extract_config_dict(
     exclude = exclude or set()
     result: dict[str, Any] = {}
 
-    def _accumulate(key: str, value: Any, line: int) -> None:
+    def _accumulate(key: str, value: Any, at: Directive) -> None:
         """Add value to result, accumulating repeated keys."""
         if key not in result:
             result[key] = value
-            if line_map is not None:
-                line_map[key] = line
+            if placed is not None:
+                placed[key] = at
         else:
             existing = result[key]
             if not isinstance(existing, list):
@@ -83,15 +69,15 @@ def _extract_config_dict(
                 existing.append(value)
             else:
                 result[key] = [existing, value]
-            if line_map is not None:
-                line_map[key] = line
+            if placed is not None:
+                placed[key] = at
 
-    def _accumulate_block(key: str, value: Any, line: int) -> None:
+    def _accumulate_block(key: str, value: Any, at: Directive) -> None:
         """Add nested block value to result, preserving repeats."""
         if key not in result:
             result[key] = value
-            if line_map is not None:
-                line_map[key] = line
+            if placed is not None:
+                placed[key] = at
             return
 
         existing = result[key]
@@ -99,42 +85,44 @@ def _extract_config_dict(
             result[key] = [existing, value]
         else:
             result[key].append(value)
-        if line_map is not None:
-            line_map[key] = line
+        if placed is not None:
+            placed[key] = at
 
-    for child in directive.block:
-        if child.keyword in exclude:
+    for child in children(directive):
+        keyword = child.name
+        if keyword in exclude:
             continue
+        values = [scalar(value) for value in child.values]
 
         if child.block:
             # Nested block
             child_dict = _extract_config_dict(child)
-            if child.args:
-                arg_values = [_coerce_value(a) for a in child.args]
+            if values:
+                arg_values = values
                 child_dict = dict(child_dict)
                 if len(arg_values) == 1:
                     child_dict.setdefault("id", arg_values[0])
                 else:
                     child_dict.setdefault("_args", arg_values)
-            if child.keyword == "segment":
+            if keyword == "segment":
                 result.setdefault("segments", []).append(child_dict)
-            elif child.keyword == "defaults":
+            elif keyword == "defaults":
                 result["defaults"] = child_dict
-            elif child.keyword == "ports":
+            elif keyword == "ports":
                 # Special handling for ports block - extract as list of names
-                result["ports"] = [d.keyword for d in child.block]
+                result["ports"] = [d.name for d in child.block]
             else:
-                _accumulate_block(child.keyword, child_dict, child.line)
-        elif len(child.args) == 0:
+                _accumulate_block(keyword, child_dict, child)
+        elif len(values) == 0:
             # Flag directive
-            result[child.keyword] = True
-            if line_map is not None:
-                line_map[child.keyword] = child.line
-        elif len(child.args) == 1:
-            _accumulate(child.keyword, _coerce_value(child.args[0]), child.line)
+            result[keyword] = True
+            if placed is not None:
+                placed[keyword] = child
+        elif len(values) == 1:
+            _accumulate(keyword, values[0], child)
         else:
             # Multiple args -> list
-            _accumulate(child.keyword, [_coerce_value(a) for a in child.args], child.line)
+            _accumulate(keyword, values, child)
 
     return result
 
@@ -159,7 +147,8 @@ def _build_node(
     node_type: str,
     node_id: str,
     directive: Directive,
-    extra_args: dict[str, str] | None = None,
+    tree: Rendered,
+    extra_args: dict[str, Any] | None = None,
 ) -> Any:
     """Build a node instance from directive.
 
@@ -167,6 +156,7 @@ def _build_node(
         node_type: Node type name.
         node_id: Unique node identifier.
         directive: Directive containing node config.
+        tree: The rendered config the directive belongs to.
         extra_args: Additional config from positional args.
 
     Returns:
@@ -177,19 +167,23 @@ def _build_node(
     """
     node_class = get_node_class(node_type)
     if node_class is None:
-        raise ConfigError(f"Unknown node type '{node_type}'", line=directive.line)
+        raise config_error(
+            directive, f"Unknown node type '{node_type}'", code="rasl/unknown-node", tree=tree
+        )
 
     config_class = getattr(node_class, "Config", None)
     if config_class is None:
-        raise ConfigError(
+        raise config_error(
+            directive,
             f"Node type '{node_type}' does not define a Config class",
-            line=directive.line,
+            code="rasl/unknown-node",
+            tree=tree,
         )
 
     # Extract config, excluding connect directives
-    # Track line numbers for each key for better error reporting
-    line_map: dict[str, int] = {}
-    raw_config = _extract_config_dict(directive, exclude={"connect", "edge"}, line_map=line_map)
+    # Track the directive that set each key for better error reporting
+    placed: dict[str, Directive] = {}
+    raw_config = _extract_config_dict(directive, exclude={"connect", "edge"}, placed=placed)
     raw_config["id"] = node_id
 
     # Merge extra args
@@ -207,57 +201,56 @@ def _build_node(
     try:
         validated_config = config_class.model_validate(raw_config)
     except ValidationError as e:
-        # Find the line number for the first error key
-        error_line = directive.line
+        # Place the error on the directive that set the first failing key
+        at = directive
         for err in e.errors():
             if err['loc']:
                 key = str(err['loc'][0])
-                if key in line_map:
-                    error_line = line_map[key]
+                if key in placed:
+                    at = placed[key]
                     break
-        
+
         errors = "; ".join(
             f"{'.'.join(str(x) for x in err['loc'])}: {err['msg']}"
             for err in e.errors()
         )
-        raise ConfigError(f"Invalid config for node '{node_id}': {errors}", line=error_line)
+        raise config_error(
+            at,
+            f"Invalid config for node '{node_id}': {errors}",
+            code="rasl/invalid-node",
+            tree=tree,
+        ) from None
 
     return node_class(validated_config)
 
 
-def parse_config(config_text: str) -> ExecutionPlan:
-    """Parse config text and build an ExecutionPlan.
-
-    Args:
-        config_text: Configuration in crossplane/nginx syntax.
-
-    Returns:
-        Compiled ExecutionPlan ready for Runtime.
+def _build_plan(tree: Rendered) -> ExecutionPlan:
+    """Build an ExecutionPlan from a rendered config.
 
     Raises:
-        ConfigError: If parsing fails or config is invalid.
+        ConfigError: If the config is invalid.
     """
     ensure_nodes_loaded()
 
-    # Parse to Directive tree
-    root = Directive.from_string(config_text)
+    def node_error(at: Directive, message: str) -> ConfigError:
+        return config_error(at, message, code="rasl/node-syntax", tree=tree)
 
     # Find graph block
-    graph_directive = root.find_one("graph")
-    if not graph_directive:
-        raise ConfigError("No 'graph' block found in configuration")
+    graph_directives = tree.block.directives("graph")
+    if not graph_directives:
+        raise config_error(
+            tree, "No 'graph' block found in configuration", code="rasl/no-graph", tree=tree
+        )
+    graph_directive = graph_directives[0]
 
     builder = GraphBuilder()
     node_directives: dict[str, Directive] = {}  # Track directives for connect parsing
 
     # First pass: build all nodes
-    for directive in graph_directive.block:
-        if directive.keyword != "node":
-            continue
-
-        args = directive.args
+    for directive in children(graph_directive, "node"):
+        args = arg_texts(directive)
         if not args:
-            raise ConfigError("Node directive requires a name", line=directive.line)
+            raise node_error(directive, "Node directive requires a name")
 
         # Parse node syntax variants
         node_type = args[0]
@@ -266,14 +259,15 @@ def parse_config(config_text: str) -> ExecutionPlan:
         # node literal <name> <kind>:<subtype> <literal_value...>;
         if node_type in ("literal", "Literal", "LiteralNode"):
             if len(args) < 4:
-                raise ConfigError(
+                raise node_error(
+                    directive,
                     "literal node requires: node literal <name> <kind:subtype> <value>;",
-                    line=directive.line,
                 )
             node_id = args[1]
             type_spec = args[2]
-            # Rejoin remaining args as the literal value string
-            literal_value = " ".join(args[3:])
+            # The literal value string is the canonical text of the remaining values
+            # (a list as "[[1, 0, 0], [0.5, 0, 0]]", a string in double quotes)
+            literal_value = " ".join(value.text for value in directive.values[3:])
             
             # Parse type_spec (e.g., "color:hsl" -> kind="color", subtype="hsl")
             if ":" in type_spec:
@@ -289,10 +283,10 @@ def parse_config(config_text: str) -> ExecutionPlan:
             }
         elif len(args) == 1:
             node_id = args[0]
-            type_directive = directive.find_one("type")
-            if not type_directive or not type_directive.args:
-                raise ConfigError(f"Node '{node_id}' requires 'type' directive", line=directive.line)
-            node_type = type_directive.args[0]
+            type_args = [arg_texts(d) for d in children(directive, "type")[:1]]
+            if not type_args or not type_args[0]:
+                raise node_error(directive, f"Node '{node_id}' requires 'type' directive")
+            node_type = type_args[0][0]
             extra_args = {}
         elif len(args) == 2:
             node_id = args[1]
@@ -301,14 +295,13 @@ def parse_config(config_text: str) -> ExecutionPlan:
             # node cron <name> <field1> [field2 ... field5];
             # Missing trailing fields are treated as "*" by the node.
             if len(args) < 3:
-                raise ConfigError(
+                raise node_error(
+                    directive,
                     "cron node requires: node cron <name> <field1> [field2 ... field5];",
-                    line=directive.line,
                 )
             if len(args) > 7:
-                raise ConfigError(
-                    f"cron node supports 1-5 fields, got {len(args) - 2}",
-                    line=directive.line,
+                raise node_error(
+                    directive, f"cron node supports 1-5 fields, got {len(args) - 2}"
                 )
             node_id = args[1]
             extra_args = {"schedule": list(args[2:])}
@@ -317,17 +310,16 @@ def parse_config(config_text: str) -> ExecutionPlan:
             if node_type in ("Color", "ColorNode"):
                 extra_args = {"model": args[2]}
             else:
-                raise ConfigError(
+                raise node_error(
+                    directive,
                     f"Node type '{node_type}' does not accept a third positional argument",
-                    line=directive.line,
                 )
         else:
-            raise ConfigError(
-                f"Node directive takes 1-3 arguments, got {len(args)}",
-                line=directive.line,
+            raise node_error(
+                directive, f"Node directive takes 1-3 arguments, got {len(args)}"
             )
 
-        node = _build_node(node_type, node_id, directive, extra_args=extra_args)
+        node = _build_node(node_type, node_id, directive, tree, extra_args=extra_args)
         builder.add_node(node)
         node_directives[node_id] = directive
 
@@ -343,6 +335,23 @@ def parse_config(config_text: str) -> ExecutionPlan:
 
     return builder.build()
 
+
+
+def parse_config(config_text: str) -> ExecutionPlan:
+    """Parse config text and build an ExecutionPlan.
+
+    Args:
+        config_text: Configuration in knobly syntax.
+
+    Returns:
+        Compiled ExecutionPlan ready for Runtime.
+
+    Raises:
+        ConfigError: If parsing fails or config is invalid.
+    """
+    return _build_plan(parse_document(config_text))
+
+
 def load_config(config_path: str | Path) -> ExecutionPlan:
     """Load config from file and build an ExecutionPlan.
 
@@ -356,13 +365,4 @@ def load_config(config_path: str | Path) -> ExecutionPlan:
         ConfigError: If loading or parsing fails.
         FileNotFoundError: If config file doesn't exist.
     """
-    path = Path(config_path)
-    if not path.exists():
-        raise FileNotFoundError(f"Config file not found: {path}")
-
-    config_text = path.read_text()
-    try:
-        return parse_config(config_text)
-    except ConfigError as e:
-        # Enrich error with source line for display
-        raise e.with_source(config_text) from None
+    return _build_plan(load_document(config_path))

@@ -22,7 +22,7 @@ class TestParseConfig:
     def test_parse_simple_sine_source(self):
         """Test parsing a simple SineSource node."""
         config = """
-        rasl {
+        graph {
             node SineSource sine {
                 output_channels 512;
                 frequency_hz 2.0;
@@ -43,7 +43,7 @@ class TestParseConfig:
     def test_parse_sine_source_with_defaults(self):
         """Test that SineSource uses default values."""
         config = """
-        rasl {
+        graph {
             node SineSource sine {
             }
         }
@@ -58,7 +58,7 @@ class TestParseConfig:
     def test_parse_console_sink(self):
         """Test parsing a ConsoleSink node."""
         config = """
-        rasl {
+        graph {
             node ConsoleSink console {
                 input_port dmx;
                 max_channels 24;
@@ -77,7 +77,7 @@ class TestParseConfig:
     def test_parse_sacn_sink_requires_target_host(self):
         """Test that SacnSink requires target_host."""
         config = """
-        rasl {
+        graph {
             node SacnSink sink {
                 input_port universe0;
                 target_universe 0;
@@ -90,7 +90,7 @@ class TestParseConfig:
     def test_parse_connections(self):
         """Test parsing edge connections (inside node blocks)."""
         config = """
-        rasl {
+        graph {
             node SineSource sine {
                 output_channels 512;
             }
@@ -112,7 +112,7 @@ class TestParseConfig:
     def test_parse_unknown_node_type_raises(self):
         """Test that unknown node type raises ConfigError."""
         config = """
-        rasl {
+        graph {
             node UnknownType foo {
             }
         }
@@ -127,13 +127,36 @@ class TestParseConfig:
             node SineSource sine {}
         }
         """
-        with pytest.raises(ConfigError, match="No 'rasl' block"):
+        with pytest.raises(ConfigError, match="No 'graph' block"):
             parse_config(config)
+
+    def test_errors_are_placed_in_the_config(self):
+        """A loader error names the place and shows the source line."""
+        config = "graph {\n    node NonExistentNode test {}\n}\n"
+        with pytest.raises(ConfigError) as exc_info:
+            parse_config(config)
+
+        error = exc_info.value
+        assert error.message == "Unknown node type 'NonExistentNode'"
+        assert error.line == 2
+        assert str(error) == (
+            "config:2:5: rasl/unknown-node: Unknown node type 'NonExistentNode'\n"
+            "    node NonExistentNode test {}\n"
+            "    ^^^^"
+        )
+
+    def test_invalid_field_is_placed_on_its_directive(self):
+        config = "graph {\n    node SineSource sine {\n        fps 30;\n        output_channels many;\n    }\n}\n"
+        with pytest.raises(ConfigError, match="Invalid config for node 'sine'") as exc_info:
+            parse_config(config)
+
+        assert exc_info.value.line == 4
+        assert [d.code for d in exc_info.value.diagnostics] == ["rasl/invalid-node"]
 
     def test_parse_invalid_config_field_raises(self):
         """Test that invalid config field raises ConfigError."""
         config = """
-        rasl {
+        graph {
             node SineSource sine {
                 frequency_hz 999;
             }
@@ -146,7 +169,7 @@ class TestParseConfig:
     def test_parse_with_metadata(self):
         """Test parsing node with metadata."""
         config = '''
-        rasl {
+        graph {
             node SineSource sine {
                 metadata "colorSpace=rgb";
             }
@@ -159,7 +182,7 @@ class TestParseConfig:
     def test_parse_legacy_type_syntax(self):
         """Test parsing with legacy 'type' directive syntax."""
         config = """
-        rasl {
+        graph {
             node sine {
                 type SineSource;
                 output_channels 256;
@@ -173,7 +196,7 @@ class TestParseConfig:
     def test_parse_node_aliases(self):
         """Test that node type aliases work."""
         config = """
-        rasl {
+        graph {
             node SineSourceNode sine {
                 output_channels 128;
             }
@@ -189,7 +212,7 @@ class TestDefaultPorts:
     def test_default_input_port(self):
         """Test that single input port is used as default."""
         config = """
-        rasl {
+        graph {
             node SineSource sine {}
             node ConsoleSink console {
                 input_port dmx;
@@ -204,7 +227,7 @@ class TestDefaultPorts:
     def test_nested_connect_uses_current_node_as_target(self):
         """Test that nested connect with single arg targets current node."""
         config = """
-        rasl {
+        graph {
             node SineSource sine {}
             node ConsoleSink console {
                 input_port dmx;
