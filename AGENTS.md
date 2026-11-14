@@ -20,8 +20,8 @@ uv run pytest                                      # Python (repo root)
 ```
 
 The Python runtime reads config files with [knobly](https://github.com/mcurcio/knobly) (`src/rasl/config/document.py`
-is the one module that imports it). knobly has no release yet, so `pyproject.toml` pins a git commit and `uv sync`
-builds it, which needs bash, Java 11+ and `curl` (knobly generates its parser at build time).
+is the one module that imports it). knobly is not on PyPI: `pyproject.toml` pins the wheel of a GitHub release
+(https://github.com/mcurcio/knobly/releases), so `uv sync` needs nothing beyond `uv`.
 
 CI is disabled (owner, 2026-10-21: "Disable the workflows"). `.github/workflows/build.yml`
 is stale (it expects npm at the repo root) and its `publish` job runs `lerna publish` on

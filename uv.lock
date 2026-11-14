@@ -376,11 +376,17 @@ wheels = [
 
 [[package]]
 name = "knobly"
-version = "0.0.0"
-source = { git = "https://github.com/mcurcio/knobly?subdirectory=py&rev=0c6c7c35df69d55113fb21949865507c7822525a#0c6c7c35df69d55113fb21949865507c7822525a" }
+version = "1.0.0"
+source = { url = "https://github.com/mcurcio/knobly/releases/download/v1.0.0/knobly-1.0.0-py3-none-any.whl" }
 dependencies = [
     { name = "antlr4-python3-runtime" },
 ]
+wheels = [
+    { url = "https://github.com/mcurcio/knobly/releases/download/v1.0.0/knobly-1.0.0-py3-none-any.whl", hash = "sha256:e709fa15c61af0ed54ed5450134aacfe9a68a53862d40563fd4a0c602386d41e" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "antlr4-python3-runtime", specifier = "==4.13.2" }]
 
 [[package]]
 name = "lia-web"
@@ -756,7 +762,7 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.12.0" },
     { name = "colour-science", specifier = ">=0.4.4" },
     { name = "fastapi", specifier = ">=0.115.0" },
-    { name = "knobly", git = "https://github.com/mcurcio/knobly?subdirectory=py&rev=0c6c7c35df69d55113fb21949865507c7822525a" },
+    { name = "knobly", url = "https://github.com/mcurcio/knobly/releases/download/v1.0.0/knobly-1.0.0-py3-none-any.whl" },
     { name = "numpy", specifier = ">=2.3.5" },
     { name = "pint", specifier = ">=0.24" },
     { name = "pydantic", specifier = ">=2.12.5" },

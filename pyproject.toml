@@ -20,7 +20,7 @@ dependencies = [
     "uvicorn>=0.34.0",
     "websockets>=14.0",
     "pint>=0.24",
-    "knobly",
+    "knobly @ https://github.com/mcurcio/knobly/releases/download/v1.0.0/knobly-1.0.0-py3-none-any.whl",
 ]
 
 [project.scripts]
@@ -44,8 +44,3 @@ dev = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-v --tb=short"
-
-# knobly has no release yet: this is the commit on its branch claude/festive-mccarthy-3ljv1b whose build generates
-# the parser. Re-pin to a main commit once that lands (rasl-8st.2).
-[tool.uv.sources]
-knobly = { git = "https://github.com/mcurcio/knobly", subdirectory = "py", rev = "0c6c7c35df69d55113fb21949865507c7822525a" }
