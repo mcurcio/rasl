@@ -44,9 +44,11 @@ runs `lerna publish` on every push to them once `lint` and `test` pass (currentl
 - **Every session works in its own worktree; the main checkout stays on `main`** (owner,
   2026-10-21: "the main checkout can sit on main, and new sessions should create worktrees").
   Never work, commit or switch branches in the main checkout.
-- **The main checkout hosts the shared beads database.** Every worktree's `bd` resolves to
-  its `.beads/` (`bd where` shows it). The tracked `.beads/` files are on `main` too (owner,
-  2026-10-21: "Push the beads to main"), so the main checkout has its settings.
+- **The main checkout hosts the machine's beads database.** Every worktree's `bd` resolves to
+  its `.beads/` (`bd where` shows it), so the worktrees on one machine share one local
+  database. The tracked `.beads/` files are on `main` too (owner, 2026-10-21: "Push the beads
+  to main"), so the main checkout has its settings. The beads themselves travel in
+  `.beads/issues.jsonl` on each branch (Task tracking, below), not in that database.
 
 ## Code search: codegraph
 
@@ -70,14 +72,20 @@ beads, not by editing the plans (owner, 2026-10-21: "so we can stop maintaining 
   (`bd create`, with `--deps` for what blocks it); record decided rules in the bead's design
   field, not in a new file.
 - **After work:** `bd close <id>` for finished work; update the rest.
-- **Sync to GitHub** (owner, 2026-10-21: ".beads should be kept up to date on GitHub"): the
-  beads database's Dolt remote is `origin`, stored at `refs/dolt/data` on GitHub. A `Stop`
-  hook in `.claude/settings.json` runs `bd dolt push` in the background after every Claude
-  turn (failures go to `$TMPDIR/rasl-beads-push.log`). Agents without that hook run
-  `bd dolt push` after changing beads. On a new machine, `bd dolt pull` fetches it.
-- **Readable snapshot:** also run `bd export -o .beads/issues.jsonl` and commit it with the
-  work, so each PR shows the issue changes.
-- A `SessionStart` hook (`.claude/settings.json`) runs `bd prime` for workflow context.
+- **Sync to GitHub** (owner, 2026-10-21: ".beads should be kept up to date on GitHub"):
+  `.beads/issues.jsonl` is the shared copy of the beads, one per line, committed with the work
+  so each PR shows the issue changes. The database `bd` reads is local to each machine, built
+  from that file, and never pushed (owner, 2026-11-14: "make the change": cloud sessions can
+  push only their own branch, so the database's own remote went stale).
+  - **Start of a session:** `bd bootstrap; bd import .beads/issues.jsonl` builds or refreshes
+    the local database. The import never overwrites a bead that is newer locally. Run it again
+    after pulling or switching branches.
+  - **After changing beads:** `bd export -o .beads/issues.jsonl`, and commit the file.
+  - Hooks in `.claude/settings.json` do both for Claude: `SessionStart` imports and runs
+    `bd prime` for workflow context; `Stop` exports after every turn. Other agents run the two
+    commands themselves. Do not run `bd dolt push` or `bd dolt pull`.
+  - Two branches that both change beads can conflict in `issues.jsonl`. Keep both sides' lines;
+    for one bead changed on both, keep the line with the later `updated_at`.
 
 ## Landing work
 

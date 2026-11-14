@@ -15,7 +15,7 @@
       {
         "hooks": [
           {
-            "command": "(bd dolt push >/dev/null 2>&1 || echo \"$(date) bd dolt push failed in $PWD\" >> \"${TMPDIR:-/tmp}/rasl-beads-push.log\") &",
+            "command": "bd export -o .beads/issues.jsonl >/dev/null 2>&1 || true",
             "type": "command"
           }
         ],
@@ -26,7 +26,7 @@
       {
         "hooks": [
           {
-            "command": "bd prime",
+            "command": "(bd bootstrap; bd import .beads/issues.jsonl) >/dev/null 2>&1; bd prime",
             "type": "command"
           }
         ],
