@@ -15,10 +15,11 @@ from __future__ import annotations
 
 import contextlib
 import gc
+import math
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
 import anyio
 import numpy as np
@@ -31,6 +32,9 @@ from rasl.engine.nodes import Node, NodeContext, get_inputs, get_outputs
 from rasl.engine.ports import InputPort, OutputPort, PortGroup
 from rasl.engine.tick import TickContext
 from rasl.runtime.monitor import NodeMonitor
+
+if TYPE_CHECKING:
+    from rasl.config.reload import PlanUpdate
 
 logger = structlog.get_logger()
 
@@ -161,11 +165,8 @@ class UnifiedScheduler:
         self._plan = plan
         self._monitor = NodeMonitor()
 
-        # Find rate-driving sinks
-        self._rate_drivers = self._find_rate_drivers()
-
-        # Build schedule (if any rate drivers exist)
-        self._schedule = self._build_schedule() if self._rate_drivers else []
+        # A plan update waiting for the next tick boundary (request_update)
+        self._pending_update: Optional[Tuple["PlanUpdate", anyio.Event]] = None
 
         # Push queue and wake signal
         self._push_queue: deque[PushedFrame] = deque()
@@ -179,33 +180,22 @@ class UnifiedScheduler:
         self._previous_outputs: Dict[Tuple[str, str], Frame] = {}
 
         # Cycle detection
-        self._back_edges = self._find_back_edges()
         self._in_progress: Set[str] = set()
         self._pulled_this_tick: Set[str] = set()
 
-        # Build reverse adjacency: target_node -> list of incoming edges
-        self._incoming: Dict[str, List[Edge]] = defaultdict(list)
-        for source, edges in plan.adjacency.items():
-            for edge in edges:
-                self._incoming[edge.target].append(edge)
-
-        self._input_programs_by_node: Dict[str, List[InputPortProgram]] = defaultdict(list)
-        for (target_node_id, _), program in plan.input_programs.items():
-            self._input_programs_by_node[target_node_id].append(program)
-
         self._port_buffers: Dict[Tuple[str, str], np.ndarray] = {}
+
+        # Timing diagnostics
+        self._timing = TimingStats()
+
+        # Everything worked out from the plan: schedule, back-edges, routing
+        self._derive_from_plan()
 
         # Runtime state (populated in run())
         self._node_runtimes: Dict[str, NodeRuntime] = {}
         self._t0: float = 0.0
         self._tick: int = 0
         self._task_group: Optional[anyio.abc.TaskGroup] = None
-
-        # Timing diagnostics
-        self._timing = TimingStats()
-        for sink_id, hz in self._rate_drivers.items():
-            self._timing.sink_target_interval[sink_id] = 1.0 / hz
-            self._timing.pull_duration_samples[sink_id] = deque(maxlen=100)
 
         # GC optimization: disable automatic GC during tick execution
         self._gc_disabled_during_tick = False
@@ -217,6 +207,120 @@ class UnifiedScheduler:
         self._last_tick_target_time: float | None = None
         self._last_tick_dispatch_time: float | None = None
         self._last_tick_latency_ms: float | None = None
+
+    def _derive_from_plan(self) -> None:
+        """Work out the schedule and routing tables from ``self._plan``.
+
+        Called at construction and again after a plan update (at a tick boundary).
+        """
+        plan = self._plan
+
+        # Find rate-driving sinks
+        self._rate_drivers = self._find_rate_drivers()
+
+        # Build schedule (if any rate drivers exist)
+        self._schedule = self._build_schedule() if self._rate_drivers else []
+
+        self._back_edges = self._find_back_edges()
+
+        # Build reverse adjacency: target_node -> list of incoming edges
+        self._incoming: Dict[str, List[Edge]] = defaultdict(list)
+        for source, edges in plan.adjacency.items():
+            for edge in edges:
+                self._incoming[edge.target].append(edge)
+
+        self._input_programs_by_node: Dict[str, List[InputPortProgram]] = defaultdict(list)
+        for (target_node_id, _), program in plan.input_programs.items():
+            self._input_programs_by_node[target_node_id].append(program)
+
+        for sink_id, hz in self._rate_drivers.items():
+            self._timing.sink_target_interval[sink_id] = 1.0 / hz
+            self._timing.pull_duration_samples.setdefault(sink_id, deque(maxlen=100))
+
+    @property
+    def plan(self) -> ExecutionPlan:
+        """The plan now running. A plan update replaces it at a tick boundary."""
+        return self._plan
+
+    def request_update(self, update: "PlanUpdate") -> anyio.Event:
+        """Ask for a new plan to replace the running one at the next tick boundary.
+
+        The update names what differs (``rasl.config.reload.PlanUpdate``): nodes it
+        removes or replaces are stopped, nodes it adds are started, nodes that take
+        their new config in place get it, and every other node keeps running
+        untouched while the routing and the schedule are rebuilt around it.
+
+        Args:
+            update: The new plan and how it differs from the running one.
+
+        Returns:
+            An event set once the update has been applied.
+
+        Raises:
+            RuntimeError: If an earlier update is still waiting.
+        """
+        if self._pending_update is not None:
+            raise RuntimeError("a plan update is already waiting to be applied")
+        done = anyio.Event()
+        self._pending_update = (update, done)
+        return done
+
+    async def _apply_pending_update(self) -> None:
+        """Swap in the waiting plan. Runs between ticks, never during one."""
+        assert self._pending_update is not None
+        update, done = self._pending_update
+        started = time.monotonic()
+        try:
+            # Stop what goes away: removed nodes, and old objects of replaced ones
+            stopping = set(update.removed) | set(update.restarted)
+            for node_id in reversed(self._plan.topological_order):
+                if node_id in stopping:
+                    await self._stop_node(node_id)
+                    self._node_runtimes.pop(node_id, None)
+
+            # Nothing computed for the old plan may leak into the new one
+            self._frame_cache.clear()
+            self._pulled_this_tick.clear()
+            self._port_buffers.clear()
+            for key in [k for k in self._previous_outputs if k[0] in stopping]:
+                del self._previous_outputs[key]
+            # A stopped node's timing history says nothing about the next one's
+            for node_id in stopping:
+                self._timing.sink_target_interval.pop(node_id, None)
+                self._timing.pull_duration_samples.pop(node_id, None)
+                self._timing.sink_last_pull.pop(node_id, None)
+                self._timing.sink_last_target_time.pop(node_id, None)
+
+            # Nodes that take new settings without a restart
+            for node_id, config in update.updated.items():
+                try:
+                    self._plan.nodes[node_id].update_config(config)
+                except Exception as e:
+                    logger.error("node_update_failed", node_id=node_id, error=str(e))
+
+            self._plan = update.plan
+            self._derive_from_plan()
+
+            for node_id in self._plan.topological_order:
+                self._bind_ports(node_id)
+                if node_id not in self._node_runtimes:
+                    try:
+                        await self._start_node(node_id)
+                    except Exception as e:
+                        logger.error("node_start_failed", node_id=node_id, error=str(e))
+
+            logger.info(
+                "plan_updated",
+                added=list(update.added),
+                removed=list(update.removed),
+                restarted=list(update.restarted),
+                updated=list(update.updated),
+                rerouted=list(update.rerouted),
+                duration_ms=round((time.monotonic() - started) * 1000, 2),
+            )
+        finally:
+            self._pending_update = None
+            done.set()
 
     def enable_profiling(self, enabled: bool = True) -> None:
         """Enable detailed profiling of populate() and node execution."""
@@ -400,11 +504,15 @@ class UnifiedScheduler:
                 # Initialize all nodes
                 await self._initialize_nodes()
 
-                if not self._schedule:
-                    # No rate drivers - only process push events
-                    await self._run_push_only()
-                else:
-                    await self._run_scheduled()
+                # Each loop returns after a plan update, which may change the mode
+                resume = False
+                while True:
+                    if not self._schedule:
+                        # No rate drivers - only process push events
+                        await self._run_push_only()
+                    else:
+                        await self._run_scheduled(resume)
+                    resume = True
 
         finally:
             # Stop all nodes
@@ -413,67 +521,88 @@ class UnifiedScheduler:
     async def _initialize_nodes(self) -> None:
         """Initialize all nodes and their runtime state."""
         for node_id in self._plan.topological_order:
-            node = self._plan.nodes[node_id]
+            self._bind_ports(node_id)
+            await self._start_node(node_id)
 
-            # Get port groups from node (already contain InputPort/OutputPort objects)
-            inputs = get_inputs(node)
-            outputs = get_outputs(node)
+    def _bind_ports(self, node_id: str) -> None:
+        """Tell a node's ports how the plan connects them.
 
-            # Mark connected inputs
-            for edge in self._incoming[node_id]:
-                port = inputs.get(edge.target_port) if inputs else None
-                if port and isinstance(port, InputPort):
-                    port._has_upstream = True
+        Run for every node at start and again after a plan update, since a node
+        that keeps running may have gained or lost connections.
+        """
+        node = self._plan.nodes[node_id]
+        inputs = get_inputs(node)
+        outputs = get_outputs(node)
 
-            # Configure output ports for push sources (no incoming edges)
-            if not self._incoming[node_id] and outputs:
-                for output_port in outputs:
-                    if isinstance(output_port, OutputPort):
-                        output_port._node_id = node_id
-                        output_port._on_write = self._on_push_write
+        # Mark connected inputs
+        connected = {edge.target_port for edge in self._incoming[node_id]}
+        if inputs:
+            for port in inputs:
+                if isinstance(port, InputPort):
+                    port._has_upstream = port.name in connected
 
-            # Create node context
-            node_logger = logger.bind(node=f"{type(node).__name__}.{node_id}")
+        # Configure output ports for push sources (no incoming edges)
+        if outputs:
+            is_push_source = not self._incoming[node_id]
+            for output_port in outputs:
+                if isinstance(output_port, OutputPort):
+                    output_port._node_id = node_id
+                    output_port._on_write = self._on_push_write if is_push_source else None
 
-            def make_inject(nid: str):
-                def _inject(port: str, frame: Frame) -> None:
-                    self.inject(nid, port, frame)
-                return _inject
+    async def _start_node(self, node_id: str) -> None:
+        """Give a node its runtime state and start it."""
+        node = self._plan.nodes[node_id]
 
-            def make_start_background():
-                def _start_background(fn: Any, args: Tuple[Any, ...]) -> None:
-                    if self._task_group:
-                        self._task_group.start_soon(fn, *args)
-                return _start_background
+        # Get port groups from node (already contain InputPort/OutputPort objects)
+        inputs = get_inputs(node)
+        outputs = get_outputs(node)
 
-            ctx = NodeContext(
-                node_id=node_id,
-                logger=node_logger,
-                _start_background=make_start_background(),
-                _inject=make_inject(node_id),
-            )
+        # Create node context
+        node_logger = logger.bind(node=f"{type(node).__name__}.{node_id}")
 
-            async def _emit(port: str, frame: Frame) -> None:
-                out = outputs.get(port) if outputs else None
-                if out is None:
-                    return
-                if isinstance(out, OutputPort):
-                    out.write(frame)
+        def _inject(port: str, frame: Frame) -> None:
+            self.inject(node_id, port, frame)
 
-            ctx.emit = _emit
+        def _start_background(fn: Any, args: Tuple[Any, ...]) -> None:
+            if self._task_group:
+                self._task_group.start_soon(fn, *args)
 
-            runtime = NodeRuntime(
-                node=node,
-                bound_inputs=inputs,
-                bound_outputs=outputs,
-                ctx=ctx,
-                last_invoke_time=self._t0,
-            )
-            self._node_runtimes[node_id] = runtime
+        ctx = NodeContext(
+            node_id=node_id,
+            logger=node_logger,
+            _start_background=_start_background,
+            _inject=_inject,
+        )
 
-            # Start the node
-            await node.start(ctx)
-            logger.debug("node_started", node_id=node_id)
+        async def _emit(port: str, frame: Frame) -> None:
+            out = outputs.get(port) if outputs else None
+            if out is None:
+                return
+            if isinstance(out, OutputPort):
+                out.write(frame)
+
+        ctx.emit = _emit
+
+        # Registered before start, so a node whose start fails is still stopped
+        self._node_runtimes[node_id] = NodeRuntime(
+            node=node,
+            bound_inputs=inputs,
+            bound_outputs=outputs,
+            ctx=ctx,
+            last_invoke_time=time.monotonic(),
+        )
+
+        await node.start(ctx)
+        logger.debug("node_started", node_id=node_id)
+
+    async def _stop_node(self, node_id: str) -> None:
+        """Stop one node, whatever it raises."""
+        runtime = self._node_runtimes.get(node_id)
+        if runtime:
+            with anyio.CancelScope(shield=True):
+                with contextlib.suppress(Exception):
+                    await runtime.node.stop(runtime.ctx)
+                    logger.debug("node_stopped", node_id=node_id)
 
     async def _shutdown_nodes(self) -> None:
         """Stop all nodes gracefully."""
@@ -483,27 +612,40 @@ class UnifiedScheduler:
             self._gc_disabled_during_tick = False
         
         for node_id in reversed(self._plan.topological_order):
-            runtime = self._node_runtimes.get(node_id)
-            if runtime:
-                with anyio.CancelScope(shield=True):
-                    with contextlib.suppress(Exception):
-                        await runtime.node.stop(runtime.ctx)
-                        logger.debug("node_stopped", node_id=node_id)
+            await self._stop_node(node_id)
 
     async def _run_push_only(self) -> None:
         """Run loop when no pull sinks exist."""
         logger.info("running_push_only_mode")
         while True:
+            if self._pending_update is not None:
+                await self._apply_pending_update()
+                return
             if self._push_queue:
                 await self._process_push_events()
                 self._has_pending_push = False
             await anyio.sleep(0.1)  # Idle polling
 
-    async def _run_scheduled(self) -> None:
-        """Run the scheduled tick loop."""
+    async def _run_scheduled(self, resume: bool = False) -> None:
+        """Run the scheduled tick loop until a plan update replaces the schedule.
+
+        Args:
+            resume: False at startup: the first cycle starts at ``_t0``. True after
+                a plan update: the schedule goes on in step with the one-second
+                cycles counted from ``_t0``, at the first slot not yet due, so a
+                sink that kept its rate keeps its timing across the swap.
+        """
         schedule = self._schedule
         cycle_start = self._t0
         slot_index = 0
+        if resume:
+            now = time.monotonic()
+            cycle_start += math.floor(now - self._t0)
+            while slot_index < len(schedule) and cycle_start + schedule[slot_index].time_offset < now:
+                slot_index += 1
+            if slot_index == len(schedule):
+                slot_index = 0
+                cycle_start += 1.0
 
         logger.info(
             "scheduler_started",
@@ -512,6 +654,11 @@ class UnifiedScheduler:
         )
 
         while True:
+            # A tick boundary: the one place a new plan is swapped in
+            if self._pending_update is not None:
+                await self._apply_pending_update()
+                return
+
             slot = schedule[slot_index]
             target_time = cycle_start + slot.time_offset
 

@@ -21,6 +21,7 @@ Example:
 from .monitor import NodeMonitor, NodeStats
 from .scheduler import Runtime, RuntimeConfig
 from .unified import UnifiedScheduler
+from .watch import watch_config
 
 __all__ = [
     "Runtime",
@@ -28,4 +29,5 @@ __all__ = [
     "NodeMonitor",
     "NodeStats",
     "UnifiedScheduler",
+    "watch_config",
 ]

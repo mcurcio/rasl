@@ -70,6 +70,14 @@ class BaseNode(ABC):
     - Write outputs via self.outputs.<port>.write(frame)
     - Use @pull_rate(hz) on pull() for sinks to drive scheduler
 
+    Config reload:
+    - When the config files change while the graph runs, a node whose settings
+      changed is stopped and a new one is built from the new config.
+    - A node that defines `update_config(self, config: Config) -> None` is kept
+      running and handed its new, validated config there, between ticks. Define
+      it when the node holds state worth keeping (SmoothNode does) and every
+      setting can change without a restart; call `self._set_metadata(config)` in it.
+
     Attributes:
         id: Unique node identifier within the graph.
         Config: Class variable pointing to the nested Config class.
@@ -115,9 +123,13 @@ class BaseNode(ABC):
             config: Validated configuration instance.
         """
         self.id = config.id
+        self._set_metadata(config)
+        self._connection_descriptors = []
+
+    def _set_metadata(self, config: "BaseNodeConfig") -> None:
+        """Take the metadata of a config (at construction, and in ``update_config``)."""
         md = dict(config.metadata)
         self._metadata = EMPTY_METADATA if not md else MappingProxyType(md)
-        self._connection_descriptors = []
 
     def parse_connect_directives(self, directive: "Directive") -> None:
         """Parse connect directives from node config block.

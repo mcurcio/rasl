@@ -70,11 +70,23 @@ class SmoothNode(BaseNode):
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)
+        self._apply_settings(config)
+
+        self._state: NDArray[np.float32] | None = None
+
+    def _apply_settings(self, config: Config) -> None:
         self._tau_seconds = config.get_smooth_period_seconds()
         self._max_delta = float(config.max_delta)
         self._bypass_epsilon = float(config.bypass_epsilon)
 
-        self._state: NDArray[np.float32] | None = None
+    def update_config(self, config: Config) -> None:
+        """Take new settings while running, keeping the smoothed state.
+
+        A config reload calls this in place of a restart, so the output goes on
+        from where it was instead of jumping back to the input.
+        """
+        self._set_metadata(config)
+        self._apply_settings(config)
 
     async def pull(self, tick: TickContext) -> None:
         frame = self.inputs.input.read()

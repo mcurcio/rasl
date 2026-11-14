@@ -148,7 +148,7 @@ class Query:
     @strawberry.field
     def graph(self, info: Info[RASLContext, None]) -> Graph:
         state = info.context.state
-        return _graph_from_plan(state.plan)
+        return _graph_from_plan(state.current_plan)
 
     @strawberry.field
     def metrics(self, info: Info[RASLContext, None]) -> MetricsSnapshot:
@@ -160,7 +160,7 @@ class Query:
     @strawberry.field
     def node(self, info: Info[RASLContext, None], node_id: str) -> Optional[Node]:
         state = info.context.state
-        plan = state.plan
+        plan = state.current_plan
         if node_id not in plan.nodes:
             return None
 

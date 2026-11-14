@@ -33,6 +33,12 @@ class AppState:
     start_time: float = field(default_factory=time.time)
     
     @property
+    def current_plan(self) -> "ExecutionPlan":
+        """The plan now running: the runtime's own when it has one (a config
+        reload replaces it), else the plan the server was created with."""
+        return getattr(self.runtime, "plan", self.plan)
+
+    @property
     def uptime_seconds(self) -> float:
         """Return the server uptime in seconds."""
         return time.time() - self.start_time
