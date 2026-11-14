@@ -8,7 +8,7 @@ RASL is a Python-based data engine for processing and routing DMX/sACN lighting 
 - **sACN/E1.31 support**: Receive and transmit sACN DMX data
 - **Universe patching**: Remap channels from multiple source universes
 - **Async runtime**: Built on anyio for high-performance async processing
-- **Configuration-driven**: Define your graph in nginx-style config files
+- **Configuration-driven**: Define your graph in [knobly](https://github.com/mcurcio/knobly) config files (nginx-style, with variables, snippets and includes)
 
 ## Installation
 
@@ -115,6 +115,32 @@ node sink {
     priority 100;             # sACN priority (0-200)
 }
 ```
+
+## Configuration language
+
+Config files are written in [knobly](https://github.com/mcurcio/knobly): directives ended by `;`, blocks in
+`{ }`, `#` comments. Its [language reference](https://mcurcio.github.io/knobly/language/) has the whole syntax.
+What rasl configs use most:
+
+```nginx
+@set $pixels 2284;                    # a variable
+
+@snippet twinkle $source {            # a reusable block
+    mode brightness;
+    connect $source;
+}
+
+graph {
+    node TwinkleEffect sparkle { @use twinkle rgb; }
+    node DdpSink leds {
+        max_count $pixels;
+        connect sparkle[0~150] pixels;  # a slice: bounds separated by ~
+    }
+    @include "more_sinks.conf";       # another file's directives, spliced in here
+}
+```
+
+A problem in a config is reported with its file, line and column and a caret under the text.
 
 ## Development
 

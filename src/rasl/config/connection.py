@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 # Reuse ResolvedSlice from existing parser (DRY)
 from .connect_parser import ResolvedSlice
+from .document import Directive, arg_texts, children
 
 
 @dataclass(frozen=True)
@@ -139,11 +140,13 @@ def parse_port_ref(ref: str) -> PortRef:
     return PortRef(node=node, port=port, slice_=slice_val)
 
 
-def parse_connect_directive(directive: "Directive") -> ConnectionDescriptor:
+def parse_connect_directive(directive: Directive) -> ConnectionDescriptor:
     """Parse a connect directive into a ConnectionDescriptor.
 
     This is called by BaseNode when processing its config directives.
     The descriptor contains raw strings that will be resolved by Graph.
+    A slice the config writes as ``upstream[0~100]`` is the string
+    ``"upstream[0:100]"`` there (see ``rasl.config.document.arg_text``).
 
     Args:
         directive: Connect directive from config.
@@ -154,9 +157,7 @@ def parse_connect_directive(directive: "Directive") -> ConnectionDescriptor:
     Raises:
         ValueError: If directive has no arguments.
     """
-    from .directive import Directive  # Avoid circular import
-
-    args = directive.args
+    args = arg_texts(directive)
     if not args:
         raise ValueError("connect requires at least one argument")
 
@@ -165,16 +166,16 @@ def parse_connect_directive(directive: "Directive") -> ConnectionDescriptor:
 
     # Check for repeat in block
     repeat = 1
-    repeat_dir = directive.find_one("repeat")
-    if repeat_dir and repeat_dir.args:
-        repeat = int(repeat_dir.args[0])
+    for repeat_dir in children(directive, "repeat")[:1]:
+        if repeat_dir.values:
+            repeat = int(arg_texts(repeat_dir)[0])
 
     repeat_until: int | None = None
-    repeat_until_dir = directive.find_one("repeat_until")
-    if repeat_until_dir and repeat_until_dir.args:
-        repeat_until = int(repeat_until_dir.args[0])
-        if repeat_until < 0:
-            raise ValueError(f"repeat_until must be non-negative, got {repeat_until}")
+    for repeat_until_dir in children(directive, "repeat_until")[:1]:
+        if repeat_until_dir.values:
+            repeat_until = int(arg_texts(repeat_until_dir)[0])
+            if repeat_until < 0:
+                raise ValueError(f"repeat_until must be non-negative, got {repeat_until}")
 
     if repeat_until is not None and repeat > 1:
         raise ValueError("connect cannot specify both repeat and repeat_until")

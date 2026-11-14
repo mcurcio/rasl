@@ -14,7 +14,7 @@ Pull-based execution model:
     - Sinks use @pull_rate(hz) decorator to drive the scheduler
 
 Example:
-    >>> from rasl.config.directive import Directive
+    >>> from rasl.config.document import Directive
     >>> from rasl.engine.nodes import NodeContext
     >>> from rasl.engine.frames import MatrixPayload
     >>> from rasl.engine.ports import PortGroup
@@ -49,7 +49,7 @@ if TYPE_CHECKING:
     from .context import NodeContext
     from ..tick import TickContext
     from rasl.config.models import BaseNodeConfig
-    from rasl.config.directive import Directive
+    from rasl.config.document import Directive
 
 
 class BaseNode(ABC):
@@ -128,8 +128,8 @@ class BaseNode(ABC):
         Args:
             directive: The node's config directive block.
         """
-        for child in directive.block:
-            if child.keyword == "connect":
+        for child in directive.block or ():
+            if child.name == "connect":
                 desc = parse_connect_directive(child)
                 self._connection_descriptors.append(desc)
 

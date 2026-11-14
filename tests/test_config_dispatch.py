@@ -12,8 +12,18 @@ from typing import ClassVar
 import pytest
 from pydantic import BaseModel
 
-from rasl.config.directive import Directive
-from rasl.config.dispatch import ConfigDispatch, ConfigError, config as config_handler
+from rasl.config.dispatch import ConfigDispatch, config as config_handler
+from rasl.config.document import (
+    ConfigError,
+    Directive,
+    arg_texts,
+    children,
+    config_error,
+    line_of,
+    load_document,
+    parse_document,
+    scalar,
+)
 from rasl.config.loader import parse_config
 from rasl.config.connection import (
     ConnectionDescriptor,
@@ -25,120 +35,158 @@ from rasl.config.connection import (
 from rasl.config.connect_parser import ResolvedSlice
 
 
+def _directive(text: str) -> Directive:
+    """The one directive `text` holds."""
+    return parse_document(text).block[0]
+
+
 # ─────────────────────────────────────────────────────────────────────
-# Directive Tests
+# Config Document Tests
 # ─────────────────────────────────────────────────────────────────────
 
 
-class TestDirective:
-    """Tests for Directive class."""
+class TestDocument:
+    """Tests for rasl.config.document: loading a config through knobly."""
 
-    def test_from_crossplane_simple(self):
-        """Parse simple directive without block."""
-        raw = {"directive": "fps", "args": ["30"], "line": 5}
-        d = Directive.from_crossplane(raw)
-
-        assert d.keyword == "fps"
-        assert d.args == ("30",)
-        assert d.block == ()
-        assert d.line == 5
-
-    def test_from_crossplane_with_block(self):
-        """Parse directive with nested block."""
-        raw = {
-            "directive": "node",
-            "args": ["DdpSink", "leds"],
-            "block": [
-                {"directive": "target", "args": ["10.0.0.1"]},
-                {"directive": "fps", "args": ["20"]},
-            ],
-            "line": 1,
-        }
-        d = Directive.from_crossplane(raw)
-
-        assert d.keyword == "node"
-        assert d.args == ("DdpSink", "leds")
-        assert len(d.block) == 2
-        assert d.block[0].keyword == "target"
-        assert d.block[1].keyword == "fps"
-
-    def test_slice_args(self):
-        """slice_args creates new directive with sliced args."""
-        d = Directive("node", ("DdpSink", "leds", "rgb"), (), 1)
-
-        sliced = d.slice_args(2)
-        assert sliced.args == ("rgb",)
-        assert sliced.keyword == "node"
-        assert sliced.line == 1
-
-        sliced2 = d.slice_args(1, 2)
-        assert sliced2.args == ("leds",)
-
-    def test_with_args(self):
-        """with_args creates new directive with replaced args."""
-        d = Directive("node", ("old",), (), 1)
-        new = d.with_args("new1", "new2")
-
-        assert new.args == ("new1", "new2")
-        assert new.keyword == "node"
-
-    def test_find(self):
-        """find returns all matching child directives."""
-        d = Directive(
-            "node",
-            (),
-            (
-                Directive("connect", ("a",), (), 0),
-                Directive("fps", ("30",), (), 0),
-                Directive("connect", ("b",), (), 0),
-            ),
-            0,
-        )
-
-        connects = d.find("connect")
-        assert len(connects) == 2
-        assert connects[0].args == ("a",)
-        assert connects[1].args == ("b",)
-
-    def test_find_one(self):
-        """find_one returns first matching directive."""
-        d = Directive(
-            "node",
-            (),
-            (
-                Directive("fps", ("30",), (), 0),
-                Directive("target", ("10.0.0.1",), (), 0),
-            ),
-            0,
-        )
-
-        fps = d.find_one("fps")
-        assert fps is not None
-        assert fps.args == ("30",)
-
-        missing = d.find_one("nonexistent")
-        assert missing is None
-
-    def test_from_string(self):
-        """Parse config from string."""
-        content = """
+    def test_parse_document(self):
+        """Parse config from string into a tree of directives."""
+        tree = parse_document(
+            """
         graph {
             node Test foo {
                 value 42;
             }
         }
         """
-        root = Directive.from_string(content)
+        )
 
-        assert root.keyword == "_root"
-        assert len(root.block) == 1
+        assert len(tree.block) == 1
 
-        graph = root.block[0]
-        assert graph.keyword == "graph"
+        graph = tree.block[0]
+        assert graph.name == "graph"
 
         node = graph.block[0]
-        assert node.keyword == "node"
-        assert node.args == ("Test", "foo")
+        assert node.name == "node"
+        assert arg_texts(node) == ("Test", "foo")
+        assert line_of(node) == 3
+
+    def test_children(self):
+        """children returns the block's directives, all or by name."""
+        d = _directive("node { connect a; fps 30; connect b; }")
+
+        assert [c.name for c in children(d)] == ["connect", "fps", "connect"]
+        assert [arg_texts(c) for c in children(d, "connect")] == [("a",), ("b",)]
+        assert children(d, "nonexistent") == ()
+        assert children(_directive("fps 30;")) == ()
+
+    def test_arg_texts(self):
+        """Each kind of value is the string rasl's parsers take."""
+        d = _directive(
+            """x sine 0.5 "10.0.0.1" 'C:\\new' up.rgb[0~3] up[4~] up[~8] up[5] [[1, 0], [0.5,0]];"""
+        )
+
+        assert arg_texts(d) == (
+            "sine",
+            "0.5",
+            "10.0.0.1",
+            "C:\\new",
+            "up.rgb[0:3]",
+            "up[4:]",
+            "up[:8]",
+            "up[5]",
+            "[[1, 0], [0.5, 0]]",
+        )
+
+    def test_scalar(self):
+        """Bare words are coerced; quoted strings stay text; lists are read item by item."""
+        d = _directive("""x 42 3.14 on No sine "42" "on" [1, 0.5, off, "a"] up[0~3];""")
+
+        assert [scalar(v) for v in d.values] == [
+            42,
+            3.14,
+            True,
+            False,
+            "sine",
+            "42",
+            "on",
+            [1, 0.5, False, "a"],
+            "up[0:3]",
+        ]
+
+    def test_variables_and_snippets(self):
+        """@set and @snippet / @use are worked out before rasl reads the tree."""
+        tree = parse_document(
+            """
+        @set $pixels 2284;
+        @snippet sink $name {
+            node DdpSink $name { max_count $pixels; }
+        }
+        graph {
+            @use sink leds;
+            @use sink porch;
+        }
+        """
+        )
+
+        nodes = tree.block[0].block
+        assert [arg_texts(n) for n in nodes] == [("DdpSink", "leds"), ("DdpSink", "porch")]
+        assert [scalar(n.block[0].values[0]) for n in nodes] == [2284, 2284]
+
+    def test_load_document_with_include(self, tmp_path):
+        """A file is loaded with the files it includes, each include with its own variables."""
+        (tmp_path / "main.conf").write_text(
+            'graph {\n    @include "sink.conf" { @set $name leds; }\n}\n'
+        )
+        (tmp_path / "sink.conf").write_text("node DdpSink $name;\n")
+
+        tree = load_document(tmp_path / "main.conf")
+
+        node = tree.block[0].block[0]
+        assert arg_texts(node) == ("DdpSink", "leds")
+        assert line_of(node) == 1  # where it is written, in sink.conf
+
+    def test_load_document_missing_file(self, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            load_document(tmp_path / "missing.conf")
+
+    def test_syntax_error_raises_located_config_error(self):
+        """A problem knobly finds is a ConfigError with the place and the source line."""
+        with pytest.raises(ConfigError) as exc_info:
+            parse_document("graph {\n    fps 30\n}\n")
+
+        error = exc_info.value
+        assert error.line == 3
+        assert error.column == 0
+        assert [d.code for d in error.diagnostics] == ["E2001"]
+        assert str(error) == 'config:3:1: E2001: unexpected token: "}"\n}\n^'
+
+    def test_old_slice_spelling_is_an_error(self):
+        """A slice is written with ~; the old [0:3] is refused, not misread."""
+        with pytest.raises(ConfigError, match="E2007"):
+            parse_document("connect up[0:3];")
+
+    def test_every_problem_is_reported(self):
+        with pytest.raises(ConfigError) as exc_info:
+            parse_document("a $x;\nb $y;\n")
+
+        assert [(d.code, d.place.span.start.line) for d in exc_info.value.diagnostics] == [
+            ("E5001", 0),
+            ("E5001", 1),
+        ]
+
+    def test_config_error_is_placed_on_a_directive(self):
+        tree = parse_document("graph {\n    node Mystery m;\n}\n")
+        node = tree.block[0].block[0]
+
+        error = config_error(node, "Unknown node type 'Mystery'", code="rasl/unknown-node", tree=tree)
+
+        assert error.message == "Unknown node type 'Mystery'"
+        assert error.line == 2
+        assert str(error) == (
+            "config:2:5: rasl/unknown-node: Unknown node type 'Mystery'\n"
+            "    node Mystery m;\n"
+            "    ^^^^"
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -187,16 +235,7 @@ class TestConfigDispatch:
         owner = Owner()
         dispatch = ConfigDispatch(owner)
 
-        directive = Directive(
-            "test",
-            (),
-            (
-                Directive("name", ("myname",), (), 0),
-                Directive("value", ("42",), (), 0),
-                Directive("rate", ("3.14",), (), 0),
-            ),
-            0,
-        )
+        directive = _directive("test { name myname; value 42; rate 3.14; }")
 
         config, results = dispatch.process(directive, SimpleConfig)
 
@@ -214,7 +253,7 @@ class TestConfigDispatch:
         owner = Owner()
         dispatch = ConfigDispatch(owner)
 
-        directive = Directive("test", ("custom_in", "custom_out"), (), 0)
+        directive = _directive("test custom_in custom_out;")
 
         config, results = dispatch.process(directive, ConfigWithArgFields)
 
@@ -228,22 +267,13 @@ class TestConfigDispatch:
         class Owner:
             @config_handler("custom")
             def handle_custom(self, directive: Directive):
-                calls.append(directive.args)
-                return f"handled:{directive.args[0]}"
+                calls.append(arg_texts(directive))
+                return f"handled:{arg_texts(directive)[0]}"
 
         owner = Owner()
         dispatch = ConfigDispatch(owner)
 
-        directive = Directive(
-            "test",
-            (),
-            (
-                Directive("name", ("foo",), (), 0),
-                Directive("custom", ("bar",), (), 0),
-                Directive("custom", ("baz",), (), 0),
-            ),
-            0,
-        )
+        directive = _directive("test { name foo; custom bar; custom baz; }")
 
         config, results = dispatch.process(directive, SimpleConfig)
 
@@ -254,7 +284,7 @@ class TestConfigDispatch:
         assert results["custom"] == ["handled:bar", "handled:baz"]
 
     def test_config_handler_with_model(self):
-        """@config with model pre-parses directive.config."""
+        """@config with model pre-parses the block and passes it to the handler."""
 
         class Options(BaseModel):
             repeat: int = 1
@@ -263,26 +293,14 @@ class TestConfigDispatch:
 
         class Owner:
             @config_handler("connect", model=Options)
-            def handle_connect(self, directive: Directive):
-                received_config.append(directive.config)
-                return directive.config.repeat
+            def handle_connect(self, directive: Directive, options: Options):
+                received_config.append(options)
+                return options.repeat
 
         owner = Owner()
         dispatch = ConfigDispatch(owner)
 
-        directive = Directive(
-            "test",
-            (),
-            (
-                Directive(
-                    "connect",
-                    ("source", "target"),
-                    (Directive("repeat", ("5",), (), 0),),
-                    0,
-                ),
-            ),
-            0,
-        )
+        directive = _directive("test { connect source target { repeat 5; } }")
 
         config, results = dispatch.process(directive, SimpleConfig)
 
@@ -301,12 +319,7 @@ class TestConfigDispatch:
         owner = Owner()
         dispatch = ConfigDispatch(owner)
 
-        directive = Directive(
-            "test",
-            (),
-            (Directive("multi", (), (), 0),),
-            0,
-        )
+        directive = _directive("test { multi; }")
 
         config, results = dispatch.process(directive, SimpleConfig)
 
@@ -321,12 +334,7 @@ class TestConfigDispatch:
         owner = Owner()
         dispatch = ConfigDispatch(owner)
 
-        directive = Directive(
-            "test",
-            (),
-            (Directive("unknown", (), (), 5),),
-            0,
-        )
+        directive = _directive("test {\n\n\n\n    unknown;\n}")
 
         with pytest.raises(ConfigError) as exc_info:
             dispatch.process(directive, SimpleConfig)
@@ -346,12 +354,7 @@ class TestConfigDispatch:
         class RepeatOptions(BaseModel):
             repeat: int = 1
 
-        directive = Directive(
-            "options",
-            (),
-            (Directive("repeat", ("10",), (), 0),),
-            0,
-        )
+        directive = _directive("options { repeat 10; }")
 
         options = dispatch.parse_model(directive, RepeatOptions)
 
@@ -370,22 +373,12 @@ class TestConfigDispatch:
         dispatch = ConfigDispatch(owner)
 
         for true_val in ["true", "True", "yes", "1", "on"]:
-            directive = Directive(
-                "test",
-                (),
-                (Directive("enabled", (true_val,), (), 0),),
-                0,
-            )
+            directive = _directive(f"test {{ enabled {true_val}; }}")
             config, _ = dispatch.process(directive, BoolConfig)
             assert config.enabled is True, f"Failed for {true_val}"
 
         for false_val in ["false", "False", "no", "0", "off"]:
-            directive = Directive(
-                "test",
-                (),
-                (Directive("enabled", (false_val,), (), 0),),
-                0,
-            )
+            directive = _directive(f"test {{ enabled {false_val}; }}")
             config, _ = dispatch.process(directive, BoolConfig)
             assert config.enabled is False, f"Failed for {false_val}"
 
@@ -445,7 +438,7 @@ class TestParseConnectDirective:
 
     def test_single_source(self):
         """Parse connect with just source."""
-        directive = Directive("connect", ("upstream",), (), 0)
+        directive = _directive("connect upstream;")
         desc = parse_connect_directive(directive)
 
         assert desc.source == "upstream"
@@ -454,7 +447,7 @@ class TestParseConnectDirective:
 
     def test_source_and_target(self):
         """Parse connect with source and target."""
-        directive = Directive("connect", ("upstream", "pixels"), (), 0)
+        directive = _directive("connect upstream pixels;")
         desc = parse_connect_directive(directive)
 
         assert desc.source == "upstream"
@@ -465,7 +458,7 @@ class TestParseConnectDirective:
 class TestDdpSinkConfig:
     def test_ddp_sink_accepts_max_channels(self):
         config = """
-        rasl {
+        graph {
             node literal src matrix [[1,2,3]];
             node DdpSink leds {
                 target "10.0.0.1";
@@ -481,12 +474,7 @@ class TestDdpSinkConfig:
 
     def test_with_repeat(self):
         """Parse connect with repeat option."""
-        directive = Directive(
-            "connect",
-            ("upstream", "pixels"),
-            (Directive("repeat", ("20",), (), 0),),
-            0,
-        )
+        directive = _directive("connect upstream pixels { repeat 20; }")
         desc = parse_connect_directive(directive)
 
         assert desc.source == "upstream"
@@ -495,12 +483,7 @@ class TestDdpSinkConfig:
 
     def test_with_repeat_until(self):
         """Parse connect with repeat_until option."""
-        directive = Directive(
-            "connect",
-            ("upstream", "pixels"),
-            (Directive("repeat_until", ("2284",), (), 0),),
-            0,
-        )
+        directive = _directive("connect upstream pixels { repeat_until 2284; }")
         desc = parse_connect_directive(directive)
 
         assert desc.source == "upstream"
@@ -510,21 +493,13 @@ class TestDdpSinkConfig:
 
     def test_repeat_and_repeat_until_mutually_exclusive(self):
         """repeat and repeat_until cannot be specified together."""
-        directive = Directive(
-            "connect",
-            ("upstream", "pixels"),
-            (
-                Directive("repeat", ("2",), (), 0),
-                Directive("repeat_until", ("10",), (), 0),
-            ),
-            0,
-        )
+        directive = _directive("connect upstream pixels { repeat 2; repeat_until 10; }")
         with pytest.raises(ValueError, match="both repeat and repeat_until"):
             parse_connect_directive(directive)
 
     def test_sliced_source(self):
         """Parse connect with sliced source."""
-        directive = Directive("connect", ("upstream[0:100]", "pixels"), (), 0)
+        directive = _directive("connect upstream[0~100] pixels;")
         desc = parse_connect_directive(directive)
 
         assert desc.source == "upstream[0:100]"
@@ -532,7 +507,7 @@ class TestDdpSinkConfig:
 
     def test_empty_args_raises(self):
         """Connect with no args raises ValueError."""
-        directive = Directive("connect", (), (), 0)
+        directive = _directive("connect;")
         with pytest.raises(ValueError, match="requires at least one argument"):
             parse_connect_directive(directive)
 
@@ -564,20 +539,8 @@ class TestIntegration:
 
         node = MockNode()
 
-        directive = Directive(
-            "node",
-            (),
-            (
-                Directive("target", ("10.0.0.1",), (), 0),
-                Directive("fps", ("20",), (), 0),
-                Directive(
-                    "connect",
-                    ("wave[0:100]", "pixels[0:]"),
-                    (Directive("repeat", ("3",), (), 0),),
-                    0,
-                ),
-            ),
-            0,
+        directive = _directive(
+            "node { target 10.0.0.1; fps 20; connect wave[0~100] pixels[0~] { repeat 3; } }"
         )
 
         config, results = node.dispatch.process(directive, NodeConfig)

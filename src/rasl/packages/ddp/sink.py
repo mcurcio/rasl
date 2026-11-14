@@ -50,7 +50,7 @@ class DdpSinkNode(BaseNode):
                 fps 20hz;      # or "20", "50ms"
                 input_port pixels;
 
-                connect toRgb[0:151] pixels;
+                connect toRgb[0~151] pixels;
             }
         }
 

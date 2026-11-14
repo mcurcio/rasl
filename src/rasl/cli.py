@@ -24,7 +24,7 @@ import structlog
 
 from rasl import __version__
 from rasl.config import load_config
-from rasl.config.directive import Directive
+from rasl.config.document import arg_texts, children, load_document
 from rasl.engine.graph import ExecutionPlan
 from rasl.runtime import UnifiedScheduler
 
@@ -47,19 +47,20 @@ logger = structlog.get_logger()
 
 def _get_ui_settings(config_path: Path) -> tuple[bool, str, int]:
     """Return (enabled, host, port) from top-level `ui {}` config block."""
-    root = Directive.from_file(config_path)
-    ui = root.find_one("ui")
-    if not ui:
+    tree = load_document(config_path)
+    ui_blocks = tree.block.directives("ui")
+    if not ui_blocks:
         return False, "127.0.0.1", 8080
 
     host = "127.0.0.1"
     port = 8080
 
-    for child in ui.block:
-        if child.keyword == "host" and child.args:
-            host = str(child.args[0])
-        elif child.keyword == "port" and child.args:
-            port = int(child.args[0])
+    for child in children(ui_blocks[0]):
+        args = arg_texts(child)
+        if child.name == "host" and args:
+            host = args[0]
+        elif child.name == "port" and args:
+            port = int(args[0])
 
     return True, host, port
 
