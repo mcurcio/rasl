@@ -66,41 +66,27 @@ class NodeHost:
 
         Run at start and again after a plan update, since a node that keeps
         running may have gained or lost connections.
-
-        Nodes of one class share that class's port objects unless a node makes
-        its own, so a port counts as connected when any node holding it is, and
-        is a push source's when any node holding it is one.
         """
         incoming: Dict[str, Set[str]] = defaultdict(set)
         for edges in plan.adjacency.values():
             for edge in edges:
                 incoming[edge.target].add(edge.target_port)
 
-        input_ports: Dict[int, InputPort] = {}
-        connected: Set[int] = set()
         for node_id, node in plan.nodes.items():
-            inputs = get_inputs(node)
-            if not inputs:
-                continue
-            targets = incoming[node_id]
-            for port in inputs:
-                if isinstance(port, InputPort):
-                    input_ports[id(port)] = port
-                    if port.name in targets:
-                        connected.add(id(port))
-        for key, port in input_ports.items():
-            # A port that lost its last connection must not go on handing out the
-            # frame that connection gave it
-            if port._has_upstream and key not in connected:
-                port._clear()
-            port._has_upstream = key in connected
+            for port in get_inputs(node):
+                if not isinstance(port, InputPort):
+                    continue
+                connected = port.name in incoming[node_id]
+                # A port that lost its last connection must not go on handing
+                # out the frame that connection gave it
+                if port._has_upstream and not connected:
+                    port._clear()
+                port._has_upstream = connected
 
-        # Configure output ports for push sources (no incoming edges). In plan
-        # order, as a port shared by several push sources reports the last one's id.
-        for node_id in plan.topological_order:
-            outputs = get_outputs(plan.nodes[node_id])
-            if not incoming[node_id] and outputs:
-                for output_port in outputs:
+            # A push source (no incoming edges) writes outside ticks: its
+            # writes are reported so the latest frame can be kept
+            if not incoming[node_id]:
+                for output_port in get_outputs(node):
                     if isinstance(output_port, OutputPort):
                         output_port._node_id = node_id
                         output_port._on_write = self._on_push_write

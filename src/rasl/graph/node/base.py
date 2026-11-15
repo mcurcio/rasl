@@ -36,6 +36,7 @@ from abc import ABC
 from types import MappingProxyType
 from typing import TYPE_CHECKING, ClassVar, Sequence, Type
 
+from rasl.graph.ports.group import PortGroup
 from rasl.signal import EMPTY_METADATA
 
 if TYPE_CHECKING:
@@ -115,6 +116,11 @@ class BaseNode(ABC):
         """
         self.id = config.id
         self._set_metadata(config)
+        # The class declares the ports; this node gets its own port objects
+        for attribute in ("inputs", "outputs"):
+            declared = getattr(type(self), attribute, None)
+            if isinstance(declared, PortGroup):
+                setattr(self, attribute, declared.clone())
 
     def _set_metadata(self, config: "BaseNodeConfig") -> None:
         """Take the metadata of a config (at construction, and in ``update_config``)."""

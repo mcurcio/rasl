@@ -109,47 +109,43 @@ class Node(Protocol):
         ...
 
 
+def _own_ports(node: Node, attribute: str) -> Union[PortGroup, _EmptyPortGroup]:
+    """A node's own port group: the one it made itself, else its own clone of
+    the group its class declares.
+
+    The clone is made the first time it is asked for and kept on the node, so
+    every node owns its port objects whether or not its class extends BaseNode.
+    """
+    own = node.__dict__.get(attribute)
+    if isinstance(own, PortGroup):
+        return own
+    declared = getattr(type(node), attribute, None)
+    if isinstance(declared, PortGroup):
+        clone = declared.clone()
+        node.__dict__[attribute] = clone
+        return clone
+    return EMPTY_PORTS
+
+
 def get_inputs(node: Node) -> Union[PortGroup, _EmptyPortGroup]:
     """Get node's input ports, defaulting to empty.
-
-    Checks instance attribute first (for dynamic ports), then class-level.
 
     Args:
         node: The node to get inputs from.
 
     Returns:
-        The node's inputs PortGroup, or EMPTY_PORTS if not defined.
+        The node's own inputs PortGroup, or EMPTY_PORTS if it declares none.
     """
-    # Check instance attribute first (for dynamic ports like ComposeNode)
-    if "inputs" in node.__dict__:
-        inputs = node.__dict__["inputs"]
-        if inputs is not None and isinstance(inputs, PortGroup):
-            return inputs
-    # Fall back to class-level inputs
-    cls = type(node)
-    if hasattr(cls, "inputs") and not isinstance(getattr(cls, "inputs"), property):
-        return getattr(cls, "inputs")
-    return EMPTY_PORTS
+    return _own_ports(node, "inputs")
 
 
 def get_outputs(node: Node) -> Union[PortGroup, _EmptyPortGroup]:
     """Get node's output ports, defaulting to empty.
 
-    Checks instance attribute first (for dynamic ports), then class-level.
-
     Args:
         node: The node to get outputs from.
 
     Returns:
-        The node's outputs PortGroup, or EMPTY_PORTS if not defined.
+        The node's own outputs PortGroup, or EMPTY_PORTS if it declares none.
     """
-    # Check instance attribute first (for dynamic ports)
-    if "outputs" in node.__dict__:
-        outputs = node.__dict__["outputs"]
-        if outputs is not None and isinstance(outputs, PortGroup):
-            return outputs
-    # Fall back to class-level outputs
-    cls = type(node)
-    if hasattr(cls, "outputs") and not isinstance(getattr(cls, "outputs"), property):
-        return getattr(cls, "outputs")
-    return EMPTY_PORTS
+    return _own_ports(node, "outputs")

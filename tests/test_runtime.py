@@ -329,3 +329,56 @@ class TestFailures:
         assert runtime.executor.disabled == set()
         assert runtime.monitor.get_stats("bad").consecutive_failures == 0
         assert len(out.ticks) >= 5
+
+
+class TestNodesOwnTheirPorts:
+    """Nodes of one class do not share port objects (rasl-e7j)."""
+
+    @pytest.fixture(autouse=True)
+    def nodes(self):
+        import rasl.nodes  # noqa: F401
+        from rasl.graph.node import ensure_nodes_loaded
+
+        ensure_nodes_loaded()
+
+    def test_each_node_gets_its_own_ports_from_the_class_declaration(self) -> None:
+        from rasl.nodes.effects.waveform import WaveformNode
+
+        a = WaveformNode(WaveformNode.Config(id="a", output_channels=2))
+        b = WaveformNode(WaveformNode.Config(id="b", output_channels=2))
+        assert a.outputs.out is not b.outputs.out
+        assert a.inputs.phase is not b.inputs.phase
+        assert a.outputs.out is not WaveformNode.outputs.out
+        assert a.outputs.out.spec is WaveformNode.outputs.out.spec
+
+    async def test_three_sources_of_one_class_keep_their_own_values(self) -> None:
+        from rasl.config.loader import parse_config
+
+        plan = parse_config(
+            """
+            graph {
+                node Waveform low { shape square; duty 0; output_channels 2; }
+                node Waveform high { shape square; duty 1; output_channels 2; }
+                node Waveform ramp { shape sawtooth; frequency_hz 1; output_channels 2; }
+                node ConsoleSink s1 { fps 50; connect low; }
+                node ConsoleSink s2 { fps 50; connect high; }
+                node ConsoleSink s3 { fps 50; connect ramp; }
+            }
+            """
+        )
+        runtime = Runtime(plan)
+        await _run(runtime, 0.2)
+        latest = {node: np.asarray(frame.payload).copy() for (node, _), frame in runtime.executor.latest.items()}
+        np.testing.assert_allclose(latest["low"], 0.0)
+        np.testing.assert_allclose(latest["high"], 1.0)
+        assert 0.0 < float(latest["ramp"][0, 0]) < 1.0
+        assert not np.shares_memory(latest["low"], latest["high"])
+
+    async def test_an_unconnected_input_does_not_read_a_sibling_nodes_frame(self) -> None:
+        a, b, out_a, out_b = Probe("a"), Probe("b"), Sink("out_a", 50), Sink("out_b", 50)
+        src = Pusher("src", 0.005)
+        runtime = Runtime(_plan([src, a, b, out_a, out_b], [("src", "a"), ("a", "out_a"), ("b", "out_b")]))
+        await _run(runtime, 0.15)
+        assert any(value is not None for value in a.seen)
+        assert all(value is None for value in b.seen)
+        assert not b.inputs.get("in").connected and a.inputs.get("in").connected

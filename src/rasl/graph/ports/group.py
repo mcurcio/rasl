@@ -108,6 +108,18 @@ class PortGroup:
                 port = OutputPort(name=name, spec=spec)
             object.__setattr__(self, name, port)
 
+    def clone(self) -> "PortGroup":
+        """A new group with the same specs and its own port objects.
+
+        A node class declares its ports once, as class attributes; each node
+        made from the class gets a clone, so no two nodes share a port's
+        frame or buffers.
+        """
+        return PortGroup(
+            _is_input=self._is_input,
+            **{name: getattr(self, name).spec for name in self._port_names},
+        )
+
     def __iter__(self) -> Iterator["InputPort | OutputPort"]:
         """Iterate over port objects."""
         for name in self._port_names:
@@ -152,67 +164,3 @@ class PortGroup:
     def is_input(self) -> bool:
         """True if this is an input port group."""
         return self._is_input
-
-
-class BoundPortGroup:
-    """Runtime port group with actual InputPort/OutputPort instances.
-
-    Created when a node is instantiated, binding PortSpecs to actual
-    port objects that can hold frame data.
-
-    Example:
-        # In node's __init__:
-        self._bound_inputs = BoundPortGroup.from_specs(self.inputs, is_input=True)
-
-        # In node's pull():
-        frame = self._bound_inputs.color.read()
-    """
-
-    __slots__ = ("_ports", "_is_input")
-
-    def __init__(self, ports: dict[str, InputPort | OutputPort], is_input: bool) -> None:
-        self._ports = ports
-        self._is_input = is_input
-
-    @classmethod
-    def from_specs(cls, spec_group: PortGroup, is_input: bool) -> "BoundPortGroup":
-        """Create bound ports from a PortGroup specification."""
-        ports: dict[str, InputPort | OutputPort] = {}
-        for name in spec_group.names:
-            port = spec_group.get(name)
-            if port is None:
-                continue
-            if is_input:
-                if not isinstance(port, InputPort):
-                    raise TypeError("Expected InputPort")
-                ports[name] = InputPort(name=name, spec=port.spec)
-            else:
-                if not isinstance(port, OutputPort):
-                    raise TypeError("Expected OutputPort")
-                ports[name] = OutputPort(name=name, spec=port.spec)
-        return cls(ports, is_input)
-
-    def __getattr__(self, name: str) -> InputPort | OutputPort:
-        if name.startswith("_"):
-            raise AttributeError(name)
-        if name not in self._ports:
-            raise AttributeError(f"No port named '{name}'")
-        return self._ports[name]
-
-    def __iter__(self) -> Iterator[InputPort | OutputPort]:
-        return iter(self._ports.values())
-
-    def __contains__(self, name: str) -> bool:
-        return name in self._ports
-
-    def __len__(self) -> int:
-        return len(self._ports)
-
-    def get(self, name: str) -> Optional[InputPort | OutputPort]:
-        """Get a port by name, or None if not found."""
-        return self._ports.get(name)
-
-    @property
-    def names(self) -> tuple[str, ...]:
-        """Return tuple of all port names."""
-        return tuple(self._ports.keys())
