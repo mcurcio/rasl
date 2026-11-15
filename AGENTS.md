@@ -20,9 +20,12 @@ uv run pytest                                      # Python (repo root)
 uv run ruff check src tests                        # Python: unused or undefined names, import order
 ```
 
-The Python packages import each other in one direction, set in `pyproject.toml` under
-`[tool.importlinter]` and checked by `tests/test_import_layers.py` (or `uv run lint-imports`).
-A new import that goes against it fails the tests: move the code, do not add an exception.
+The Python packages under `src/rasl/` are domains, and import each other in one direction:
+`app` → `config` → `runtime` | `nodes` | `devices` → `graph` | `color` → `signal` → `units`
+(packages joined by `|` do not import each other). `README.md` says what each owns. The order is
+set in `pyproject.toml` under `[tool.importlinter]` and checked by `tests/test_import_layers.py`
+(or `uv run lint-imports`). A new import that goes against it fails the tests: move the code, do
+not add an exception. `tests/` mirrors the packages.
 
 The Python runtime reads config files with [knobly](https://github.com/mcurcio/knobly) (`src/rasl/config/document.py`
 is the one module that imports it). knobly comes from PyPI (`knobly>=1.1,<2` in `pyproject.toml`), so `uv sync` needs nothing beyond `uv`.

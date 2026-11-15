@@ -266,7 +266,7 @@ Add a minimal FastAPI server that runs alongside the runtime, exposing read-only
 **Implementation:**
 
 ```python
-# rasl/server/app.py
+# rasl/app/server/app.py
 from fastapi import FastAPI
 from rasl.runtime import Runtime
 
