@@ -155,8 +155,7 @@ to rasl's address. In a container, see the note under [Container](../README.md#c
 | `bind_address` | string | `0.0.0.0` | Network interface to listen on. |
 | `bind_port` | int | `5568` | UDP port to listen on. |
 
-It needs at least one universe, from `universes` or `universe` blocks. A single `universe` block on its
-own is rejected today (`Input should be a valid list`); give two or more, or use `universes`.
+It needs at least one universe, from `universes` or one or more `universe` blocks.
 
 ```nginx
 node SacnSource input {

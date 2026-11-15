@@ -4,6 +4,7 @@ import pytest
 
 from rasl.config.build import parse_config
 from rasl.config.document import ConfigError
+from rasl.graph.node import get_outputs
 
 
 @pytest.fixture(autouse=True)
@@ -264,3 +265,16 @@ class TestValuesAfterTheNodeName:
         # With no fields on the line, the schedule comes from the block
         plan = parse_config("graph {\n    node cron every { schedule \"*/5 * * * *\"; }\n}\n")
         assert "every" in plan.nodes
+
+
+class TestRepeatedBlocks:
+    def test_one_block_fills_a_list_field_like_several_do(self):
+        one = parse_config(
+            "graph {\n    node SacnSource s { universe { id 1; channels 10; } }\n}\n"
+        )
+        two = parse_config(
+            "graph {\n    node SacnSource s { universe { id 1; channels 10; } universe { id 2; } }\n}\n"
+        )
+        # One output port per universe, beside the merged channels
+        assert set(get_outputs(one.nodes["s"]).names) == {"universe_1", "channels"}
+        assert set(get_outputs(two.nodes["s"]).names) == {"universe_1", "universe_2", "channels"}

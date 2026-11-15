@@ -6,9 +6,11 @@ directive in the node's block is one field of it, by name.
 
 from __future__ import annotations
 
+import types
+import typing
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from rasl.config.document import (
     ConfigError,
@@ -124,6 +126,36 @@ def _parse_metadata(raw: dict[str, Any]) -> dict[str, str]:
     return metadata
 
 
+def _is_list_of_blocks(annotation: Any) -> bool:
+    """Whether a field's type is a list of blocks (models or maps), also inside ``X | None``.
+
+    Lists of plain values (``list[str]``) are left to the field's own validators: a
+    block such as Compose's ``ports { h; s; l; }`` is their whole value, not one item.
+    """
+    origin = typing.get_origin(annotation)
+    if origin in (typing.Union, types.UnionType):
+        return any(_is_list_of_blocks(arg) for arg in typing.get_args(annotation))
+    if origin is not list:
+        return False
+    item = (typing.get_args(annotation) or (Any,))[0]
+    item_origin = typing.get_origin(item) or item
+    return item_origin is dict or (isinstance(item, type) and issubclass(item, BaseModel))
+
+
+def _wrap_single_blocks(config_class: Any, raw_config: dict[str, Any]) -> None:
+    """Make a lone nested block a one-item list where the field takes a list.
+
+    Repeated blocks (``universe { ... } universe { ... }``) already arrive as a
+    list; a single one arrives as a map. A list-of-blocks field gets a list either way.
+    """
+    for name, field in getattr(config_class, "model_fields", {}).items():
+        if not _is_list_of_blocks(field.annotation):
+            continue
+        for key in (field.alias, name):
+            if key and isinstance(raw_config.get(key), dict):
+                raw_config[key] = [raw_config[key]]
+
+
 def _node_config(
     node_type: str,
     node_id: str,
@@ -187,6 +219,8 @@ def _node_config(
 
     # Remove type directive if present
     raw_config.pop("type", None)
+
+    _wrap_single_blocks(config_class, raw_config)
 
     # Validate with Pydantic
     try:
