@@ -249,6 +249,15 @@ class TimingStats:
     profile_populate: bool = False
 
 
+class _NodeFailed(Exception):
+    """A node's pull raised. Already recorded against that node; it only ends
+    the pull of the sink being served."""
+
+    def __init__(self, node_id: str) -> None:
+        super().__init__(node_id)
+        self.node_id = node_id
+
+
 class UnifiedScheduler:
     """Unified push/pull scheduler for RASL graphs.
 
@@ -268,14 +277,21 @@ class UnifiedScheduler:
         >>> await scheduler.run()  # Blocks until shutdown
     """
 
-    def __init__(self, plan: ExecutionPlan) -> None:
+    def __init__(self, plan: ExecutionPlan, *, max_consecutive_errors: Optional[int] = None) -> None:
         """Initialize the scheduler with a compiled execution plan.
 
         Args:
             plan: ExecutionPlan from GraphBuilder.build().
+            max_consecutive_errors: A node whose pull() raises this many times
+                in a row is disabled: it is no longer pulled, and what reads
+                it goes on with the last frames it wrote. None (the default)
+                never disables a node. A node replaced by a plan update
+                starts afresh.
         """
         self._plan = plan
         self._monitor = NodeMonitor()
+        self._max_consecutive_errors = max_consecutive_errors
+        self._disabled_nodes: Set[str] = set()
 
         # A plan update waiting for the next tick boundary (request_update)
         self._pending_update: Optional[Tuple[PlanUpdate, anyio.Event]] = None
@@ -400,6 +416,7 @@ class UnifiedScheduler:
             for key in [k for k in self._previous_outputs if k[0] in stopping]:
                 del self._previous_outputs[key]
             # A stopped node's timing history says nothing about the next one's
+            self._disabled_nodes -= stopping
             for node_id in stopping:
                 self._timing.sink_target_interval.pop(node_id, None)
                 self._timing.pull_duration_samples.pop(node_id, None)
@@ -968,12 +985,11 @@ class UnifiedScheduler:
         try:
             await self._pull_node(sink_id, tick)
             elapsed_ms = (time.perf_counter() - start_time) * 1000
-            self._monitor.record_success(sink_id, elapsed_ms)
-            
+
             # Track pull duration for timing diagnostics
             if sink_id in self._timing.pull_duration_samples:
                 self._timing.pull_duration_samples[sink_id].append(elapsed_ms)
-            
+
             # Finalize and log trace if tick was slow
             trace = self._timing.current_trace
             if trace:
@@ -983,12 +999,29 @@ class UnifiedScheduler:
                         "slow_tick_trace",
                         **trace.to_dict(),
                     )
-        except Exception as e:
-            elapsed_ms = (time.perf_counter() - start_time) * 1000
-            self._monitor.record_failure(sink_id, e, elapsed_ms)
-            logger.exception("pull_failed", node_id=sink_id, error=str(e))
+        except _NodeFailed as failed:
+            # Recorded and logged against the node that raised (_pull_node);
+            # this sink's pull ends here for this tick
+            logger.debug("pull_abandoned", sink=sink_id, failed_node=failed.node_id)
         finally:
             self._timing.current_trace = None
+
+    def _node_failed(self, node_id: str, error: Exception, elapsed_ms: float) -> None:
+        """Record a node's failed pull, and disable the node if it keeps failing."""
+        consecutive = self._monitor.record_failure(node_id, error, elapsed_ms)
+        if consecutive == 1:
+            # The traceback once per run of failures: rendering one costs far
+            # more than a tick, and the monitor logs a line for each failure
+            logger.error("pull_failed", node_id=node_id, error=str(error), exc_info=error)
+        limit = self._max_consecutive_errors
+        if limit is not None and consecutive >= limit:
+            self._disabled_nodes.add(node_id)
+            logger.error(
+                "node_disabled_due_to_errors",
+                node_id=node_id,
+                consecutive_failures=consecutive,
+                threshold=limit,
+            )
 
     async def _pull_node(self, node_id: str, tick: TickContext) -> None:
         """Recursively pull a node after pulling its upstream."""
@@ -999,6 +1032,11 @@ class UnifiedScheduler:
 
         runtime = self._node_runtimes[node_id]
         node = runtime.node
+
+        # A disabled node is not pulled, and pulls nothing: what reads it goes
+        # on with the last frames it wrote
+        if node_id in self._disabled_nodes:
+            return
 
         # First, pull all upstream nodes (non back-edge), so frames exist in cache.
         for edge in self._incoming[node_id]:
@@ -1030,10 +1068,15 @@ class UnifiedScheduler:
                 dt=dt,
                 wall_time=tick.wall_time,
             )
-            await node.pull(node_tick)
-        
+            try:
+                await node.pull(node_tick)
+            except Exception as error:
+                self._node_failed(node_id, error, (time.perf_counter() - pull_start) * 1000)
+                raise _NodeFailed(node_id) from error
+
         # Record node timing
         pull_ms = (time.perf_counter() - pull_start) * 1000
+        self._monitor.record_success(node_id, pull_ms)
         if self._timing.current_trace:
             self._timing.current_trace.add_node(node_id, pull_ms)
         

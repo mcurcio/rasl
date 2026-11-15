@@ -60,8 +60,6 @@ select = ["F", "I"]
 [tool.ruff.lint.per-file-ignores]
 # Package __init__ files import names to re-export them, and node modules to register them
 "__init__.py" = ["F401"]
-# A stale copy of engine/_color_convert.py, to be deleted with rasl-pd0.27
-"src/rasl/nodes/color/convert.py" = ["F821", "F841"]
 
 [tool.importlinter]
 root_package = "rasl"

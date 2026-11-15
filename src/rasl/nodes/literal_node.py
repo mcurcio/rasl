@@ -97,7 +97,7 @@ def build_payload(kind: str, subtype: str | None, value: Any) -> FramePayload:
         # Do not reshape here. We pass the literal through as-is.
         #
         # For nested lists like [[h,s,l], ...], np.asarray yields shape (N, 3).
-        # rasl.nodes.color.convert.convert() expects (N, 3) (or flat N*3), so
+        # The color converter expects (N, 3) (or flat N*3), so
         # this layout is important.
         arr = np.asarray(value, dtype=np.float32)
         if arr.ndim == 1:

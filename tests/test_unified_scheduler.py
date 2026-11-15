@@ -257,3 +257,77 @@ class TestOverload:
         assert sink.ticks[-1].t == pytest.approx(time.monotonic() - started, abs=0.2)
         # dt carries the real gap, so time-based nodes stay right
         assert np.allclose(np.cumsum([tick.dt for tick in sink.ticks]), [tick.t for tick in sink.ticks], atol=1e-9)
+
+
+class Faulty(Probe):
+    """A node whose pull raises while ``broken`` is set."""
+
+    def __init__(self, node_id: str) -> None:
+        super().__init__(node_id)
+        self.broken = True
+
+    async def pull(self, tick: TickContext) -> None:
+        if self.broken:
+            self.ticks.append(tick)
+            raise RuntimeError("boom")
+        await super().pull(tick)
+
+
+class TestFailures:
+    @pytest.fixture(autouse=True)
+    def quiet_logs(self):
+        """Rendering a traceback takes longer than these tests' ticks."""
+        import logging
+
+        import structlog
+
+        before = structlog.get_config()
+        structlog.configure(wrapper_class=structlog.make_filtering_bound_logger(logging.CRITICAL))
+        yield
+        structlog.configure(**before)
+
+    async def test_a_failure_is_recorded_against_the_node_that_raised(self) -> None:
+        src, bad, out, other = Probe("src"), Faulty("bad"), Sink("out", 50), Sink("other", 50)
+        scheduler = UnifiedScheduler(_plan([src, bad, out, other], [("src", "bad"), ("bad", "out")]))
+        await _run(scheduler, 0.15)
+
+        stats = scheduler.monitor.to_dict()
+        assert stats["bad"]["failure_count"] >= 3 and stats["bad"]["success_count"] == 0
+        assert stats["bad"]["last_error"] == "boom"
+        # Upstream of the failure ran; the sink it feeds was not reached
+        assert stats["src"]["failure_count"] == 0 and stats["src"]["success_count"] >= 3
+        assert "out" not in stats and out.ticks == []
+        # A sink that does not depend on it is untouched
+        assert stats["other"]["success_count"] >= 3 and stats["other"]["failure_count"] == 0
+
+    async def test_by_default_a_failing_node_is_never_disabled(self) -> None:
+        bad, out = Faulty("bad"), Sink("out", 100)
+        scheduler = UnifiedScheduler(_plan([bad, out], [("bad", "out")]))
+        await _run(scheduler, 0.2)
+        assert len(bad.ticks) >= 10 and out.ticks == []
+        assert scheduler._disabled_nodes == set()
+
+    async def test_a_node_that_keeps_failing_is_disabled_and_the_rest_goes_on(self) -> None:
+        bad, out = Faulty("bad"), Sink("out", 100)
+        scheduler = UnifiedScheduler(_plan([bad, out], [("bad", "out")]), max_consecutive_errors=3)
+        await _run(scheduler, 0.2)
+        assert len(bad.ticks) == 3  # pulled three times, then left alone
+        assert scheduler._disabled_nodes == {"bad"}
+        assert len(out.ticks) >= 10  # the sink runs again once the node is out of the way
+        assert all(value is None for value in out.seen)  # it never wrote a frame
+
+    async def test_a_success_resets_the_count(self) -> None:
+        bad, out = Faulty("bad"), Sink("out", 100)
+        scheduler = UnifiedScheduler(_plan([bad, out], [("bad", "out")]), max_consecutive_errors=3)
+
+        async def heal() -> None:
+            while len(bad.ticks) < 2:
+                await anyio.sleep(0.001)
+            bad.broken = False
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(heal)
+            await _run(scheduler, 0.2)
+        assert scheduler._disabled_nodes == set()
+        assert scheduler.monitor.get_stats("bad").consecutive_failures == 0
+        assert len(out.ticks) >= 5
