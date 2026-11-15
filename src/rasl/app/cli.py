@@ -180,6 +180,11 @@ def main(args: Optional[list[str]] = None) -> int:
     parser = _create_parser()
     parsed = parser.parse_args(args)
 
+    if parsed.describe:
+        # --describe's output is the JSON on stdout, so it can be piped (e.g. to jq);
+        # the log lines go to stderr instead
+        structlog.configure(logger_factory=structlog.PrintLoggerFactory(file=sys.stderr))
+
     if not parsed.config:
         parser.print_help()
         return 1

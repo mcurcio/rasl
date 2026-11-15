@@ -270,7 +270,7 @@ rasl [-h] [-v] [--validate] [--describe] [--api-port PORT] [--api-host HOST] [--
 |---|---|
 | `config` | The config file to run. |
 | `--validate` | Load the config, print the node count and run order, and exit. |
-| `--describe` | Print the graph as JSON and exit. Log lines come first on stdout. |
+| `--describe` | Print the graph as JSON on stdout and exit. Log lines go to stderr, so the output can be piped (e.g. to `jq`). |
 | `--api-port PORT` | Start the web server on this port. Overrides the `ui` block. |
 | `--api-host HOST` | The address the web server binds when `--api-port` is given. Default `127.0.0.1`. Without `--api-port`, the `ui` block's `host` is used. |
 | `--no-watch` | Do not reload the config when it changes. |
