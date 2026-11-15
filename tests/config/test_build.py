@@ -4,7 +4,9 @@ import pytest
 
 from rasl.config.build import parse_config
 from rasl.config.document import ConfigError
-from rasl.graph.node import get_outputs
+from rasl.graph.node import BaseNode, SinkNodeConfig, TickContext, get_outputs, node, pull_rate
+from rasl.graph.ports import InputPortSpec, PortGroup
+from rasl.signal import MatrixPayload
 
 
 @pytest.fixture(autouse=True)
@@ -278,3 +280,36 @@ class TestRepeatedBlocks:
         # One output port per universe, beside the merged channels
         assert set(get_outputs(one.nodes["s"]).names) == {"universe_1", "channels"}
         assert set(get_outputs(two.nodes["s"]).names) == {"universe_1", "universe_2", "channels"}
+
+
+class _RateConfig(SinkNodeConfig):
+    """A sink whose rate is a setting, as a plugin's might be."""
+
+    hz: float = 1.0
+
+
+@node("TestSettableRateSink")
+class _SettableRateSink(BaseNode):
+    """Pulled at its ``hz`` setting, which nothing stops from being 0."""
+
+    Config = _RateConfig
+    inputs = PortGroup.inputs(input=InputPortSpec(MatrixPayload))
+
+    def __init__(self, config: _RateConfig) -> None:
+        super().__init__(config)
+        self._hz = config.hz
+
+    @pull_rate(lambda self: self._hz)
+    async def pull(self, tick: TickContext) -> None:
+        """Do nothing."""
+
+
+class TestPullRates:
+    @pytest.mark.parametrize("hz", ["0", "-1", "inf"])
+    def test_a_bad_rate_from_settings_is_a_located_config_error(self, hz: str) -> None:
+        with pytest.raises(ConfigError, match="rasl/rate: Node 'sink' declares a pull rate") as caught:
+            parse_config(f"graph {{\n    node TestSettableRateSink sink {{ hz {hz}; }}\n}}\n")
+        assert caught.value.line == 2
+
+    def test_a_good_rate_loads(self) -> None:
+        parse_config("graph {\n    node TestSettableRateSink sink { hz 30; }\n}\n")
