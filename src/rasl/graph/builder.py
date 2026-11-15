@@ -4,14 +4,14 @@
 from __future__ import annotations
 
 import warnings
-from typing import Dict, List, Optional, Set, Tuple, Type
+from typing import Dict, List, Optional, Type
 
 from rasl.graph.edge import Edge
 from rasl.graph.node.protocol import Node, get_inputs, get_outputs
+from rasl.graph.order import find_back_edges, toposort_with_cycles
 from rasl.graph.plan import ExecutionPlan
-from rasl.graph.ports.port import InputPort
 from rasl.graph.ports.spec import InputPortSpec, OutputPortSpec
-from rasl.graph.routing import CopySliceOp, EdgeOp, InputPortProgram, RepeatSliceOp
+from rasl.graph.routing import compile_input_programs
 from rasl.graph.slices import Slice
 from rasl.signal import FramePayload
 
@@ -264,229 +264,6 @@ class GraphBuilder:
             return resolved[0]
         return None
 
-    def _find_cycles(self) -> List[List[str]]:
-        """Find all cycles in the graph using Tarjan's SCC algorithm.
-
-        Returns:
-            List of cycles, where each cycle is a list of node IDs.
-            Only SCCs with more than one node or self-loops are returned.
-        """
-        adjacency: Dict[str, List[str]] = {node_id: [] for node_id in self._nodes}
-        for edge in self._edges:
-            adjacency[edge.source].append(edge.target)
-
-        index_counter = [0]
-        stack: List[str] = []
-        lowlinks: Dict[str, int] = {}
-        index: Dict[str, int] = {}
-        on_stack: Set[str] = set()
-        sccs: List[List[str]] = []
-
-        def strongconnect(node: str) -> None:
-            index[node] = index_counter[0]
-            lowlinks[node] = index_counter[0]
-            index_counter[0] += 1
-            stack.append(node)
-            on_stack.add(node)
-
-            for neighbor in adjacency[node]:
-                if neighbor not in index:
-                    strongconnect(neighbor)
-                    lowlinks[node] = min(lowlinks[node], lowlinks[neighbor])
-                elif neighbor in on_stack:
-                    lowlinks[node] = min(lowlinks[node], index[neighbor])
-
-            if lowlinks[node] == index[node]:
-                scc: List[str] = []
-                while True:
-                    w = stack.pop()
-                    on_stack.remove(w)
-                    scc.append(w)
-                    if w == node:
-                        break
-                if len(scc) > 1:
-                    sccs.append(scc)
-                elif len(scc) == 1 and scc[0] in adjacency[scc[0]]:
-                    # Self-loop
-                    sccs.append(scc)
-
-        for node in self._nodes:
-            if node not in index:
-                strongconnect(node)
-
-        return sccs
-
-    def _toposort_with_cycles(self) -> Tuple[Tuple[str, ...], List[List[str]]]:
-        """Compute execution order, handling cycles gracefully.
-
-        Uses Kahn's algorithm but handles cycles by breaking them
-        arbitrarily when no zero-indegree nodes remain.
-
-        Returns:
-            Tuple of (execution_order, cycles) where cycles is a list
-            of detected cycles (each cycle is a list of node IDs).
-        """
-        cycles = self._find_cycles()
-
-        indegree: Dict[str, int] = {node_id: 0 for node_id in self._nodes}
-        adjacency: Dict[str, List[str]] = {node_id: [] for node_id in self._nodes}
-        for edge in self._edges:
-            indegree[edge.target] += 1
-            adjacency[edge.source].append(edge.target)
-
-        queue: List[str] = [node for node, deg in indegree.items() if deg == 0]
-        order: List[str] = []
-        remaining: Set[str] = set(self._nodes.keys())
-
-        while remaining:
-            if queue:
-                node = queue.pop(0)
-            else:
-                # Cycle detected - pick an arbitrary remaining node
-                node = next(iter(remaining))
-
-            if node not in remaining:
-                continue
-
-            order.append(node)
-            remaining.remove(node)
-
-            for neighbor in adjacency[node]:
-                if neighbor in remaining:
-                    indegree[neighbor] -= 1
-                    if indegree[neighbor] == 0:
-                        queue.append(neighbor)
-
-        return tuple(order), cycles
-
-    def _find_back_edges(self, adjacency: Dict[str, List[Edge]]) -> Set[Tuple[str, str, str, str]]:
-        visited: Set[str] = set()
-        in_stack: Set[str] = set()
-        back_edges: Set[Tuple[str, str, str, str]] = set()
-
-        def dfs(node_id: str) -> None:
-            visited.add(node_id)
-            in_stack.add(node_id)
-
-            for edge in adjacency.get(node_id, []):
-                tgt = edge.target
-                if tgt in in_stack:
-                    back_edges.add((edge.source, edge.source_port, edge.target, edge.target_port))
-                elif tgt not in visited:
-                    dfs(tgt)
-
-            in_stack.remove(node_id)
-
-        for node_id in adjacency:
-            if node_id not in visited:
-                dfs(node_id)
-
-        return back_edges
-
-    def _compile_input_programs(
-        self,
-        incoming_by_node: Dict[str, List[Edge]],
-        back_edges: Set[Tuple[str, str, str, str]],
-    ) -> Dict[Tuple[str, str], InputPortProgram]:
-        programs: Dict[Tuple[str, str], InputPortProgram] = {}
-
-        for target_node_id, edges in incoming_by_node.items():
-            node = self._nodes[target_node_id]
-            inputs = get_inputs(node)
-
-            by_port: Dict[str, List[Edge]] = {}
-            for e in edges:
-                by_port.setdefault(e.target_port, []).append(e)
-
-            for port_name, port_edges in by_port.items():
-                port = inputs.get(port_name)
-                if port is None or not isinstance(port, InputPort):
-                    continue
-
-                fixed_rows = port.spec.fixed_count
-
-                fixed_cols: int | None = None
-                resolved = port.spec.resolve_payload_types()
-                if resolved:
-                    comps = [getattr(t, "components", None) for t in resolved]
-                    if comps and all((c is not None and c == comps[0]) for c in comps):
-                        fixed_cols = int(comps[0])
-
-                passthrough: Tuple[str, str] | None = None
-                passthrough_is_back = False
-                ops: List[EdgeOp] = []
-
-                if len(port_edges) == 1:
-                    e = port_edges[0]
-                    if (
-                        e.source_slice is None
-                        and e.target_slice is None
-                        and e.repeat <= 1
-                        and e.repeat_until is None
-                    ):
-                        passthrough = (e.source, e.source_port)
-                        passthrough_is_back = (
-                            (e.source, e.source_port, e.target, e.target_port) in back_edges
-                        )
-                        programs[(target_node_id, port_name)] = InputPortProgram(
-                            target=port,
-                            buffer_key=(target_node_id, port_name),
-                            fixed_rows=fixed_rows,
-                            fixed_cols=fixed_cols,
-                            passthrough=passthrough,
-                            passthrough_is_back_edge=passthrough_is_back,
-                            ops=(),
-                        )
-                        continue
-
-                for e in port_edges:
-                    is_back = (e.source, e.source_port, e.target, e.target_port) in back_edges
-
-                    src_start = e.source_slice.start if e.source_slice else 0
-                    src_end = e.source_slice.end if (e.source_slice and e.source_slice.end is not None) else -1
-
-                    dst_start = e.target_slice.start if e.target_slice else 0
-                    dst_end = e.target_slice.end if (e.target_slice and e.target_slice.end is not None) else -1
-
-                    if e.repeat > 1 or e.repeat_until is not None:
-                        ops.append(
-                            RepeatSliceOp(
-                                source=e.source,
-                                source_port=e.source_port,
-                                is_back_edge=is_back,
-                                src_start=src_start,
-                                src_end=src_end,
-                                dst_start=dst_start,
-                                dst_end=dst_end,
-                                repeat=int(e.repeat),
-                                repeat_until=e.repeat_until,
-                            )
-                        )
-                    else:
-                        ops.append(
-                            CopySliceOp(
-                                source=e.source,
-                                source_port=e.source_port,
-                                is_back_edge=is_back,
-                                src_start=src_start,
-                                src_end=src_end,
-                                dst_start=dst_start,
-                                dst_end=dst_end,
-                            )
-                        )
-
-                programs[(target_node_id, port_name)] = InputPortProgram(
-                    target=port,
-                    buffer_key=(target_node_id, port_name),
-                    fixed_rows=fixed_rows,
-                    fixed_cols=fixed_cols,
-                    passthrough=None,
-                    passthrough_is_back_edge=False,
-                    ops=tuple(ops),
-                )
-
-        return programs
-
     def build(self, allow_cycles: bool = True) -> ExecutionPlan:
         """Validate the graph and compile it into an ExecutionPlan.
 
@@ -509,7 +286,7 @@ class GraphBuilder:
         for edge in self._edges:
             adjacency[edge.source].append(edge)
 
-        order, cycles = self._toposort_with_cycles()
+        order, cycles = toposort_with_cycles(list(self._nodes), self._edges)
 
         if cycles:
             cycle_strs = [
@@ -534,12 +311,13 @@ class GraphBuilder:
             if hasattr(node, "validate_connections"):
                 node.validate_connections(incoming_by_node[node_id])
 
-        back_edges = self._find_back_edges(adjacency)
-        input_programs = self._compile_input_programs(incoming_by_node, back_edges)
+        back_edges = find_back_edges(adjacency)
+        input_programs = compile_input_programs(self._nodes, incoming_by_node, back_edges)
 
         return ExecutionPlan(
             nodes=self._nodes.copy(),
             adjacency=adjacency,
             topological_order=order,
             input_programs=input_programs,
+            back_edges=frozenset(back_edges),
         )

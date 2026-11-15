@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, FrozenSet, List, Tuple
 
 from rasl.graph.edge import Edge
 from rasl.graph.node.protocol import Node, get_inputs, get_outputs
@@ -44,6 +44,10 @@ class ExecutionPlan:
     """Node IDs in valid execution order (sources first, sinks last)."""
 
     input_programs: Dict[Tuple[str, str], "InputPortProgram"] = field(default_factory=dict)
+
+    back_edges: FrozenSet[Tuple[str, str, str, str]] = frozenset()
+    """The edges that close a cycle, as (source, source_port, target, target_port).
+    A node reads such an edge's frame from the previous tick."""
 
     def describe(self) -> Dict[str, Any]:
         """Serialize the execution plan to a JSON-compatible dictionary.

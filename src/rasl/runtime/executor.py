@@ -81,7 +81,9 @@ class Executor:
         """Work out the routing tables for a plan. Raises nothing it has not
         finished: the caller may fall back to the previous plan."""
         self._plan = plan
-        self._back_edges = self._find_back_edges()
+        self._back_edges = set(plan.back_edges)
+        if self._back_edges:
+            logger.info("back_edges_found", count=len(self._back_edges))
 
         # Build reverse adjacency: target_node -> list of incoming edges
         self._incoming = defaultdict(list)
@@ -118,43 +120,6 @@ class Executor:
         frame = port._frame
         if frame is not None:
             self.latest[(port._node_id, port.name)] = frame
-
-    def _find_back_edges(self) -> Set[Tuple[str, str, str, str]]:
-        """Find edges that create cycles (back-edges).
-
-        Uses DFS to detect back-edges in the graph.
-
-        Returns:
-            Set of (source, source_port, target, target_port) tuples.
-        """
-        back_edges: Set[Tuple[str, str, str, str]] = set()
-        visited: Set[str] = set()
-        in_stack: Set[str] = set()
-
-        def dfs(node_id: str) -> None:
-            visited.add(node_id)
-            in_stack.add(node_id)
-
-            for edge in self._plan.adjacency.get(node_id, []):
-                if edge.target in in_stack:
-                    # Back-edge found
-                    back_edges.add(
-                        (edge.source, edge.source_port, edge.target, edge.target_port)
-                    )
-
-                if edge.target not in visited:
-                    dfs(edge.target)
-
-            in_stack.remove(node_id)
-
-        for node_id in self._plan.nodes:
-            if node_id not in visited:
-                dfs(node_id)
-
-        if back_edges:
-            logger.info("back_edges_found", count=len(back_edges))
-
-        return back_edges
 
     def _is_back_edge(self, edge: Edge) -> bool:
         """Check if an edge is a back-edge (creates a cycle)."""

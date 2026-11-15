@@ -5,11 +5,14 @@ for each connected input, and the program that runs them every tick.
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Callable, Tuple
+from typing import Callable, Dict, List, Set, Tuple
 
 import numpy as np
 
+from rasl.graph.edge import Edge
+from rasl.graph.node.protocol import Node, get_inputs
 from rasl.graph.ports.port import InputPort
 from rasl.signal import Frame, MatrixPayload
 
@@ -246,3 +249,108 @@ class InputPortProgram:
             payload=MatrixPayload(view),
             metadata=first.metadata,
         )
+
+
+def compile_input_programs(
+    nodes: Mapping[str, Node],
+    incoming_by_node: Dict[str, List[Edge]],
+    back_edges: Set[Tuple[str, str, str, str]],
+) -> Dict[Tuple[str, str], InputPortProgram]:
+    programs: Dict[Tuple[str, str], InputPortProgram] = {}
+
+    for target_node_id, edges in incoming_by_node.items():
+        node = nodes[target_node_id]
+        inputs = get_inputs(node)
+
+        by_port: Dict[str, List[Edge]] = {}
+        for e in edges:
+            by_port.setdefault(e.target_port, []).append(e)
+
+        for port_name, port_edges in by_port.items():
+            port = inputs.get(port_name)
+            if port is None or not isinstance(port, InputPort):
+                continue
+
+            fixed_rows = port.spec.fixed_count
+
+            fixed_cols: int | None = None
+            resolved = port.spec.resolve_payload_types()
+            if resolved:
+                comps = [getattr(t, "components", None) for t in resolved]
+                if comps and all((c is not None and c == comps[0]) for c in comps):
+                    fixed_cols = int(comps[0])
+
+            passthrough: Tuple[str, str] | None = None
+            passthrough_is_back = False
+            ops: List[EdgeOp] = []
+
+            if len(port_edges) == 1:
+                e = port_edges[0]
+                if (
+                    e.source_slice is None
+                    and e.target_slice is None
+                    and e.repeat <= 1
+                    and e.repeat_until is None
+                ):
+                    passthrough = (e.source, e.source_port)
+                    passthrough_is_back = (
+                        (e.source, e.source_port, e.target, e.target_port) in back_edges
+                    )
+                    programs[(target_node_id, port_name)] = InputPortProgram(
+                        target=port,
+                        buffer_key=(target_node_id, port_name),
+                        fixed_rows=fixed_rows,
+                        fixed_cols=fixed_cols,
+                        passthrough=passthrough,
+                        passthrough_is_back_edge=passthrough_is_back,
+                        ops=(),
+                    )
+                    continue
+
+            for e in port_edges:
+                is_back = (e.source, e.source_port, e.target, e.target_port) in back_edges
+
+                src_start = e.source_slice.start if e.source_slice else 0
+                src_end = e.source_slice.end if (e.source_slice and e.source_slice.end is not None) else -1
+
+                dst_start = e.target_slice.start if e.target_slice else 0
+                dst_end = e.target_slice.end if (e.target_slice and e.target_slice.end is not None) else -1
+
+                if e.repeat > 1 or e.repeat_until is not None:
+                    ops.append(
+                        RepeatSliceOp(
+                            source=e.source,
+                            source_port=e.source_port,
+                            is_back_edge=is_back,
+                            src_start=src_start,
+                            src_end=src_end,
+                            dst_start=dst_start,
+                            dst_end=dst_end,
+                            repeat=int(e.repeat),
+                            repeat_until=e.repeat_until,
+                        )
+                    )
+                else:
+                    ops.append(
+                        CopySliceOp(
+                            source=e.source,
+                            source_port=e.source_port,
+                            is_back_edge=is_back,
+                            src_start=src_start,
+                            src_end=src_end,
+                            dst_start=dst_start,
+                            dst_end=dst_end,
+                        )
+                    )
+
+            programs[(target_node_id, port_name)] = InputPortProgram(
+                target=port,
+                buffer_key=(target_node_id, port_name),
+                fixed_rows=fixed_rows,
+                fixed_cols=fixed_cols,
+                passthrough=None,
+                passthrough_is_back_edge=False,
+                ops=tuple(ops),
+            )
+
+    return programs
