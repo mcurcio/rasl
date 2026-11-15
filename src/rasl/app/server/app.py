@@ -59,6 +59,11 @@ def create_app(
         title="RASL",
         description="Real-time Async Streaming for Lighting",
         version="0.1.0",
+        # No generated API pages: they are unauthenticated, /docs loads its assets
+        # from a CDN, and they do not document the GraphQL API (docs/web-api.md does)
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
     )
     
     # Store state in app.state (no globals!)

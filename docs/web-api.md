@@ -59,7 +59,6 @@ a proxy that checks who is signing in. [SECURITY.md](../SECURITY.md) says more.
 | `GET /` | The dashboard. |
 | `GET /health` | The health report as JSON. |
 | `/graphql` | GraphQL: `POST` or `GET` for queries, WebSocket for the subscription, and the GraphiQL editor in a browser. |
-| `GET /docs`, `GET /redoc`, `GET /openapi.json` | FastAPI's generated API pages. They list `/health` and `/graphql`, without the GraphQL schema. |
 
 ## The dashboard: `GET /`
 

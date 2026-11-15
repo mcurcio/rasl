@@ -298,9 +298,6 @@ When the web server runs, it serves:
   | `degraded` | It is running, but the last config reload failed and the previous graph still runs. (A node disabled after repeated failures also counts, but the `rasl` command does not disable failing nodes today.) | 200 |
   | `stalled` | It has rate-driving sinks, but no tick has finished for 10 ticks at the slowest sink's rate (at least 5 seconds). | 503 |
 
-The server also answers FastAPI's default pages: `/docs` (Swagger UI, which loads its assets from a CDN),
-`/redoc` and `/openapi.json`.
-
 The server has no authentication. It binds `127.0.0.1` unless `--api-host` (with `--api-port`) or the `ui`
 block's `host` says otherwise (the container passes `0.0.0.0`).
 
