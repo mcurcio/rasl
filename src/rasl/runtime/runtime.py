@@ -170,11 +170,13 @@ class Runtime:
             # Nothing computed or measured for the old plan may leak into the new one
             self.executor.forget(stopping)
             self.timing.forget(stopping)
+            self.monitor.forget(stopping)
             self.timing.set_rates(self._rate_drivers)
 
             # Nodes that take new settings without a restart; a node disabled for
             # failing gets another chance with them
             self.executor.disabled -= set(update.updated)
+            self.monitor.end_streak(set(update.updated))
             for node_id, config in update.updated.items():
                 try:
                     self._plan.nodes[node_id].update_config(config)

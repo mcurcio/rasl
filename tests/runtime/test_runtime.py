@@ -406,3 +406,19 @@ class TestNodesOwnTheirPorts:
         assert any(value is not None for value in a.seen)
         assert all(value is None for value in b.seen)
         assert not b.inputs.get("in").connected and a.inputs.get("in").connected
+
+
+class TestMonitorOnUpdates:
+    def test_forget_drops_and_end_streak_keeps_the_counts(self) -> None:
+        from rasl.runtime.monitor import NodeMonitor
+
+        monitor = NodeMonitor()
+        for node_id in ("a", "b"):
+            monitor.record_success(node_id, 1.0)
+            monitor.record_failure(node_id, RuntimeError("x"), 1.0)
+            monitor.record_failure(node_id, RuntimeError("x"), 1.0)
+        monitor.forget({"a"})
+        monitor.end_streak({"b"})
+        assert monitor.get_stats("a") is None
+        b = monitor.get_stats("b")
+        assert b is not None and b.consecutive_failures == 0 and b.failure_count == 2

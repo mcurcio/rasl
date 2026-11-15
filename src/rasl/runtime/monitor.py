@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Set
 
 import structlog
 
@@ -169,6 +169,21 @@ class NodeMonitor:
             Dictionary with node IDs as keys and serialized stats as values.
         """
         return {node_id: stats.to_dict() for node_id, stats in self._stats.items()}
+
+    def forget(self, node_ids: Set[str]) -> None:
+        """Drop the statistics of these nodes: removed nodes are no longer listed, and
+        a restarted node counts from zero again from its next pull."""
+        for node_id in node_ids:
+            self._stats.pop(node_id, None)
+
+    def end_streak(self, node_ids: Set[str]) -> None:
+        """Clear these nodes' runs of consecutive failures, keeping every other count:
+        a node given new settings without a restart gets a fresh chance before it is
+        disabled again."""
+        for node_id in node_ids:
+            stats = self._stats.get(node_id)
+            if stats is not None:
+                stats.consecutive_failures = 0
 
     def reset(self, node_id: Optional[str] = None) -> None:
         """Reset statistics for one or all nodes.

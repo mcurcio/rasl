@@ -216,9 +216,10 @@ repeats on the connection are not shown.
 | `timestamp` | `Float!` | Unix time in seconds when the snapshot was taken. |
 | `nodes` | `[NodeMetrics!]!` | One entry per node pulled at least once. |
 
-`NodeMetrics`: counters for one node's `pull()`, since rasl started. Times cover the node's own `pull()`, not the
-nodes upstream of it. A config reload does not reset them: a node restarted under the same id goes on counting,
-and a node the reload removed stays in `metrics` with its last counts.
+`NodeMetrics`: counters for one node's `pull()`. Times cover the node's own `pull()`, not the nodes upstream of
+it. On a config reload, a node the reload removes leaves `metrics`, a node it restarts counts from zero again,
+and a node it updates in place (its settings changed without a restart) keeps its counts; only its run of
+consecutive failures starts over.
 
 | Field | Type | Meaning |
 |---|---|---|

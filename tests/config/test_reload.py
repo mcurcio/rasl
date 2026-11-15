@@ -306,6 +306,42 @@ async def apply(runtime: Runtime, session: ConfigSession):
     return update
 
 
+class TestMetricsOnReload:
+    """A reload drops removed nodes' metrics, restarts the count of restarted ones,
+    and keeps the counts of nodes updated in place."""
+
+    async def test_removed_restarted_and_updated_nodes(self, tmp_path: Path) -> None:
+        path = tmp_path / "metrics.conf"
+        path.write_text(
+            "graph {\n"
+            "    node Waveform wave { output_channels 4; }\n"
+            "    node Smooth smooth { smooth_period 50ms; connect wave input; }\n"
+            "    node ConsoleSink out { fps 100; connect smooth; }\n"
+            "    node ConsoleSink gone { fps 100; connect wave; }\n"
+            "}\n"
+        )
+        session = ConfigSession(path)
+        runtime = Runtime(session.plan)
+
+        def count(node_id: str) -> int:
+            stats = runtime.monitor.get_stats(node_id)
+            return 0 if stats is None else stats.handle_count
+
+        async def body() -> None:
+            await until(lambda: min(count(n) for n in ("wave", "smooth", "gone")) >= 5)
+            edit(path, "output_channels 4;", "output_channels 6;")  # wave restarts
+            edit(path, "smooth_period 50ms;", "smooth_period 2s;")  # smooth updates in place
+            edit(path, "    node ConsoleSink gone { fps 100; connect wave; }\n", "")
+            before = count("smooth")
+            update = await apply(runtime, session)
+            assert "wave" in update.restarted and "smooth" in update.updated
+            assert "gone" not in runtime.monitor.get_all_stats()
+            assert count("smooth") >= before  # kept
+            assert count("wave") < 5  # counted from zero since the restart
+
+        await run_then(runtime, body)
+
+
 class TestSchedulerUpdate:
     """Runtime.request_update: the swap at a tick boundary."""
 
