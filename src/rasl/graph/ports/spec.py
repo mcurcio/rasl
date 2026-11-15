@@ -6,10 +6,7 @@ Payload types are named by class or by registered name (see ``rasl.signal.regist
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional, Tuple, Type, Union
-
-if TYPE_CHECKING:
-    pass
+from typing import Optional, Tuple, Type, Union
 
 
 AcceptsSpec = Union[str, Type, Tuple[str, ...], Tuple[Type, ...]]
@@ -369,4 +366,3 @@ class OutputPortSpec:
         if hasattr(accept_type, "is_compatible_with"):
             return accept_type.is_compatible_with(payload_type)
         return issubclass(payload_type, accept_type)
-"""Singleton empty port group for nodes without inputs or outputs."""

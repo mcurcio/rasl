@@ -17,7 +17,7 @@ Claude Code reads `CLAUDE.md` and not `AGENTS.md`. Edit this file; `CLAUDE.md` f
 ```bash
 cd js && pnpm install && pnpm build && pnpm test   # JS: also pnpm lint, pnpm typecheck
 uv run pytest                                      # Python (repo root)
-uv run ruff check src tests                        # Python: unused or undefined names, import order
+uv run ruff check src tests                        # Python: unused or undefined names, import order, docstrings
 ```
 
 The Python packages under `src/rasl/` are domains, and import each other in one direction:
@@ -30,9 +30,17 @@ not add an exception. `tests/` mirrors the packages.
 The Python runtime reads config files with [knobly](https://github.com/mcurcio/knobly) (`src/rasl/config/document.py`
 is the one module that imports it). knobly comes from PyPI (`knobly>=1.1,<2` in `pyproject.toml`), so `uv sync` needs nothing beyond `uv`.
 
-CI is disabled (owner, 2026-10-21: "Disable the workflows"). `.github/workflows/build.yml`
-is stale (it expects npm at the repo root) and its `publish` job runs `lerna publish` on
-push. Run the checks above locally until `rasl-4v6` is resolved.
+Every public Python module, class, method and function has a docstring (ruff checks it): say
+what it does, its units and shapes, what it returns and raises. Do not restate the name.
+
+CI (`.github/workflows/ci.yml`, owner 2026-11-15: "add ... GHA CI") runs on pull requests and on
+pushes to `alpha`, `beta` and `main`: the Python checks above plus `uv run lint-imports` on Python
+3.11 and 3.13, and `pnpm install`, `build`, `typecheck` and `test` in `js/`. It publishes nothing.
+`pnpm lint` and `pnpm format:check` are not in CI because they fail today (`rasl-t57`).
+
+The release workflow is disabled (owner, 2026-10-21: "Disable the workflows").
+`.github/workflows/build.yml` is stale (it expects npm at the repo root) and its `publish` job
+runs `lerna publish` on push. Leave it disabled until `rasl-4v6` is resolved.
 
 ## Branches and worktrees
 

@@ -55,11 +55,15 @@ line-length = 110
 
 [tool.ruff.lint]
 # F: names that are unused or undefined. I: one import order.
-select = ["F", "I"]
+# D100-D104, D106: every public module, class, method, function, package and
+# nested class has a docstring. Dunder methods are left to the class docstring.
+select = ["F", "I", "D100", "D101", "D102", "D103", "D104", "D106"]
 
 [tool.ruff.lint.per-file-ignores]
 # Package __init__ files import names to re-export them, and node modules to register them
 "__init__.py" = ["F401"]
+# Tests name what they check; their names are their documentation
+"tests/**" = ["D"]
 
 [tool.importlinter]
 root_package = "rasl"
