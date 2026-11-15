@@ -8,7 +8,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Tuple, Type, Union
 
-
 AcceptsSpec = Union[str, Type, Tuple[str, ...], Tuple[Type, ...]]
 """Type alias for port type constraints.
 
