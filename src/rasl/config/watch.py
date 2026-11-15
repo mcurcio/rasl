@@ -14,12 +14,13 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 
 import anyio
 import anyio.to_thread
 import structlog
 
-from rasl.config.reload import ConfigSession
+from rasl.config.reload import ConfigSession, ReloadOutcome
 from rasl.runtime import Runtime
 
 logger = structlog.get_logger()
@@ -77,9 +78,11 @@ async def watch_config(
         except Exception as e:
             logger.error("config_reload_failed", path=str(session.path))
             print(f"Config reload failed; the graph keeps running as it was.\n{e}", file=sys.stderr)
+            session.last_reload = ReloadOutcome(ok=False, at=time.time(), error=str(e))
         else:
             if update is None:
                 logger.info("config_reloaded", changes=0)
+                session.last_reload = ReloadOutcome(ok=True, at=time.time())
 
         # What the reload read is as it was before the reload started (``now``), so
         # a save that landed while it ran is still seen as a change. The reload may
@@ -99,5 +102,9 @@ async def watch_config(
             if runtime.plan is not update.plan:
                 # The runtime refused it and said why (plan_update_failed)
                 print("Config reload failed; the graph keeps running as it was.", file=sys.stderr)
+                session.last_reload = ReloadOutcome(
+                    ok=False, at=time.time(), error="the runtime refused the new graph"
+                )
                 continue
         session.commit(update)
+        session.last_reload = ReloadOutcome(ok=True, at=time.time())
