@@ -15,16 +15,16 @@ from .graphql_api import RASLContext, schema
 
 if TYPE_CHECKING:
     from rasl.engine.graph import ExecutionPlan
-    from rasl.runtime import Runtime
+    from rasl.runtime import UnifiedScheduler
 
 logger = structlog.get_logger()
 
 
-def create_app(runtime: "Runtime", plan: "ExecutionPlan") -> FastAPI:
+def create_app(runtime: "UnifiedScheduler", plan: "ExecutionPlan") -> FastAPI:
     """Create the RASL FastAPI application.
     
     Args:
-        runtime: The active Runtime instance for metrics access.
+        runtime: The running scheduler, for metrics access.
         plan: The ExecutionPlan for graph structure.
     
     Returns:

@@ -27,8 +27,6 @@ from rasl.config.document import (
 from rasl.config.loader import parse_config
 from rasl.config.connection import (
     ConnectionDescriptor,
-    ConnectionSpec,
-    PortRef,
     parse_connect_directive,
     parse_port_ref,
 )

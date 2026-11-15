@@ -11,7 +11,7 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Callable, Optional
+from typing import Callable
 
 import sacn.sender
 from sacn.messages import data_packet

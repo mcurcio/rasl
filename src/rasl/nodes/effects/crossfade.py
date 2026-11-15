@@ -15,7 +15,6 @@ from rasl.nodes.models import TransformNodeConfig
 if TYPE_CHECKING:
     from numpy.typing import NDArray
     from rasl.engine.graph import Edge
-    from rasl.engine.frames import Frame
 
 
 @node("CrossfadeNode", "Crossfade", "crossfade")

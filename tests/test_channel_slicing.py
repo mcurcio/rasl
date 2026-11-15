@@ -1,6 +1,5 @@
 """Tests for channel slicing in connect directives."""
 
-import numpy as np
 import pytest
 
 from rasl.config.connect_parser import ResolvedSlice

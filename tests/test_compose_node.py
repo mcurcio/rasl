@@ -7,7 +7,6 @@ from rasl.config.document import Directive, parse_document
 from rasl.config.loader import _extract_config_dict
 from rasl.engine.frames import MatrixPayload, Frame
 from rasl.engine.graph import Edge, GraphBuilder
-from rasl.engine.ports import InputPortSpec
 from rasl.nodes.color.compose_node import ComposeNode
 
 
@@ -89,7 +88,6 @@ class TestComposeNodePorts:
 
         for port_name in ["a", "b"]:
             port = node.inputs.get(port_name)
-            spec = InputPortSpec(MatrixPayload, count=None)
             # Variable-length ports have no fixed channel count
             assert port.count is None
 

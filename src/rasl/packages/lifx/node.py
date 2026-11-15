@@ -16,7 +16,7 @@ from rasl.engine.registry import node
 from rasl.engine.tick import TickContext, pull_rate
 from rasl.nodes.models import SinkNodeConfig
 
-from .client import LifxEndpoint, LifxLanClient, parse_target_list
+from .client import LifxLanClient, parse_target_list
 
 _UINT16_MAX = 0xFFFF
 _MIN_KELVIN = 1500.0
@@ -298,14 +298,6 @@ class LifxSinkNode(BaseNode):
                 event="lifx_invalid_payload",
                 payload_type=type(payload).__name__,
                 **extra,
-            )
-
-    def _log_conversion_error(self, payload: ColorPayload, exc: Exception) -> None:
-        if self._ctx:
-            self._ctx.logger.error(
-                event="lifx_hsbk_convert_failed",
-                source_model=getattr(payload, "model", None),
-                error=str(exc),
             )
 
     def _log_channel_mismatch(self, shape: tuple[int, ...]) -> None:

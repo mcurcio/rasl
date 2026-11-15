@@ -15,7 +15,6 @@ from rasl.engine.registry import node
 from rasl.engine.tick import TickContext
 from rasl.nodes.models import TransformNodeConfig
 
-from .._payload_utils import clone_payload_like
 
 
 @node("RandomMapNode", "RandomMap")

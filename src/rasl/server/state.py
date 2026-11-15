@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from rasl.engine.graph import ExecutionPlan
-    from rasl.runtime import Runtime
+    from rasl.runtime import UnifiedScheduler
 
 
 @dataclass
@@ -23,12 +23,12 @@ class AppState:
     references to the runtime and plan.
     
     Attributes:
-        runtime: The active Runtime instance for metrics access.
+        runtime: The running scheduler, for metrics access.
         plan: The ExecutionPlan for graph structure.
         start_time: Server start timestamp.
     """
     
-    runtime: "Runtime"
+    runtime: "UnifiedScheduler"
     plan: "ExecutionPlan"
     start_time: float = field(default_factory=time.time)
     

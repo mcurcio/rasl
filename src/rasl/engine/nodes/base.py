@@ -44,11 +44,10 @@ from rasl.config.connection import ConnectionDescriptor, parse_connect_directive
 from ..frames.frame import EMPTY_METADATA
 
 if TYPE_CHECKING:
-    from ..frames import Frame
     from ..graph import Edge
     from .context import NodeContext
     from ..tick import TickContext
-    from rasl.config.models import BaseNodeConfig
+    from rasl.nodes.models import BaseNodeConfig
     from rasl.config.document import Directive
 
 

@@ -3,7 +3,6 @@
 import pytest
 
 from rasl.config.loader import ConfigError, parse_config
-from rasl.engine.registry import reset_registries
 
 
 @pytest.fixture(autouse=True)

@@ -1,6 +1,5 @@
 """Tests for unit parsing utilities."""
 
-import pytest
 
 from rasl.config.units import parse_interval, parse_frequency
 

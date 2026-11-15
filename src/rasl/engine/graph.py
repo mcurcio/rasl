@@ -623,7 +623,7 @@ class GraphBuilder:
             KeyError: If target or source node not found.
             ValueError: If port resolution fails.
         """
-        from rasl.config.connection import ConnectionDescriptor, parse_port_ref
+        from rasl.config.connection import parse_port_ref
 
         if target_node_id not in self._nodes:
             raise KeyError(f"Unknown target node '{target_node_id}'")
@@ -1025,7 +1025,7 @@ class GraphBuilder:
                 " → ".join(cycle + [cycle[0]]) for cycle in cycles
             ]
             message = (
-                f"Cycle(s) detected in graph:\n"
+                "Cycle(s) detected in graph:\n"
                 + "\n".join(f"  {s}" for s in cycle_strs)
                 + "\n\nNodes in cycles may receive stale data on first frame."
             )

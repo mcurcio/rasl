@@ -12,11 +12,10 @@ from __future__ import annotations
 
 from typing import Optional
 
-import numpy as np
 from pydantic import Field
 
 from rasl.engine.nodes import BaseNode, NodeContext
-from rasl.engine.frames import ColorPayload, Frame, MatrixPayload
+from rasl.engine.frames import ColorPayload, MatrixPayload
 from rasl.engine.ports import InputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext, pull_rate

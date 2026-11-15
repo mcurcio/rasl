@@ -968,7 +968,6 @@ def _okhsv_to_srgb(hsv: NDArray) -> NDArray:
 
     is_black = v <= 0.0
 
-    L_v = _toe_inv(v)
     angle = 2.0 * np.pi * h
     a_ = np.cos(angle)
     b_ = np.sin(angle)

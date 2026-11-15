@@ -243,7 +243,6 @@ class TimingStats:
     last_drop_log_time: float = 0.0
     
     # GC tracking
-    gc_count_at_start: Tuple[int, int, int] = (0, 0, 0)
     gc_collections: int = 0
     
     # Current tick trace (for detailed logging)
@@ -314,7 +313,6 @@ class UnifiedScheduler:
 
         # GC optimization: disable automatic GC during tick execution
         self._gc_disabled_during_tick = False
-        self._gc_interval_ticks = 100  # Run GC every N ticks
 
     def _derive_from_plan(self) -> None:
         """Work out the schedule and routing tables from ``self._plan``.
@@ -1002,7 +1000,6 @@ class UnifiedScheduler:
             return
         self._pulled_this_tick.add(node_id)
 
-        node_start = time.perf_counter()
         runtime = self._node_runtimes[node_id]
         node = runtime.node
 

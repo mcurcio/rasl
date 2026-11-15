@@ -28,7 +28,7 @@ from rasl.config.connect_parser import ResolvedSlice
 from rasl.engine.frames import Frame, MatrixPayload
 from rasl.engine.graph import Edge, ExecutionPlan
 from rasl.engine.nodes import Node, NodeContext, get_inputs
-from rasl.runtime.monitor import NodeMonitor, NodeStats
+from rasl.runtime.monitor import NodeMonitor
 
 logger = structlog.get_logger()
 

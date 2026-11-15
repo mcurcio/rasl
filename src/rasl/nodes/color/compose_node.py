@@ -9,7 +9,7 @@ Pull-based: Reads all input ports, interleaves data, writes output.
 
 from __future__ import annotations
 
-from typing import Sequence, Type
+from typing import TYPE_CHECKING, Sequence, Type
 
 import numpy as np
 from numpy.typing import NDArray
@@ -17,19 +17,18 @@ from pydantic import Field, field_validator
 
 from rasl.engine.nodes import BaseNode
 from rasl.engine.frames import (
-    ColorPayload,
     Frame,
     FramePayload,
-    HsbkColorPayload,
-    HslColorPayload,
     MatrixPayload,
-    RgbColorPayload,
 )
 from rasl.engine.nodes import NodeContext
 from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.engine.registry import get_payload_type, node
-from rasl.engine.tick import TickContext, pull_rate
+from rasl.engine.tick import TickContext
 from rasl.nodes.models import TransformNodeConfig
+
+if TYPE_CHECKING:
+    from rasl.engine.graph import Edge
 
 
 @node("ComposeNode", "Compose")

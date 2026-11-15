@@ -12,7 +12,6 @@ Protocol reference: http://www.3waylabs.com/ddp/
 
 from __future__ import annotations
 
-import asyncio
 import time
 from typing import Any, Optional
 
@@ -23,7 +22,7 @@ from pydantic import Field, field_validator
 
 from rasl.config.units import parse_interval
 from rasl.engine.nodes import BaseNode, NodeContext
-from rasl.engine.frames import ColorPayload, Frame, FramePayload, MatrixPayload
+from rasl.engine.frames import ColorPayload, FramePayload, MatrixPayload
 from rasl.engine.ports import InputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext, pull_rate

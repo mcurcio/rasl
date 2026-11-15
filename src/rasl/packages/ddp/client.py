@@ -9,7 +9,6 @@ Protocol reference: http://www.3waylabs.com/ddp/
 
 import socket
 import struct
-from typing import Any
 
 import numpy as np
 from numpy.typing import ArrayLike

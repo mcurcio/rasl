@@ -12,7 +12,6 @@ from rasl.engine.registry import (
     list_payload_types,
     node,
     payload,
-    reset_registries,
 )
 
 
