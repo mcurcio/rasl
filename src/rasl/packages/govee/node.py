@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Iterable
 
 import numpy as np
-from pydantic import Field, field_validator
+from pydantic import Field
 
 from rasl.engine.frames import (
     ColorPayload,
@@ -18,7 +18,7 @@ from rasl.engine.nodes.config import SinkNodeConfig
 from rasl.engine.ports import InputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext, pull_rate
-from rasl.engine.units import parse_interval
+from rasl.engine.units import Frequency
 
 from .client import (
     DEFAULT_GOVEE_PORT,
@@ -40,7 +40,7 @@ class GoveeLightNode(BaseNode):
             le=65535,
             description="Govee LAN TCP port (default 4003)",
         )
-        fps: str = Field("20hz", description="Pull rate (e.g. '30hz', '33ms')")
+        fps: Frequency = Field(Frequency("20hz"), description="Pull rate (e.g. '30', '30hz', '30fps')")
         input_port: str = Field("light", description="Input ColorPayload port name")
         segment_channels: int | None = Field(
             None,
@@ -49,18 +49,6 @@ class GoveeLightNode(BaseNode):
             description="Override discovered channel count (3=RGB, 4=RGBW)",
         )
 
-        _interval_s: float = 0.05
-
-        @field_validator("fps")
-        @classmethod
-        def _validate_fps(cls, value: str) -> str:
-            interval = parse_interval(value)
-            if interval <= 0:
-                raise ValueError("fps must be positive")
-            return value
-
-        def get_interval_s(self) -> float:
-            return parse_interval(self.fps)
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)
@@ -68,8 +56,8 @@ class GoveeLightNode(BaseNode):
         self._host = config.host
         self._port = config.port
         self._input_port = config.input_port
-        self._interval_s = config.get_interval_s()
-        self._fps = 1.0 / self._interval_s
+        self._fps = config.fps.hz
+        self._interval_s = config.fps.period.seconds
         self._segment_channels_override = config.segment_channels
 
         self.inputs = PortGroup.inputs(

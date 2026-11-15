@@ -1,21 +1,35 @@
-"""Unit parsing utilities for RASL configuration.
+"""Typed quantities for node configuration: ``Duration`` and ``Frequency``.
 
-This module provides functions to parse values with optional unit suffixes
-using the pint library. Supports common time and frequency units.
+A node declares a setting with one of these as its type and reads a typed
+value; the config text is parsed and checked once, when the config loads::
 
-Examples:
-    >>> parse_interval("30hz")  # Returns 0.0333... (seconds)
-    >>> parse_interval("20ms")  # Returns 0.02 (seconds)
-    >>> parse_interval("30")    # Returns 0.0333... (assumes hz)
-    >>> parse_interval(0.05)    # Returns 0.05 (passthrough)
+    class Config(TransformNodeConfig):
+        smooth_period: Duration = Duration("50ms")
+        fps: Frequency = Frequency(30)
+
+    ...
+    self._tau = config.smooth_period.seconds
+    self._hz = config.fps.hz
+
+Each type accepts only its own kind of unit, so a config cannot say one thing
+and mean another:
+
+- ``Duration``: a number with a time unit (``50ms``, ``2s``, ``1.5min``).
+  A bare number is refused: it does not say what it counts.
+- ``Frequency``: a number of hertz, bare or with ``hz`` or ``fps``
+  (``30``, ``20hz``, ``30fps``).
 """
 
 from __future__ import annotations
 
-from functools import lru_cache
-from typing import Union
+import math
+from functools import lru_cache, total_ordering
+from typing import Any, ClassVar
 
 import pint
+from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler
+from pydantic.json_schema import JsonSchemaValue
+from pydantic_core import core_schema
 
 # Create a shared unit registry
 _ureg = pint.UnitRegistry()
@@ -24,126 +38,228 @@ _ureg = pint.UnitRegistry()
 _ureg.define("fps = 1 * hertz")  # frames per second = hz
 _ureg.define("hz = 1 * hertz")  # shorthand for hertz
 
+_TIME = "[time]"
+_FREQUENCY = "1 / [time]"
 
-@lru_cache(maxsize=128)
-def _parse_cached(value: str, default_unit: str) -> pint.Quantity:
-    """Parse a string value with optional unit suffix (cached).
 
-    Args:
-        value: String value, optionally with unit suffix.
-        default_unit: Unit to assume if none specified.
+@lru_cache(maxsize=256)
+def _parse(text: str) -> tuple[float, str]:
+    """A written value as (magnitude in seconds or hertz, kind).
 
     Returns:
-        Pint Quantity with appropriate units.
-    """
-    value = value.strip().lower()
+        ``(seconds, "time")``, ``(hertz, "frequency")`` or ``(number, "number")``
+        for a bare number.
 
-    # Try to parse with pint
+    Raises:
+        ValueError: If the text is not a number with an optional time or
+            frequency unit.
+    """
+    cleaned = text.strip().lower()
     try:
-        quantity = _ureg.parse_expression(value)
-        # If it's just a number (no units), apply default
-        if not hasattr(quantity, 'dimensionality') or quantity.dimensionless:
-            numeric = float(quantity.magnitude if hasattr(quantity, 'magnitude') else quantity)
-            quantity = numeric * _ureg(default_unit)
-    except pint.UndefinedUnitError:
-        # No unit found, assume default
-        try:
-            numeric = float(value)
-            quantity = numeric * _ureg(default_unit)
-        except ValueError:
-            raise ValueError(f"Cannot parse value: {value!r}")
+        quantity = _ureg.parse_expression(cleaned)
+    except Exception as error:  # pint raises several unrelated types
+        raise ValueError(f"cannot read {text!r} as a number with a unit") from error
 
-    return quantity
+    if isinstance(quantity, (int, float)):
+        return float(quantity), "number"
+    if not isinstance(quantity, pint.Quantity):
+        raise ValueError(f"cannot read {text!r} as a number with a unit")
+    if quantity.dimensionless:
+        return float(quantity.magnitude), "number"
+    if quantity.check(_TIME):
+        return float(quantity.to("second").magnitude), "time"
+    if quantity.check(_FREQUENCY):
+        return float(quantity.to("hertz").magnitude), "frequency"
+    raise ValueError(f"{text!r} is neither a time nor a frequency")
 
 
-def parse_interval(value: Union[str, int, float], default_unit: str = "hz") -> float:
-    """Parse a time interval or frequency value to seconds.
+def _format(value: float) -> str:
+    """A number without a trailing ``.0``."""
+    return f"{value:g}"
 
-    Accepts:
-        - Frequency: "30hz", "30fps", "30" (assumes hz by default)
-        - Time: "20ms", "50ms", "0.05s"
-        - Numeric: 30 (assumes hz), 0.05 (if < 1, assumes seconds)
 
-    Args:
-        value: String with optional unit, or numeric value.
-        default_unit: Unit to assume for bare numbers (default: "hz").
+@total_ordering
+class _Quantity:
+    """What ``Duration`` and ``Frequency`` share: one float, compared and hashed
+    by value, never changed, and read by pydantic from config text."""
 
-    Returns:
-        Interval in seconds.
+    __slots__ = ("_value",)
+    _value: float
+
+    _json_schema: ClassVar[dict[str, Any]]
+
+    def __eq__(self, other: object) -> bool:
+        return type(other) is type(self) and other._value == self._value  # type: ignore[attr-defined]
+
+    def __lt__(self, other: object) -> bool:
+        if type(other) is not type(self):
+            return NotImplemented
+        return self._value < other._value  # type: ignore[attr-defined]
+
+    def __hash__(self) -> int:
+        return hash((type(self), self._value))
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError(f"{type(self).__name__} cannot be changed")
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({str(self)!r})"
+
+    @classmethod
+    def _validate(cls, value: Any) -> Any:
+        return value if isinstance(value, cls) else cls(value)
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
+        return core_schema.no_info_plain_validator_function(
+            cls._validate,
+            serialization=core_schema.plain_serializer_function_ser_schema(str, when_used="json"),
+        )
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, schema: core_schema.CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        return dict(cls._json_schema)
+
+
+class Duration(_Quantity):
+    """A length of time.
+
+    Written as a number with a time unit: ``50ms``, ``2s``, ``1.5min``. Zero
+    is allowed (many settings read it as "off"); a negative time is not.
 
     Examples:
-        >>> parse_interval("30hz")
-        0.03333333333333333
-        >>> parse_interval("20ms")
-        0.02
-        >>> parse_interval("30")
-        0.03333333333333333
-        >>> parse_interval(30)
-        0.03333333333333333
-        >>> parse_interval(0.05)
+        >>> Duration("50ms").seconds
         0.05
+        >>> Duration(seconds=2).seconds
+        2.0
+        >>> str(Duration("1.5s"))
+        '1.5s'
     """
-    if isinstance(value, (int, float)):
-        # Numeric value: assume hz if >= 1, seconds if < 1
-        if value >= 1:
-            return 1.0 / value
-        else:
-            return float(value)
 
-    quantity = _parse_cached(value, default_unit)
+    __slots__ = ()
+    _json_schema = {
+        "type": "string",
+        "format": "rasl-duration",
+        "description": "A number with a time unit",
+        "examples": ["50ms", "2s", "1.5min"],
+    }
 
-    # Convert to seconds
-    if quantity.dimensionality == {"[time]": 1}:
-        # Already a time unit (ms, s, etc.)
-        return quantity.to("seconds").magnitude
-    elif quantity.dimensionality == {"[time]": -1}:
-        # Frequency unit (hz, fps)
-        return 1.0 / quantity.to("hertz").magnitude
-    else:
-        raise ValueError(
-            f"Cannot convert {value!r} to time interval. "
-            "Expected frequency (hz, fps) or time (ms, s)."
-        )
+    def __init__(self, text: str | None = None, *, seconds: float | None = None) -> None:
+        """Parse a written duration, or take a number of seconds by name.
+
+        Args:
+            text: The duration as a config writes it, such as ``"50ms"``.
+            seconds: Instead of ``text``: the duration in seconds.
+
+        Raises:
+            ValueError: If the text is a bare number, a frequency, negative,
+                or not a number with a time unit.
+        """
+        if (text is None) == (seconds is None):
+            raise TypeError("Duration takes either a written value or seconds=")
+        if seconds is None:
+            if isinstance(text, bool) or not isinstance(text, (str, int, float)):
+                raise ValueError(f"a duration is written as a number with a time unit, such as 50ms (got {text!r})")
+            if isinstance(text, (int, float)):
+                raise ValueError(
+                    f"a duration needs a unit, such as {_format(text)}ms or {_format(text)}s (got {_format(text)})"
+                )
+            magnitude, kind = _parse(text)
+            if kind == "number":
+                shown = _format(magnitude)
+                raise ValueError(f"a duration needs a unit, such as {shown}ms or {shown}s (got {text!r})")
+            if kind == "frequency":
+                raise ValueError(f"a duration takes a time, such as 50ms or 2s, not a frequency (got {text!r})")
+            seconds = magnitude
+        seconds = float(seconds)
+        if not math.isfinite(seconds) or seconds < 0.0:
+            raise ValueError(f"a duration cannot be negative (got {text if text is not None else seconds!r})")
+        object.__setattr__(self, "_value", seconds)
+
+    @property
+    def seconds(self) -> float:
+        """The duration in seconds."""
+        return self._value
+
+    @property
+    def milliseconds(self) -> float:
+        """The duration in milliseconds."""
+        return self._value * 1000.0
+
+    def __bool__(self) -> bool:
+        """False for a zero duration."""
+        return self._value > 0.0
+
+    def __str__(self) -> str:
+        if self._value == 0.0 or self._value >= 1.0:
+            return f"{_format(self._value)}s"
+        return f"{_format(self._value * 1000.0)}ms"
 
 
-def parse_frequency(value: Union[str, int, float], default_unit: str = "hz") -> float:
-    """Parse a frequency value to hertz.
+class Frequency(_Quantity):
+    """How often something happens, in hertz.
 
-    Accepts:
-        - Frequency: "30hz", "30fps", "30" (assumes hz by default)
-        - Time: "20ms" (converts to 50hz)
-        - Numeric: 30 (assumes hz)
-
-    Args:
-        value: String with optional unit, or numeric value.
-        default_unit: Unit to assume for bare numbers (default: "hz").
-
-    Returns:
-        Frequency in hertz.
+    Written as a number of hertz, bare or with ``hz`` or ``fps``: ``30``,
+    ``20hz``, ``30fps``. It must be positive.
 
     Examples:
-        >>> parse_frequency("30hz")
+        >>> Frequency(30).hz
         30.0
-        >>> parse_frequency("20ms")
-        50.0
-        >>> parse_frequency(30)
-        30.0
+        >>> Frequency("20hz").period.seconds
+        0.05
+        >>> str(Frequency("2.5fps"))
+        '2.5hz'
     """
-    if isinstance(value, (int, float)):
-        return float(value)
 
-    quantity = _parse_cached(value, default_unit)
+    __slots__ = ()
+    _json_schema = {
+        "anyOf": [{"type": "number", "exclusiveMinimum": 0}, {"type": "string", "format": "rasl-frequency"}],
+        "description": "A number of hertz, bare or with hz or fps",
+        "examples": [30, "20hz", "30fps"],
+    }
 
-    # Convert to hertz
-    if quantity.dimensionality == {"[time]": -1}:
-        # Already a frequency unit (hz, fps)
-        return quantity.to("hertz").magnitude
-    elif quantity.dimensionality == {"[time]": 1}:
-        # Time unit - convert to frequency
-        seconds = quantity.to("seconds").magnitude
-        return 1.0 / seconds
-    else:
-        raise ValueError(
-            f"Cannot convert {value!r} to frequency. "
-            "Expected frequency (hz, fps) or time (ms, s)."
-        )
+    def __init__(self, value: str | float | None = None, *, hz: float | None = None) -> None:
+        """Parse a written frequency, or take a number of hertz.
+
+        Args:
+            value: The frequency as a config writes it: a number of hertz, or
+                text such as ``"20hz"``.
+            hz: Instead of ``value``: the frequency in hertz.
+
+        Raises:
+            ValueError: If the value is a time, not positive, or not a number
+                of hertz.
+        """
+        if (value is None) == (hz is None):
+            raise TypeError("Frequency takes either a written value or hz=")
+        if hz is None:
+            if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+                raise ValueError(f"a frequency is a number of hertz, such as 30, 30hz or 30fps (got {value!r})")
+            if isinstance(value, (int, float)):
+                hz = float(value)
+            else:
+                magnitude, kind = _parse(value)
+                if kind == "time":
+                    raise ValueError(
+                        f"a frequency takes a number of hertz, such as 30, 30hz or 30fps, not a time (got {value!r})"
+                    )
+                hz = magnitude
+        hz = float(hz)
+        if not math.isfinite(hz) or hz <= 0.0:
+            raise ValueError(f"a frequency must be positive (got {value if value is not None else hz!r})")
+        object.__setattr__(self, "_value", hz)
+
+    @property
+    def hz(self) -> float:
+        """The frequency in hertz."""
+        return self._value
+
+    @property
+    def period(self) -> Duration:
+        """The time one cycle takes."""
+        return Duration(seconds=1.0 / self._value)
+
+    def __str__(self) -> str:
+        return f"{_format(self._value)}hz"

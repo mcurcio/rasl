@@ -6,7 +6,7 @@ import time
 from typing import Any, ClassVar
 
 import numpy as np
-from pydantic import Field, field_validator
+from pydantic import Field
 
 from rasl.engine.frames import ColorPayload, HsbkColorPayload, MatrixPayload, RgbColorPayload
 from rasl.engine.nodes import BaseNode, NodeContext
@@ -14,7 +14,7 @@ from rasl.engine.nodes.config import SinkNodeConfig
 from rasl.engine.ports import InputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext, pull_rate
-from rasl.engine.units import parse_interval
+from rasl.engine.units import Frequency
 
 from .client import LifxLanClient, parse_target_list
 
@@ -35,7 +35,7 @@ class LifxSinkNode(BaseNode):
             ...,
             description="Comma separated LIFX IP targets (optionally 'mac@ip:port')",
         )
-        fps: str = Field("30hz", description="Pull rate (e.g. '30hz', '33ms')")
+        fps: Frequency = Field(Frequency("30hz"), description="Pull rate (e.g. '30', '30hz', '30fps')")
         duration_ms: float = Field(
             0.0,
             ge=0.0,
@@ -52,16 +52,6 @@ class LifxSinkNode(BaseNode):
             description="Throttle interval for unresolved-target warnings",
         )
 
-        @field_validator("fps")
-        @classmethod
-        def _validate_fps(cls, value: str) -> str:
-            interval = parse_interval(value)
-            if interval <= 0:
-                raise ValueError("fps must be positive")
-            return value
-
-        def get_interval_s(self) -> float:
-            return parse_interval(self.fps)
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)
@@ -72,8 +62,8 @@ class LifxSinkNode(BaseNode):
             color=InputPortSpec(ColorPayload)
         )
 
-        self._interval_s = config.get_interval_s()
-        self._fps = 1.0 / self._interval_s if self._interval_s > 0 else 30.0
+        self._fps = config.fps.hz
+        self._interval_s = config.fps.period.seconds
 
         self._duration_ms = float(config.duration_ms)
         self._rapid = bool(config.rapid)

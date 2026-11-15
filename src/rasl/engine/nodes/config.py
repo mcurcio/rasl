@@ -16,7 +16,9 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from rasl.engine.units import Frequency
 
 
 class BaseNodeConfig(BaseModel):
@@ -47,7 +49,14 @@ class SourceNodeConfig(BaseNodeConfig):
     """
 
     kind: Literal["source"] = "source"
-    fps: float | None = Field(None, ge=0.1, le=1000, description="Output frame rate")
+    fps: Frequency | None = Field(None, description="Output frame rate (e.g. '30', '30hz')")
+
+    @field_validator("fps")
+    @classmethod
+    def _fps_in_range(cls, value: Frequency | None) -> Frequency | None:
+        if value is not None and not 0.1 <= value.hz <= 1000:
+            raise ValueError(f"fps must be between 0.1hz and 1000hz (got {value})")
+        return value
 
 
 class TransformNodeConfig(BaseNodeConfig):

@@ -126,9 +126,18 @@ async def test_smooth_period_does_not_depend_on_the_pull_rate(steps: list[float]
     np.testing.assert_allclose(out.payload.data, [[1 - np.exp(-2.0)]], atol=1e-5)
 
 
-def test_smooth_slew_period_must_not_be_negative() -> None:
-    with pytest.raises(ValueError, match="slew_period must be non-negative"):
-        SmoothNode.Config(id="smooth", slew_period="-1s")
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("slew_period", "-1s", "a duration cannot be negative"),
+        ("smooth_period", 30, "a duration needs a unit, such as 30ms or 30s"),
+        ("smooth_period", "30hz", "a duration takes a time, such as 50ms or 2s, not a frequency"),
+    ],
+)
+def test_smooth_periods_are_durations(field: str, value, message: str) -> None:
+    with pytest.raises(ValueError, match=message) as caught:
+        SmoothNode.Config(id="smooth", **{field: value})
+    assert field in str(caught.value)
 
 
 @pytest.mark.asyncio

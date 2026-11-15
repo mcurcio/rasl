@@ -5,6 +5,7 @@ from pydantic import Field
 
 from rasl.engine.nodes import BaseNode
 from rasl.engine.nodes.config import BaseNodeConfig, SourceNodeConfig, TransformNodeConfig
+from rasl.engine.units import Frequency
 
 
 class TestBaseNodeConfig:
@@ -50,7 +51,8 @@ class TestSourceNodeConfig:
     def test_source_node_config_with_fps(self):
         """Test SourceNodeConfig with fps."""
         config = SourceNodeConfig(id="source", fps=30.0)
-        assert config.fps == 30.0
+        assert config.fps == Frequency(30)
+        assert SourceNodeConfig(id="source", fps="25hz").fps.hz == 25.0
 
     def test_source_node_config_fps_validation(self):
         """Test SourceNodeConfig fps range validation."""

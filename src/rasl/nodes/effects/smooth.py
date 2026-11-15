@@ -7,7 +7,7 @@ from typing import Optional
 
 import numpy as np
 from numpy.typing import NDArray
-from pydantic import Field, ValidationInfo, field_validator
+from pydantic import Field
 
 from rasl.engine.frames import BoolPayload, ColorPayload, MatrixPayload
 from rasl.engine.nodes import BaseNode
@@ -15,7 +15,7 @@ from rasl.engine.nodes.config import TransformNodeConfig
 from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext
-from rasl.engine.units import parse_interval
+from rasl.engine.units import Duration
 
 from .._payload_utils import clone_payload_like
 
@@ -51,15 +51,15 @@ class SmoothNode(BaseNode):
     class Config(TransformNodeConfig):
         """Configuration for SmoothNode."""
 
-        smooth_period: str = Field(
-            "50ms",
-            description="Human-readable response time (e.g., '50ms', '1s'); 0 disables smoothing",
+        smooth_period: Duration = Field(
+            Duration("50ms"),
+            description="Response time (e.g., '50ms', '1s'); '0ms' disables smoothing",
         )
-        slew_period: str = Field(
-            "0ms",
+        slew_period: Duration = Field(
+            Duration("0ms"),
             description=(
                 "Shortest time a full-scale change (0 to 1) may take (e.g., '500ms', '2s'); "
-                "smaller changes take proportionally less; 0 disables"
+                "smaller changes take proportionally less; '0ms' disables"
             ),
         )
         bypass_epsilon: float = Field(
@@ -67,20 +67,6 @@ class SmoothNode(BaseNode):
             ge=0.0,
             description="If difference is below this threshold, reuse previous output",
         )
-
-        @field_validator("smooth_period", "slew_period")
-        @classmethod
-        def _validate_period(cls, value: str, info: ValidationInfo) -> str:
-            seconds = parse_interval(value)
-            if seconds < 0:
-                raise ValueError(f"{info.field_name} must be non-negative")
-            return value
-
-        def get_smooth_period_seconds(self) -> float:
-            return parse_interval(self.smooth_period)
-
-        def get_slew_period_seconds(self) -> float:
-            return parse_interval(self.slew_period)
 
     inputs = PortGroup.inputs(
         input=InputPortSpec((MatrixPayload, ColorPayload)),
@@ -98,8 +84,8 @@ class SmoothNode(BaseNode):
         self._state: NDArray[np.float32] | None = None
 
     def _apply_settings(self, config: Config) -> None:
-        self._tau_seconds = config.get_smooth_period_seconds()
-        self._slew_seconds = config.get_slew_period_seconds()
+        self._tau_seconds = config.smooth_period.seconds
+        self._slew_seconds = config.slew_period.seconds
         self._bypass_epsilon = float(config.bypass_epsilon)
 
     def update_config(self, config: Config) -> None:

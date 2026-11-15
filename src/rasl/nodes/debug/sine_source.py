@@ -59,7 +59,7 @@ class SineSourceNode(BaseNode):
         self._frequency_hz = config.frequency_hz
         self._amplitude = config.amplitude
         self._offset = config.offset
-        self._fps = int(config.fps) if config.fps else 30
+        self._fps = int(config.fps.hz) if config.fps else 30
         self._topic = config.topic or f"sine.{self.id}"
 
     async def start(self, ctx: NodeContext) -> None:

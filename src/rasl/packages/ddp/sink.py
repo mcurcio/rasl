@@ -25,7 +25,7 @@ from rasl.engine.nodes.config import SinkNodeConfig
 from rasl.engine.ports import InputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext, pull_rate
-from rasl.engine.units import parse_interval
+from rasl.engine.units import Frequency
 
 from .client import DDPClient
 
@@ -62,7 +62,7 @@ class DdpSinkNode(BaseNode):
 
         input_port: str = Field("input", description="Input port name")
         target: str = Field(..., description="Target IP address (required)")
-        fps: str = Field("20hz", description="Frame rate (e.g., '30hz', '20', '50ms')")
+        fps: Frequency = Field(Frequency("20hz"), description="Pull rate (e.g. '30', '30hz', '30fps')")
         max_count: int | None = Field(
             None,
             ge=1,
@@ -73,23 +73,12 @@ class DdpSinkNode(BaseNode):
             description="Send DDP_PUSH flag on every packet (instead of only the last packet).",
         )
 
-        # Computed field for interval in seconds
-        _interval_s: float = 0.05
-
         @field_validator("fps")
         @classmethod
-        def validate_fps(cls, v: str) -> str:
-            """Validate fps can be parsed as interval."""
-            interval = parse_interval(v)
-            if interval <= 0:
-                raise ValueError("fps must result in positive interval")
-            if interval < 0.001:  # > 1000 fps
-                raise ValueError("fps too high (max ~1000hz)")
+        def validate_fps(cls, v: Frequency) -> Frequency:
+            if v.hz > 1000:
+                raise ValueError("fps too high (max 1000hz)")
             return v
-
-        def get_interval_s(self) -> float:
-            """Get the interval in seconds."""
-            return parse_interval(self.fps)
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)
@@ -103,8 +92,8 @@ class DdpSinkNode(BaseNode):
 
         # Strongly-typed config access
         self._target = config.target
-        self._interval_s = config.get_interval_s()
-        self._fps = 1.0 / self._interval_s
+        self._fps = config.fps.hz
+        self._interval_s = config.fps.period.seconds
         self._max_count = config.max_count
         self._push_every_packet = bool(config.push_every_packet)
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from rasl.engine.frames import ColorPayload, MatrixPayload
 from rasl.engine.nodes import BaseNode, NodeContext
@@ -20,6 +20,7 @@ from rasl.engine.nodes.config import SinkNodeConfig
 from rasl.engine.ports import InputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext, pull_rate
+from rasl.engine.units import Frequency
 
 
 @node("ConsoleSinkNode", "ConsoleSink")
@@ -51,9 +52,16 @@ class ConsoleSinkNode(BaseNode):
         input_port: str = Field("dmx", description="Input port name")
         max_channels: int = Field(16, ge=1, le=512, description="Max channels to display")
         as_bytes: bool = Field(True, description="Display as 0-255 bytes instead of 0.0-1.0")
-        fps: float = Field(30.0, ge=1.0, le=120.0, description="Frame rate to drive scheduler")
+        fps: Frequency = Field(Frequency(30), description="Frame rate to drive scheduler (e.g. '30', '30hz')")
         include_metadata: bool = Field(True, description="Include frame metadata in log")
         label: str | None = Field(None, description="Optional label for log output")
+
+        @field_validator("fps")
+        @classmethod
+        def _fps_in_range(cls, value: Frequency) -> Frequency:
+            if not 1 <= value.hz <= 120:
+                raise ValueError(f"fps must be between 1hz and 120hz (got {value})")
+            return value
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)
@@ -67,7 +75,7 @@ class ConsoleSinkNode(BaseNode):
 
         self._max_channels = config.max_channels
         self._as_bytes = config.as_bytes
-        self._fps = config.fps
+        self._fps = config.fps.hz
         self._include_metadata = config.include_metadata
         self._label = config.label or self.id
 
