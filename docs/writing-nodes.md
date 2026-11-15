@@ -57,8 +57,8 @@ class ThresholdNode(BaseNode):
 their class name and a short name.
 
 - The decorator raises `TypeError` if the class has no nested `Config`.
-- Names are global to the process. Registering a name that is already taken replaces the earlier class without
-  a warning, so do not reuse a built-in name.
+- Names are global to the process. Registering a name that another class already has raises
+  `NodeRegistryError`, naming both classes, and rasl does not start; pick names no built-in uses.
 - The web API and `rasl --describe` report a node's Python class name (`ThresholdNode`), not the name the config
   used.
 
@@ -291,8 +291,8 @@ builtin = "rasl.nodes"
 devices = "rasl.devices"
 ```
 
-A module that fails to import produces a Python warning (`Failed to load node plugin <name>: ...`), and its types
-are then unknown to the config.
+A module that fails to import stops rasl with `NodeRegistryError` (`Node plugin '<name>' (...) failed to load:
+...`), naming the entry point and the cause.
 
 ### In your own package
 

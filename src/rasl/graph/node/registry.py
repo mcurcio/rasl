@@ -7,7 +7,6 @@ any plugin, so this module names no node package.
 
 from __future__ import annotations
 
-import warnings
 from typing import TYPE_CHECKING, Type, TypeVar
 
 from rasl.signal.registry import _PAYLOAD_REGISTRY
@@ -19,6 +18,20 @@ T = TypeVar("T")
 
 _NODE_REGISTRY: dict[str, Type["BaseNode"]] = {}
 _initialized = False
+
+
+class NodeRegistryError(RuntimeError):
+    """Node types cannot be registered as asked: two classes claim one type name, or a
+    node plugin failed to import. rasl does not start with either."""
+
+
+def _same_class(a: type, b: type) -> bool:
+    """The same class, or the same definition imported again (a module reload)."""
+    return a is b or (a.__module__, a.__qualname__) == (b.__module__, b.__qualname__)
+
+
+def _where(cls: type) -> str:
+    return f"{cls.__module__}.{cls.__qualname__}"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -42,6 +55,7 @@ def node(name: str, *aliases: str):
 
     Raises:
         TypeError: If the class does not define a nested Config class.
+        NodeRegistryError: If another class already registered one of the names.
 
     Example:
         >>> @node("SineSourceNode", "SineSource")
@@ -55,9 +69,15 @@ def node(name: str, *aliases: str):
             raise TypeError(
                 f"Node class {cls.__name__} must define a nested Config class"
             )
-        _NODE_REGISTRY[name] = cls  # type: ignore[assignment]
-        for alias in aliases:
-            _NODE_REGISTRY[alias] = cls  # type: ignore[assignment]
+        for type_name in (name, *aliases):
+            existing = _NODE_REGISTRY.get(type_name)
+            if existing is not None and not _same_class(existing, cls):
+                raise NodeRegistryError(
+                    f"Node type name '{type_name}' is registered by both {_where(existing)} "
+                    f"and {_where(cls)}; rename one of them"
+                )
+        for type_name in (name, *aliases):
+            _NODE_REGISTRY[type_name] = cls  # type: ignore[assignment]
         return cls
 
     return decorator
@@ -106,6 +126,10 @@ def ensure_nodes_loaded() -> None:
 
     Entry points should point to a module that, when imported,
     triggers @node decorator registration for its node classes.
+
+    Raises:
+        NodeRegistryError: If a plugin fails to import, or registers a type name
+            another class has.
     """
     global _initialized
     if _initialized:
@@ -124,8 +148,12 @@ def ensure_nodes_loaded() -> None:
     for ep in eps:
         try:
             ep.load()  # Importing triggers @node registration
+        except NodeRegistryError:
+            raise
         except Exception as e:
-            warnings.warn(f"Failed to load node plugin {ep.name}: {e}")
+            raise NodeRegistryError(
+                f"Node plugin '{ep.name}' ({ep.value}) failed to load: {type(e).__name__}: {e}"
+            ) from e
 
 
 def reset_registries() -> None:

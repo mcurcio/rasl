@@ -16,13 +16,17 @@ from rasl.signal import get_payload_type, list_payload_types, payload
 
 @pytest.fixture
 def clean_registry():
-    """Provide a clean registry state for tests.
-    
-    Note: We don't actually reset the global registry because that
-    breaks class identity for tests that run after this. Instead,
-    we just yield and let tests add to the existing registry.
+    """Put the node registry back as it was after the test.
+
+    Not a full reset, which would break class identity for later tests: the names a
+    test registered are removed, and nothing else changes.
     """
+    from rasl.graph.node.registry import _NODE_REGISTRY
+
+    saved = dict(_NODE_REGISTRY)
     yield
+    _NODE_REGISTRY.clear()
+    _NODE_REGISTRY.update(saved)
 
 
 class TestNodeDecorator:
@@ -191,3 +195,48 @@ class TestBuiltinPayloads:
         assert get_payload_type("hsl") is None
         assert get_payload_type("color:rgb") is not None
         assert get_payload_type("color:hsl") is not None
+
+
+class TestRegistryErrors:
+    def test_two_classes_cannot_share_a_name(self, clean_registry):
+        from rasl.graph.node import NodeRegistryError
+
+        @node("TestClash")
+        class First(BaseNode):
+            class Config(SourceNodeConfig):
+                pass
+
+        with pytest.raises(NodeRegistryError, match="'TestClash' is registered by both .*First and .*Second"):
+
+            @node("TestClash")
+            class Second(BaseNode):
+                class Config(SourceNodeConfig):
+                    pass
+
+        assert get_node_class("TestClash") is First
+
+    def test_registering_the_same_class_again_is_fine(self, clean_registry):
+        class Again(BaseNode):
+            class Config(SourceNodeConfig):
+                pass
+
+        node("TestAgain")(Again)
+        node("TestAgain")(Again)
+        assert get_node_class("TestAgain") is Again
+
+    def test_a_plugin_that_fails_to_import_stops_loading(self, monkeypatch):
+        import importlib.metadata
+
+        from rasl.graph.node import NodeRegistryError, registry
+
+        class Broken:
+            name = "broken"
+            value = "broken_plugin:nodes"
+
+            def load(self):
+                raise ImportError("No module named 'broken_plugin'")
+
+        monkeypatch.setattr(registry, "_initialized", False)
+        monkeypatch.setattr(importlib.metadata, "entry_points", lambda group: [Broken()])
+        with pytest.raises(NodeRegistryError, match="Node plugin 'broken' .*failed to load: ImportError"):
+            registry.ensure_nodes_loaded()
