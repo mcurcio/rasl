@@ -1,7 +1,8 @@
-# Only pyproject.toml, uv.lock, README.md and src/ go into the image
+# Only pyproject.toml, uv.lock, README.md, src/ and docker/ go into the image
 *
 !pyproject.toml
 !uv.lock
 !README.md
 !src/
+!docker/
 **/__pycache__

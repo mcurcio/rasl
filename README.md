@@ -20,6 +20,17 @@ uv sync
 uv sync --dev
 ```
 
+### Container
+
+```bash
+docker run -p 8080:8080 -p 5568:5568/udp -v rasl-config:/config ghcr.io/mcurcio/rasl
+```
+
+The config is `/config/rasl.conf` in the `/config` volume. If it does not exist when the container
+starts, the image writes a starter config there (an empty graph) and never overwrites it after
+that. The web UI is on port 8080 and sACN arrives on 5568/udp. Edit the file and rasl reloads it.
+Arguments replace the default command and go to `rasl`, e.g. `--validate /config/rasl.conf`.
+
 ## Quick Start
 
 1. Create a configuration file (e.g., `config.conf`):

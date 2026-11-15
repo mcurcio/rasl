@@ -16,6 +16,7 @@ on:
         paths:
             - Dockerfile
             - .dockerignore
+            - docker/**
             - pyproject.toml
             - uv.lock
             - src/**
@@ -24,6 +25,7 @@ on:
         paths:
             - Dockerfile
             - .dockerignore
+            - docker/**
             - pyproject.toml
             - uv.lock
             - src/**
@@ -76,24 +78,40 @@ jobs:
                   sbom: false
 
             - name: Smoke test
-              # Runs virtual.conf (no network devices) and checks the UI and the API answer,
-              # as a non-root user
+              # As a non-root user: (1) run virtual.conf (no network devices) and check the UI
+              # and the API answer; (2) start on an empty volume with the default command and
+              # check the entrypoint seeds an empty graph and serves the UI; (3) restart on
+              # that volume after an edit and check the seed does not overwrite it
               run: |
                   set -eu
+                  wait_ui() {
+                      for _ in $(seq 1 30); do
+                          if curl -fsS -o /dev/null "http://127.0.0.1:$1/"; then return 0; fi
+                          sleep 1
+                      done
+                      return 1
+                  }
                   uid=$(docker run --rm --entrypoint id rasl:smoke -u)
                   test "$uid" != 0
+
                   docker run -d --name smoke -p 8080:8080 -v "$PWD/virtual.conf:/config/rasl.conf:ro" \
                       rasl:smoke /config/rasl.conf --api-host 0.0.0.0 --api-port 8080
-                  ok=
-                  for _ in $(seq 1 30); do
-                      if curl -fsS -o /dev/null http://127.0.0.1:8080/; then ok=1; break; fi
-                      sleep 1
-                  done
-                  docker logs smoke
-                  test -n "$ok"
+                  wait_ui 8080 || { docker logs smoke; exit 1; }
                   curl -fsS -H 'content-type: application/json' -d '{"query":"{__typename}"}' \
                       http://127.0.0.1:8080/graphql | grep -q '"Query"'
                   docker rm -f smoke
+
+                  docker volume create seed
+                  docker run -d --name seed --read-only --cap-drop ALL -p 8081:8080 -v seed:/config rasl:smoke
+                  wait_ui 8081 || { docker logs seed; exit 1; }
+                  docker logs seed 2>&1 | grep -q 'seeded /config/rasl.conf'
+                  docker exec seed grep -q '^graph {' /config/rasl.conf
+                  docker exec seed sh -c 'printf "# edited\ngraph {\n}\n" > /config/rasl.conf'
+                  docker restart seed
+                  wait_ui 8081 || { docker logs seed; exit 1; }
+                  test "$(docker exec seed head -1 /config/rasl.conf)" = "# edited"
+                  docker rm -f seed
+                  docker volume rm seed
 
             - name: Push
               id: build
