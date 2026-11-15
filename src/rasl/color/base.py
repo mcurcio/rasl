@@ -21,10 +21,11 @@ class ColorPayload(MatrixPayload):
     Use `to_model()` to convert between color spaces.
     
     Shape: [elements, channels] where channels depends on model:
-    - rgb, srgb, hsl, oklch, oklab, okhsl, okhsv, linear, rec709_rgb_prime: 3 channels
+    - srgb, hsl, oklch, oklab, okhsl, okhsv, linear, rec709_rgb_prime: 3 channels
     - rgbw, hsbk: 4 channels
     
-    Supported models: srgb, rgb, hsl, oklch, oklab, okhsl, okhsv, linear, rec709_rgb_prime, hsbk
+    Supported models: srgb (also written rgb), hsl, oklch, oklab, okhsl, okhsv, linear,
+    rec709_rgb_prime, rgbw, hsbk
     """
 
     __slots__ = ("_model", "_encoding")

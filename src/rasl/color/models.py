@@ -35,15 +35,16 @@ MODEL_COMPONENTS: dict[str, int] = {
 def normalize_model(model: str) -> str:
     """Return the canonical name of a color model.
 
-    Lower-cases the name and resolves aliases: 'rgb', 'linear_rgb' and 'linearrgb'
-    become 'linear'; 'rec709', 'rec709_rgb' and 'rec709rgb' become 'rec709_rgb_prime'.
+    Lower-cases the name and resolves aliases: 'rgb' becomes 'srgb' (RGB as
+    people write it: color pickers, web colors and video are sRGB-encoded);
+    'linear_rgb' and 'linearrgb' become 'linear'; 'rec709', 'rec709_rgb' and 'rec709rgb' become 'rec709_rgb_prime'.
 
     Raises:
         ValueError: If the name is not in ``MODELS`` after that.
     """
     model = model.lower()
     if model == "rgb":
-        return "linear"
+        return "srgb"
     if model in {"linear_rgb", "linearrgb"}:
         return "linear"
     if model in {"rec709", "rec709_rgb", "rec709rgb", "rec709_rgb_prime"}:

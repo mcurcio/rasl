@@ -46,12 +46,13 @@ class TestColorConvert:
         result = convert(data, "srgb", "srgb")
         np.testing.assert_array_equal(result, data)
 
-    def test_rgb_maps_to_linear(self) -> None:
-        """'rgb' is normalized to linear RGB."""
+    def test_rgb_means_srgb(self) -> None:
+        """'rgb' is sRGB, the encoding people write RGB in; linear light is named 'linear'."""
         data = np.array([[0.25, 0.5, 0.75]], dtype=np.float32)
-        linear_result = convert(data, "rgb", "srgb")
-        expected = convert(data, "linear", "srgb")
-        np.testing.assert_array_almost_equal(linear_result, expected)
+        np.testing.assert_array_equal(convert(data, "rgb", "srgb"), data)
+        np.testing.assert_array_almost_equal(convert(data, "rgb", "oklch"), convert(data, "srgb", "oklch"))
+        np.testing.assert_array_almost_equal(convert(data, "linear", "rgb"), convert(data, "linear", "srgb"))
+        assert not np.allclose(convert(data, "linear", "rgb"), data)
 
     def test_srgb_to_oklch_red(self) -> None:
         """Red in sRGB converts to expected OKLCH."""

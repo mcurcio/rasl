@@ -58,3 +58,21 @@ async def test_color_node_assumes_matrix_is_target_model() -> None:
     assert out is not None
     assert isinstance(out.payload, RgbColorPayload)
     np.testing.assert_allclose(out.payload.data, data)
+
+
+@pytest.mark.asyncio
+async def test_color_node_rgb_is_srgb() -> None:
+    """``node Color x rgb`` emits sRGB; linear light is asked for as ``linear``."""
+    from rasl.color import LinearRgbColorPayload, RgbColorPayload
+
+    pixels = np.array([[1.0, 0.5, 0.25]], dtype=np.float32)
+    for model, expected_class in (("rgb", RgbColorPayload), ("linear", LinearRgbColorPayload)):
+        node = ColorNode(ColorNode.Config(id="color", model=model))
+        node.inputs.color._set_frame(Frame(topic="t", timestamp=0.0, payload=RgbColorPayload(pixels)))
+        await node.pull(_tick())
+        out = node.outputs.color._consume().payload
+        assert type(out) is expected_class
+        if model == "rgb":
+            np.testing.assert_allclose(out.data, pixels, atol=1e-6)
+        else:
+            np.testing.assert_allclose(out.data, [[1.0, 0.214, 0.0508]], atol=1e-3)

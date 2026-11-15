@@ -8,7 +8,7 @@ Pull-based: Reads input, converts color model, writes output.
 
 Example config:
     node Color mixer {}           # Default: oklch output
-    node Color toRgb rgb {}       # Output sRGB
+    node Color toRgb rgb {}       # Output sRGB ('rgb' means sRGB; linear light is 'linear')
     node Color toHsl hsl {}       # Output HSL
 """
 
@@ -45,7 +45,7 @@ FRAME_CLASSES: dict[str, type[ColorPayload]] = {
     "hsbk": HsbkColorPayload,
     "srgb": RgbColorPayload,
     "rgbw": RgbwColorPayload,
-    "rgb": LinearRgbColorPayload,
+    "rgb": RgbColorPayload,
     "hsl": HslColorPayload,
     "linear": LinearRgbColorPayload,
     "rec709": Rec709RgbPrimeColorPayload,
@@ -77,7 +77,7 @@ class ColorNode(BaseNode):
 
     The color model can be specified as a positional argument in the config:
         node Color mixer {}           # Default: oklch output
-        node Color toRgb rgb {}       # Output sRGB
+        node Color toRgb rgb {}       # Output sRGB ('rgb' means sRGB; linear light is 'linear')
         node Color toHsl hsl {}       # Output HSL
 
     Or as a config property:
