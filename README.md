@@ -242,7 +242,7 @@ defaults, and has a working example for each sink.
 | `SeededRandom` | Fixed random values per channel, drawn once from a seed | | `out` |
 | `literal` | A constant, e.g. `node literal red color:srgb [[1,0,0]];` | | `out` |
 | `cron` | 1 while the local time matches a cron schedule, else 0, e.g. `node cron night 0 22;` | | `out` |
-| `SacnSource` | Receives sACN universes | | `universe_<N>` per universe, `channels` (all merged) |
+| `SacnSource` | Receives sACN universes | | `universe_<N>` per universe, `channels` (all merged; the default) |
 | **Transforms** | | | |
 | `Compose` | Interleaves named inputs into one payload, such as a color | the names in `ports { }` | `out` |
 | `Color` | Converts to a color model, e.g. `node Color rgb rgb { ... }` | `color` | `color` |

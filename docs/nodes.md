@@ -144,7 +144,7 @@ node cron evening { schedule "0 22-23 * * *"; }
 ### SacnSource
 
 Receives sACN universes. It has one output per universe, `universe_<N>`, and `channels` with all of them
-merged.
+merged. `channels` is the default: `connect input;` takes it, and `connect input.universe_1;` takes one universe.
 
 SacnSource receives unicast sACN only: it does not join multicast groups. Configure the sender to unicast
 to rasl's address. In a container, see the note under [Container](../README.md#container).

@@ -124,7 +124,8 @@ class SacnSourceNode(BaseNode):
             f"universe_{u}": OutputPortSpec(MatrixPayload) for u in self._universes
         }
         port_specs["channels"] = OutputPortSpec(MatrixPayload)
-        self.outputs = PortGroup.outputs(**port_specs)
+        # `connect sacn;` takes every universe, merged (owner, 2026-11-15)
+        self.outputs = PortGroup.outputs(**port_specs).with_default("channels")
         self._channels_port = getattr(self.outputs, "channels", None)
         self._universe_ports = {
             u: getattr(self.outputs, f"universe_{u}") for u in self._universes
@@ -133,8 +134,8 @@ class SacnSourceNode(BaseNode):
     async def start(self, ctx: NodeContext) -> None:
         """Start the sACN receiver thread and register a listener for each universe.
 
-        The listeners run on the receiver's thread and write frames to the output ports from
-        there.
+        The listeners run on the receiver's thread. Each one decodes its packet there,
+        then hands the frame to the event loop, which alone writes the output ports.
         """
         self._ctx = ctx
         self._loop = asyncio.get_running_loop()
@@ -175,24 +176,29 @@ class SacnSourceNode(BaseNode):
                 "sourceName": getattr(packet, "sourceName", None),
                 **self._metadata,
             }
-            if self._loop.is_closed():
-                return
             frame = Frame(
                 topic=f"sacn.universe.{packet.universe}",
                 timestamp=timestamp,
                 payload=MatrixPayload(slots),
                 metadata=MappingProxyType({k: v for k, v in metadata.items() if v is not None}),
             )
-            # Write to specific universe port
-            universe_port = self._universe_ports.get(universe)
-            if universe_port is not None:
-                universe_port.write(frame)
-
-            # Update latest slots and emit merged channels output
-            self._latest_slots[universe] = slots
-            self._emit_channels_frame(frame)
+            # Only the event loop writes ports: hand the frame over
+            try:
+                self._loop.call_soon_threadsafe(self._publish, universe, slots, frame)
+            except RuntimeError:
+                pass  # the loop has closed: rasl is shutting down
 
         return _listener
+
+    def _publish(self, universe: int, slots: NDArray[np.float32], frame: Frame) -> None:
+        """On the event loop: write a received universe and the merged channels."""
+        if self._receiver is None:
+            return  # stopped since the packet arrived
+        universe_port = self._universe_ports.get(universe)
+        if universe_port is not None:
+            universe_port.write(frame)
+        self._latest_slots[universe] = slots
+        self._emit_channels_frame(frame)
 
     def _emit_channels_frame(self, source_frame: Frame) -> None:
         if self._channels_port is None:

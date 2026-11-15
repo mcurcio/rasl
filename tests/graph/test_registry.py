@@ -240,3 +240,18 @@ class TestRegistryErrors:
         monkeypatch.setattr(importlib.metadata, "entry_points", lambda group: [Broken()])
         with pytest.raises(NodeRegistryError, match="Node plugin 'broken' .*failed to load: ImportError"):
             registry.ensure_nodes_loaded()
+
+
+class TestDefaultPort:
+    def test_with_default_names_the_default_and_survives_a_clone(self):
+        from rasl.graph.ports import OutputPortSpec, PortGroup
+        from rasl.signal import MatrixPayload
+
+        group = PortGroup.outputs(a=OutputPortSpec(MatrixPayload), b=OutputPortSpec(MatrixPayload))
+        with pytest.raises(ValueError, match="No default port"):
+            group.get_default()
+        chosen = group.with_default("b")
+        assert chosen.get_default()[0] == "b"
+        assert chosen.clone().get_default()[0] == "b"
+        with pytest.raises(ValueError, match="No port 'c'"):
+            group.with_default("c")
