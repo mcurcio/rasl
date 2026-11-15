@@ -31,7 +31,8 @@ class NodeStats:
         consecutive_failures: Current streak of consecutive failures.
         total_execution_time_ms: Cumulative execution time in milliseconds.
         last_error: Most recent exception encountered, if any.
-        last_error_time: Monotonic timestamp of last error.
+        last_error_time: When the last error happened, as Unix time (like the
+            metrics snapshot's timestamp).
     """
 
     node_id: str
@@ -130,7 +131,7 @@ class NodeMonitor:
         stats.consecutive_failures += 1
         stats.total_execution_time_ms += execution_time_ms
         stats.last_error = error
-        stats.last_error_time = time.monotonic()
+        stats.last_error_time = time.time()
 
         logger.warning(
             "node_handle_failed",

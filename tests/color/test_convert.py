@@ -203,7 +203,12 @@ class TestColorConvert:
         assert recovered.shape == (4, 4)
 
         np.testing.assert_allclose(recovered[:, :3], hsbk[:, :3], atol=0.05)
-        np.testing.assert_allclose(recovered[:, 3], hsbk[:, 3], atol=0.15)
+        # Kelvin tints only the white share of a color. The first row is fully
+        # saturated: it has no white, so no temperature can be read back from it.
+        has_white = hsbk[:, 1] < 1.0
+        np.testing.assert_allclose(recovered[has_white, 3], hsbk[has_white, 3], atol=0.15)
+        # And the recovered HSBK is the same color
+        np.testing.assert_allclose(convert(recovered, "hsbk", "srgb"), srgb, atol=1e-5)
 
 
 class TestColorRoundtrips:
@@ -425,3 +430,36 @@ class TestOklabIsSigned:
     def test_lightness_is_still_clipped(self) -> None:
         lab = convert(np.array([[1.0, 1.0, 1.0]], dtype=np.float32), "srgb", "oklab")[0]
         assert 0.0 <= lab[0] <= 1.0
+
+
+class TestHsbkInverse:
+    """sRGB -> HSBK picks, of the HSBK values that are a color, the one with the most white."""
+
+    def test_any_srgb_color_comes_back_exactly(self) -> None:
+        pixels = np.random.default_rng(0).random((2000, 3)).astype(np.float32)
+        hsbk = convert(pixels, "srgb", "hsbk")
+        assert hsbk.shape == (2000, 4)
+        assert np.all((hsbk >= 0.0) & (hsbk <= 1.0))
+        np.testing.assert_allclose(convert(hsbk, "hsbk", "srgb"), pixels, atol=1e-5)
+
+    def test_any_hsbk_value_keeps_its_color(self) -> None:
+        hsbk = np.random.default_rng(1).random((2000, 4)).astype(np.float32)
+        srgb = convert(hsbk, "hsbk", "srgb")
+        np.testing.assert_allclose(convert(convert(srgb, "srgb", "hsbk"), "hsbk", "srgb"), srgb, atol=1e-5)
+
+    def test_a_white_keeps_its_temperature(self) -> None:
+        kelvin = np.linspace(0.0, 1.0, 40, dtype=np.float32)
+        white = np.stack([np.zeros(40), np.zeros(40), np.full(40, 0.7), kelvin], axis=-1).astype(np.float32)
+        recovered = convert(convert(white, "hsbk", "srgb"), "srgb", "hsbk")
+        np.testing.assert_allclose(recovered[:, 1], 0.0, atol=0.02)  # still white
+        np.testing.assert_allclose(recovered[:, 2], 0.7, atol=0.02)
+        np.testing.assert_allclose(recovered[:, 3], kelvin, atol=0.02)
+
+    def test_a_saturated_color_is_plain_hsv_at_the_neutral_temperature(self) -> None:
+        recovered = convert(np.array([[0.0, 0.0, 1.0], [0.0, 0.5, 0.0]], dtype=np.float32), "srgb", "hsbk")
+        np.testing.assert_allclose(recovered[:, :3], [[2 / 3, 1.0, 1.0], [1 / 3, 1.0, 0.5]], atol=1e-3)
+        np.testing.assert_allclose(recovered[:, 3], (6600 - 1500) / 7500, atol=1e-3)
+
+    def test_grey_is_white_at_the_neutral_temperature(self) -> None:
+        recovered = convert(np.array([[0.4, 0.4, 0.4]], dtype=np.float32), "srgb", "hsbk")[0]
+        np.testing.assert_allclose(recovered, [0.0, 0.0, 0.4, (6600 - 1500) / 7500], atol=1e-3)

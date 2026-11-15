@@ -74,6 +74,7 @@ class HsbkColorPayload(ColorPayload):
         """HsbkColorPayload accepts any MatrixPayload."""
         return issubclass(other, MatrixPayload)
 
+@payload("color:rgb")
 @payload("color:srgb")
 class RgbColorPayload(ColorPayload):
     """sRGB color frame."""

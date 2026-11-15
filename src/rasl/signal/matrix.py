@@ -96,12 +96,12 @@ class MatrixPayload(FramePayload):
             n: Number of copies. 1 or less returns ``self`` unchanged.
 
         Returns:
-            A plain ``MatrixPayload`` with ``count * n`` rows, whatever the subclass of ``self``.
+            A payload of the same class as ``self`` with ``count * n`` rows.
         """
         if n <= 1:
             return self
         repeated = np.tile(self._data, (n, 1))
-        return MatrixPayload(repeated)
+        return type(self)(repeated)
 
     def __len__(self) -> int:  # pragma: no cover - trivial delegation
         return self.count
@@ -112,7 +112,7 @@ class MatrixPayload(FramePayload):
         ``type_name`` is always 'MatrixPayload', also for a subclass that does not override this.
         """
         return PayloadDescriptor(
-            type_name="MatrixPayload",
+            type_name=type(self).__name__,
             domain=self.domain,
             attrs={
                 "shape": self._data.shape,
@@ -149,7 +149,7 @@ class MatrixPayload(FramePayload):
         )
 
     def __repr__(self) -> str:
-        """Return a compact summary: Frame<len=x data=[[...], ...]>."""
+        """Return a compact summary: MatrixPayload<len=x data=[[...], ...]>, under the class's own name."""
 
         data = self._data
 
@@ -175,7 +175,7 @@ class MatrixPayload(FramePayload):
             data_str += ",..."
         data_str += "]"
 
-        return f"Frame<len={total} data={data_str}>"
+        return f"{type(self).__name__}<len={total} data={data_str}>"
 
 
 @payload("bool")

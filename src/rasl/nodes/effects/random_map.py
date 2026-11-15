@@ -11,6 +11,7 @@ from pydantic import Field
 from rasl.color import ColorPayload
 from rasl.graph.node import BaseNode, TickContext, TransformNodeConfig, node
 from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
+from rasl.nodes._payload_utils import clone_payload_like
 from rasl.signal import MatrixPayload
 
 
@@ -73,8 +74,8 @@ class RandomMapNode(BaseNode):
         assert self._mapping is not None  # For type checkers
 
         mapped = data[self._mapping, :]
-        # Always output MatrixPayload for consistent downstream handling
-        new_payload = MatrixPayload(mapped)
+        # The same kind of payload as came in: a color stays that color model
+        new_payload = clone_payload_like(payload, mapped)
         self.outputs.out.write(frame.with_payload(new_payload))
 
     def _validate_input_count(self, input_count: int) -> None:

@@ -98,3 +98,15 @@ class TestFrame:
 
         assert frame.payload.min() >= 0.0
         assert frame.payload.max() <= 1.0
+
+
+def test_bool_payload_keeps_its_class() -> None:
+    import numpy as np
+
+    from rasl.signal import BoolPayload
+
+    mask = BoolPayload(np.array([[1.0], [0.0]], dtype=np.float32))
+    repeated = mask.repeat(3)
+    assert type(repeated) is BoolPayload and repeated.count == 6
+    assert mask.describe().type_name == "BoolPayload"
+    assert repr(mask).startswith("BoolPayload<")

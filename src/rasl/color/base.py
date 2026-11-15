@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import ClassVar, Type
+from typing import Any, ClassVar, Type
 
 import numpy as np
 from numpy.typing import NDArray
@@ -96,6 +96,14 @@ class ColorPayload(MatrixPayload):
 
         return target(converted)
 
+    def _channel_view(self, index: int) -> NDArray[np.float32]:
+        """One component of every element, as a view: writing to it changes the payload."""
+        return self._data[:, index]
+
+    def _set_channel(self, index: int, value: Any) -> None:
+        """Set one component of every element, from a scalar or one value per element."""
+        self._data[:, index] = np.asarray(value, dtype=np.float32)
+
     def repeat(self, n: int) -> "ColorPayload":
         """Return the whole frame tiled ``n`` times, end to end.
 
@@ -169,7 +177,7 @@ class ColorPayload(MatrixPayload):
         data_str += "]"
 
         return (
-            f"ColorPayload<model={self._model} encoding={self._encoding} "
+            f"{type(self).__name__}<model={self._model} encoding={self._encoding} "
             f"len={total} data={data_str}>"
         )
 
