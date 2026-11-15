@@ -11,21 +11,21 @@ Example:
     >>> # plan is an ExecutionPlan ready for Runtime
 """
 
-from .connect_parser import (
+from rasl.config.connect_parser import (
     ConnectParseError,
     ParsedConnect,
     parse_connect,
     parse_connect_batch,
 )
-from .connection import (
+from rasl.config.connection import (
     ConnectionDescriptor,
     ConnectionSpec,
     PortRef,
     parse_connect_directive,
     parse_port_ref,
 )
-from .document import ConfigError, Directive, load_document, parse_document
-from .loader import load_config, parse_config
+from rasl.config.document import ConfigError, Directive, load_document, parse_document
+from rasl.config.loader import load_config, parse_config
 
 __all__ = [
     "ConfigError",

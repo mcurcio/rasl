@@ -19,8 +19,7 @@ from rasl.engine.nodes.config import SinkNodeConfig
 from rasl.engine.ports import InputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext, pull_rate
-
-from .shims import allow_sacn_universe_zero
+from rasl.packages.sacn.shims import allow_sacn_universe_zero
 
 # Apply universe 0 patch at module load
 allow_sacn_universe_zero()

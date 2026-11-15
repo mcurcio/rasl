@@ -14,8 +14,7 @@ from rasl.engine.nodes.config import TransformNodeConfig
 from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext
-
-from .._payload_utils import clone_payload_like
+from rasl.nodes._payload_utils import clone_payload_like
 
 
 @node("MatrixMultiplyNode", "MatrixMultiply")

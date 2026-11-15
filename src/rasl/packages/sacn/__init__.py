@@ -22,7 +22,7 @@ Example config:
     }
 """
 
-from .sink import SacnSinkNode
-from .source import SacnSourceNode
+from rasl.packages.sacn.sink import SacnSinkNode
+from rasl.packages.sacn.source import SacnSourceNode
 
 __all__ = ["SacnSourceNode", "SacnSinkNode"]

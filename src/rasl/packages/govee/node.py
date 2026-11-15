@@ -19,8 +19,7 @@ from rasl.engine.ports import InputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext, pull_rate
 from rasl.engine.units import Frequency
-
-from .client import (
+from rasl.packages.govee.client import (
     DEFAULT_GOVEE_PORT,
     GoveeDeviceInfo,
     GoveeLightClient,

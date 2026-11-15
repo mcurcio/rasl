@@ -8,11 +8,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, Union
 
-from ..ports import EMPTY_PORTS, PortGroup, _EmptyPortGroup
-from .context import NodeContext
+from rasl.engine.nodes.context import NodeContext
+from rasl.engine.ports import EMPTY_PORTS, PortGroup, _EmptyPortGroup
 
 if TYPE_CHECKING:
-    from ..tick import TickContext
+    from rasl.engine.tick import TickContext
 
 
 class Node(Protocol):

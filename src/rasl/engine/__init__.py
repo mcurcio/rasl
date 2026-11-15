@@ -27,7 +27,7 @@ Example:
 """
 
 # Import from new packages (preferred)
-from .frames import (
+from rasl.engine.frames import (
     BoolPayload,
     ColorPayload,
     Frame,
@@ -45,8 +45,8 @@ from .frames import (
     Rec709RgbPrimeColorPayload,
     RgbColorPayload,
 )
-from .graph import CycleWarning, Edge, ExecutionPlan, GraphBuilder
-from .nodes import (
+from rasl.engine.graph import CycleWarning, Edge, ExecutionPlan, GraphBuilder
+from rasl.engine.nodes import (
     BaseNode,
     InjectCallable,
     Node,
@@ -55,7 +55,7 @@ from .nodes import (
     get_inputs,
     get_outputs,
 )
-from .ports import (
+from rasl.engine.ports import (
     EMPTY_PORTS,
     AcceptsSpec,
     BoundPortGroup,
@@ -66,7 +66,7 @@ from .ports import (
     OutputPortSpec,
     PortGroup,
 )
-from .registry import (
+from rasl.engine.registry import (
     ensure_nodes_loaded,
     export_node_schemas,
     get_node_class,
@@ -77,7 +77,7 @@ from .registry import (
     node,
     payload,
 )
-from .tick import TickContext, pull_rate
+from rasl.engine.tick import TickContext, pull_rate
 
 __all__ = [
     # Port types

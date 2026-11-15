@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable, Iterator, Optional, Tuple, Type, Union
 
 if TYPE_CHECKING:
-    from .frames import Frame
+    from rasl.engine.frames import Frame
 
 
 AcceptsSpec = Union[str, Type, Tuple[str, ...], Tuple[Type, ...]]
@@ -157,7 +157,7 @@ class InputPortSpec:
                 return (self.accepts,)  # Single class
 
         # String-based accepts - resolve via registry
-        from .registry import get_payload_type
+        from rasl.engine.registry import get_payload_type
 
         types: list[Type] = []
         for name in self.accepted_types:
@@ -175,7 +175,7 @@ class InputPortSpec:
         if isinstance(self.accepts, str) or (
             isinstance(self.accepts, tuple) and self.accepts and isinstance(self.accepts[0], str)
         ):
-            from .registry import get_payload_type
+            from rasl.engine.registry import get_payload_type
 
             return tuple(name for name in self.accepted_types if get_payload_type(name) is None)
         return ()
@@ -272,7 +272,7 @@ class OutputPortSpec:
         if not isinstance(self.produces, str):
             return (self.produces,)
 
-        from .registry import get_payload_type
+        from rasl.engine.registry import get_payload_type
 
         payload_cls = get_payload_type(self.produces)
         if payload_cls is None:
@@ -282,7 +282,7 @@ class OutputPortSpec:
     def unknown_type_names(self) -> tuple[str, ...]:
         """The produced type name, if no payload is registered under it."""
         if isinstance(self.produces, str):
-            from .registry import get_payload_type
+            from rasl.engine.registry import get_payload_type
 
             if get_payload_type(self.produces) is None:
                 return (self.produces,)

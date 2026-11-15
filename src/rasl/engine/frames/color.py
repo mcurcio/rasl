@@ -11,11 +11,11 @@ from typing import Any, ClassVar, Type
 import numpy as np
 from numpy.typing import NDArray
 
-from .._color_convert import convert as _convert_color
-from .._color_convert import normalize_model as _normalize_color_model
-from ..registry import payload
-from .base import FramePayload, PayloadDescriptor
-from .matrix import MatrixPayload
+from rasl.engine._color_convert import convert as _convert_color
+from rasl.engine._color_convert import normalize_model as _normalize_color_model
+from rasl.engine.frames.base import FramePayload, PayloadDescriptor
+from rasl.engine.frames.matrix import MatrixPayload
+from rasl.engine.registry import payload
 
 
 @payload("color")

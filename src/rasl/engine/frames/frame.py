@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping, MutableMapping
 
-from .base import FramePayload
+from rasl.engine.frames.base import FramePayload
 
 Metadata = Mapping[str, Any]
 """Type alias for frame metadata dictionaries."""

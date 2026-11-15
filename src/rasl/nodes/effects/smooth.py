@@ -16,8 +16,7 @@ from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext
 from rasl.engine.units import Duration
-
-from .._payload_utils import clone_payload_like
+from rasl.nodes._payload_utils import clone_payload_like
 
 
 @node("SmoothNode", "Smooth")

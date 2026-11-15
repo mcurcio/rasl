@@ -16,9 +16,9 @@ Example:
     >>> await scheduler.run()
 """
 
-from .monitor import NodeMonitor, NodeStats
-from .plan_update import PlanUpdate
-from .unified import UnifiedScheduler
+from rasl.runtime.monitor import NodeMonitor, NodeStats
+from rasl.runtime.plan_update import PlanUpdate
+from rasl.runtime.unified import UnifiedScheduler
 
 __all__ = [
     "NodeMonitor",

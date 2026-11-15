@@ -43,21 +43,21 @@ Example configuration::
 """
 
 # Importing a node module registers its class (@node)
-from .color.color_node import ColorNode
-from .color.compose_node import ComposeNode
-from .debug.console_sink import ConsoleSinkNode
-from .debug.sine_source import SineSourceNode
-from .effects.cron import CronNode
-from .effects.crossfade import CrossfadeNode
-from .effects.math import MathNode
-from .effects.matrix_multiply import MatrixMultiplyNode
-from .effects.random_map import RandomMapNode
-from .effects.range_map import RangeMapNode
-from .effects.seeded_random import SeededRandomNode
-from .effects.smooth import SmoothNode
-from .effects.twinkle import TwinkleEffectNode
-from .effects.waveform import WaveformNode
-from .literal_node import LiteralNode
+from rasl.nodes.color.color_node import ColorNode
+from rasl.nodes.color.compose_node import ComposeNode
+from rasl.nodes.debug.console_sink import ConsoleSinkNode
+from rasl.nodes.debug.sine_source import SineSourceNode
+from rasl.nodes.effects.cron import CronNode
+from rasl.nodes.effects.crossfade import CrossfadeNode
+from rasl.nodes.effects.math import MathNode
+from rasl.nodes.effects.matrix_multiply import MatrixMultiplyNode
+from rasl.nodes.effects.random_map import RandomMapNode
+from rasl.nodes.effects.range_map import RangeMapNode
+from rasl.nodes.effects.seeded_random import SeededRandomNode
+from rasl.nodes.effects.smooth import SmoothNode
+from rasl.nodes.effects.twinkle import TwinkleEffectNode
+from rasl.nodes.effects.waveform import WaveformNode
+from rasl.nodes.literal_node import LiteralNode
 
 __all__ = [
     "ColorNode",

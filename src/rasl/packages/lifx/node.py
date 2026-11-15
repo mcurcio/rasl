@@ -15,8 +15,7 @@ from rasl.engine.ports import InputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext, pull_rate
 from rasl.engine.units import Frequency
-
-from .client import LifxLanClient, parse_target_list
+from rasl.packages.lifx.client import LifxLanClient, parse_target_list
 
 _UINT16_MAX = 0xFFFF
 _MIN_KELVIN = 1500.0

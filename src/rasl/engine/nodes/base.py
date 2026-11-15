@@ -36,14 +36,13 @@ from abc import ABC
 from types import MappingProxyType
 from typing import TYPE_CHECKING, ClassVar, Sequence, Type
 
-from ..frames.frame import EMPTY_METADATA
+from rasl.engine.frames.frame import EMPTY_METADATA
 
 if TYPE_CHECKING:
+    from rasl.engine.graph import Edge
     from rasl.engine.nodes.config import BaseNodeConfig
-
-    from ..graph import Edge
-    from ..tick import TickContext
-    from .context import NodeContext
+    from rasl.engine.nodes.context import NodeContext
+    from rasl.engine.tick import TickContext
 
 
 class BaseNode(ABC):

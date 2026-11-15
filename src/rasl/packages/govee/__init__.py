@@ -1,7 +1,7 @@
 """Govee LAN lighting integration."""
 
-from .client import GoveeDeviceInfo, GoveeLightClient
-from .node import GoveeLightNode
+from rasl.packages.govee.client import GoveeDeviceInfo, GoveeLightClient
+from rasl.packages.govee.node import GoveeLightNode
 
 __all__ = [
     "GoveeDeviceInfo",

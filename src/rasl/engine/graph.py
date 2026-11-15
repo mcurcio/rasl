@@ -20,9 +20,8 @@ import numpy as np
 
 from rasl.engine.frames import Frame, FramePayload, MatrixPayload
 from rasl.engine.nodes import Node, get_inputs, get_outputs
+from rasl.engine.ports import InputPort, InputPortSpec, OutputPortSpec
 from rasl.engine.slices import Slice
-
-from .ports import InputPort, InputPortSpec, OutputPortSpec
 
 
 @dataclass(frozen=True, slots=True)
@@ -535,7 +534,7 @@ class GraphBuilder:
         for label, port_spec in ((src_label, src_port_spec), (tgt_label, tgt_port_spec)):
             unknown = port_spec.unknown_type_names()
             if unknown:
-                from .registry import list_payload_types
+                from rasl.engine.registry import list_payload_types
 
                 raise TypeError(
                     f"Port {label} names a payload type that is not registered: "

@@ -15,8 +15,8 @@ Submodules:
 - frame: Frame dataclass
 """
 
-from .base import FramePayload, PayloadDescriptor
-from .color import (
+from rasl.engine.frames.base import FramePayload, PayloadDescriptor
+from rasl.engine.frames.color import (
     ColorPayload,
     HsbkColorPayload,
     HslColorPayload,
@@ -29,8 +29,8 @@ from .color import (
     RgbColorPayload,
     RgbwColorPayload,
 )
-from .frame import Frame, Metadata
-from .matrix import BoolPayload, MatrixPayload
+from rasl.engine.frames.frame import Frame, Metadata
+from rasl.engine.frames.matrix import BoolPayload, MatrixPayload
 
 __all__ = [
     # Base

@@ -12,13 +12,13 @@ Submodules:
 - base: BaseNode abstract class
 """
 
-from .base import BaseNode
-from .context import (
+from rasl.engine.nodes.base import BaseNode
+from rasl.engine.nodes.context import (
     InjectCallable,
     NodeContext,
     StartTaskCallable,
 )
-from .protocol import (
+from rasl.engine.nodes.protocol import (
     Node,
     get_inputs,
     get_outputs,

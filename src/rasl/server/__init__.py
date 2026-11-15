@@ -16,7 +16,7 @@ Example:
     >>> await run_server(app, port=8080)
 """
 
-from .app import create_app, run_server
-from .state import AppState
+from rasl.server.app import create_app, run_server
+from rasl.server.state import AppState
 
 __all__ = ["AppState", "create_app", "run_server"]

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional, Tuple
 
 if TYPE_CHECKING:
-    from ..frames import Frame
+    from rasl.engine.frames import Frame
 
 
 StartTaskCallable = Callable[[Callable[..., Awaitable[None]], Tuple[Any, ...]], None]

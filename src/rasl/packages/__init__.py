@@ -19,6 +19,6 @@ The registry imports this package as the "rasl.nodes" entry point named
 "devices", which registers every node below.
 """
 
-from . import ddp, govee, lifx, sacn
+from rasl.packages import ddp, govee, lifx, sacn
 
 __all__ = ["ddp", "govee", "lifx", "sacn"]
