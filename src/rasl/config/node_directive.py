@@ -110,19 +110,53 @@ def _extract_config_dict(
     return result
 
 
-def _parse_metadata(raw: dict[str, Any]) -> dict[str, str]:
-    """Parse metadata from raw config dict."""
-    metadata_value = raw.pop("metadata", None)
-    if metadata_value is None:
-        return {}
+def _metadata(directive: Directive, tree: Rendered) -> dict[str, str] | None:
+    """A node's ``metadata``, from its string and block forms, or None if it has none.
 
+    ``metadata "room=den" "zone=2";`` gives each ``key=value`` value (a value with no
+    ``=`` is ignored). ``metadata { room den; zone 2; }`` gives each line's one value.
+    Several ``metadata`` directives, of either form, merge.
+
+    Raises:
+        ConfigError: On the line at fault, for a block line with no value or several,
+            a nested block, a value on a block's own line, or a key given twice.
+    """
+    found = children(directive, "metadata")
+    if not found:
+        return None
     metadata: dict[str, str] = {}
-    items = [metadata_value] if isinstance(metadata_value, str) else metadata_value
-    for item in items:
-        item_str = str(item)
-        if "=" in item_str:
-            key, value = item_str.split("=", 1)
-            metadata[key] = value
+
+    def put(key: str, value: str, at: Directive) -> None:
+        if key in metadata:
+            raise config_error(
+                at, f"metadata key '{key}' is given twice", code="rasl/metadata", tree=tree
+            )
+        metadata[key] = value
+
+    for item in found:
+        if item.block is None:
+            for text in arg_texts(item):
+                if "=" in text:
+                    key, value = text.split("=", 1)
+                    put(key, value, item)
+            continue
+        if item.values:
+            raise config_error(
+                item,
+                "a metadata block takes no values on its own line; put each entry inside it",
+                code="rasl/metadata",
+                tree=tree,
+            )
+        for entry in children(item):
+            values = arg_texts(entry)
+            if entry.block is not None or len(values) != 1:
+                raise config_error(
+                    entry,
+                    f"metadata entry '{entry.name}' takes exactly one value, like `{entry.name} value;`",
+                    code="rasl/metadata",
+                    tree=tree,
+                )
+            put(entry.name, values[0], entry)
     return metadata
 
 
@@ -213,9 +247,10 @@ def _node_config(
             tree=tree,
         )
 
-    # Handle metadata
-    if "metadata" in raw_config:
-        raw_config["metadata"] = _parse_metadata(raw_config)
+    # Metadata is read from the directives themselves, which keep each line's place
+    metadata = _metadata(directive, tree)
+    if metadata is not None:
+        raw_config["metadata"] = metadata
 
     # Remove type directive if present
     raw_config.pop("type", None)

@@ -313,3 +313,34 @@ class TestPullRates:
 
     def test_a_good_rate_loads(self) -> None:
         parse_config("graph {\n    node TestSettableRateSink sink { hz 30; }\n}\n")
+
+
+class TestMetadata:
+    @staticmethod
+    def _md(body: str) -> dict:
+        plan = parse_config(f"graph {{\n    node ConsoleSink c {{ fps 1; {body} }}\n}}\n")
+        return dict(plan.nodes["c"]._metadata)
+
+    def test_the_block_form(self) -> None:
+        assert self._md('metadata { room den; zone "2"; }') == {"room": "den", "zone": "2"}
+
+    def test_the_string_form_still_works(self) -> None:
+        assert self._md('metadata "room=den" "zone=2";') == {"room": "den", "zone": "2"}
+
+    def test_both_forms_merge(self) -> None:
+        assert self._md('metadata "room=den"; metadata { zone 2; }') == {"room": "den", "zone": "2"}
+
+    @pytest.mark.parametrize(
+        ("body", "message"),
+        [
+            ('metadata "room=den"; metadata { room hall; }', "metadata key 'room' is given twice"),
+            ("metadata { room den hall; }", "metadata entry 'room' takes exactly one value"),
+            ("metadata { room; }", "metadata entry 'room' takes exactly one value"),
+            ("metadata { room { name den; } }", "metadata entry 'room' takes exactly one value"),
+            ("metadata x { room den; }", "a metadata block takes no values on its own line"),
+        ],
+    )
+    def test_a_bad_entry_is_a_located_error(self, body: str, message: str) -> None:
+        with pytest.raises(ConfigError, match=message) as caught:
+            self._md(body)
+        assert caught.value.line == 2
