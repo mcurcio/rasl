@@ -338,4 +338,4 @@ checkout, run the checks and open a pull request.
 
 ## License
 
-rasl does not have a license yet. Until one is chosen, the code is not licensed for reuse.
+rasl is released under the [MIT License](LICENSE).

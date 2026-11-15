@@ -262,4 +262,4 @@ the top, and [docs/README.md](docs/README.md) lists them.
 
 ## License
 
-rasl does not have a license yet. Until one is chosen, the code is not licensed for reuse.
+rasl is released under the [MIT License](LICENSE). By contributing, you agree that your contributions are licensed under it.
