@@ -21,6 +21,7 @@ from rasl.config.build import build_plan, load_config, parse_config
 from rasl.config.connect import ConnectionDescriptor, PortRef, parse_connect_directive, parse_port_ref
 from rasl.config.document import ConfigError, Directive, load_document, parse_document
 from rasl.config.reload import ConfigSession, ReloadOutcome
+from rasl.config.settings import RuntimeSettings, UiSettings, runtime_settings, ui_settings
 from rasl.config.watch import watch_config
 
 __all__ = [
@@ -30,6 +31,8 @@ __all__ = [
     "Directive",
     "PortRef",
     "ReloadOutcome",
+    "RuntimeSettings",
+    "UiSettings",
     "build_plan",
     "load_config",
     "load_document",
@@ -37,5 +40,7 @@ __all__ = [
     "parse_connect_directive",
     "parse_document",
     "parse_port_ref",
+    "runtime_settings",
+    "ui_settings",
     "watch_config",
 ]

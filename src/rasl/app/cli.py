@@ -23,7 +23,6 @@ import anyio
 import structlog
 
 from rasl import __version__
-from rasl.config.document import Rendered, arg_texts, children
 from rasl.config.reload import ConfigSession
 from rasl.config.watch import watch_config
 from rasl.graph import ExecutionPlan
@@ -44,25 +43,6 @@ structlog.configure(
 )
 
 logger = structlog.get_logger()
-
-
-def _get_ui_settings(tree: Rendered) -> tuple[bool, str, int]:
-    """Return (enabled, host, port) from top-level `ui {}` config block."""
-    ui_blocks = tree.block.directives("ui")
-    if not ui_blocks:
-        return False, "127.0.0.1", 8080
-
-    host = "127.0.0.1"
-    port = 8080
-
-    for child in children(ui_blocks[0]):
-        args = arg_texts(child)
-        if child.name == "host" and args:
-            host = args[0]
-        elif child.name == "port" and args:
-            port = int(args[0])
-
-    return True, host, port
 
 
 def _create_parser() -> argparse.ArgumentParser:
@@ -227,7 +207,7 @@ def main(args: Optional[list[str]] = None) -> int:
         print(json.dumps(description, indent=2))
         return 0
 
-    runtime = Runtime(plan)
+    runtime = Runtime(plan, max_consecutive_errors=session.runtime.max_consecutive_errors or None)
     
     if parsed.profile:
         runtime.enable_profiling(True)
@@ -235,16 +215,16 @@ def main(args: Optional[list[str]] = None) -> int:
     
     logger.info("starting_scheduler")
 
-    ui_enabled, ui_host, ui_port = _get_ui_settings(session.tree)
+    ui = session.ui
 
     api_host: Optional[str] = None
     api_port: Optional[int] = None
     if parsed.api_port is not None:
         api_host = parsed.api_host
         api_port = parsed.api_port
-    elif ui_enabled:
-        api_host = ui_host
-        api_port = ui_port
+    elif ui.enabled:
+        api_host = ui.host
+        api_port = ui.port
 
     try:
         anyio.run(

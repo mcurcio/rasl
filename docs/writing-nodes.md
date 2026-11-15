@@ -72,8 +72,8 @@ A node's settings are a pydantic model nested in the class as `Config`. Base it 
 | `TransformNodeConfig` | Nodes with inputs and outputs | nothing |
 | `SinkNodeConfig` | Nodes with no outputs | nothing |
 
-All three extend `BaseNodeConfig`, which gives every node `id` (set from the config's node name) and `metadata`
-(a `dict[str, str]`). Models are frozen and refuse unknown fields (`extra="forbid"`), so a misspelt directive is
+All three extend `BaseNodeConfig`, which gives every node `id` (set from the config's node name), `metadata`
+(a `dict[str, str]`) and `max_consecutive_errors` (an `int` or None). Models are frozen and refuse unknown fields (`extra="forbid"`), so a misspelt directive is
 an error that names its line in the config file.
 
 Each field is one directive in the node's block. [nodes.md: How settings are written](nodes.md#how-settings-are-written)
@@ -191,7 +191,8 @@ async def pull(self, tick: TickContext) -> None:
   repeats or several connections gets a new `MatrixPayload` built in a buffer that is reused next tick, so copy
   the data if you keep it, and do not rely on its color model.
 - Exceptions from `pull` are logged against the node. That sink's pull ends for the tick, and the node is pulled
-  again next tick. The `rasl` command does not disable a node that keeps failing.
+  again next tick. After `max_consecutive_errors` failures in a row (the config's `runtime` block, 10 by default,
+  or the node's own setting) the node is disabled until a config reload changes it.
 
 `TickContext` is a frozen dataclass:
 
@@ -243,7 +244,7 @@ When the config changes while rasl runs ([README: Live reload](../README.md#live
 changed is stopped and replaced by a new object built from the new config. A node that defines
 `update_config(self, config)` is kept instead: the runtime calls the method between ticks with the new, validated
 config. Define it when the node holds state worth keeping and every setting can change without a restart. Call
-`self._set_metadata(config)` in it, since metadata is a setting too. An exception from it is logged, and the node
+`self._apply_base_config(config)` in it, since metadata is a setting too. An exception from it is logged, and the node
 goes on running. A node whose `connect` lines changed but whose settings did not is left running.
 
 ## Payloads
@@ -390,7 +391,7 @@ class ThresholdNode(BaseNode):
 
     def update_config(self, config: Config) -> None:
         """Take new settings on a config reload without a restart."""
-        self._set_metadata(config)
+        self._apply_base_config(config)
         self._apply(config)
 
     async def pull(self, tick: TickContext) -> None:

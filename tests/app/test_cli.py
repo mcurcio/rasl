@@ -28,3 +28,13 @@ class TestDescribe:
         description = json.loads(out)  # nothing but JSON on stdout
         assert description["nodes"]
         assert "config_loaded" in err  # the log lines go to stderr
+
+
+class TestValidate:
+    def test_a_bad_ui_port_is_a_config_error_not_a_crash(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config = tmp_path / "bad.conf"
+        config.write_text('ui {\n    port "abc";\n}\ngraph { }\n')
+        assert main(["--validate", str(config)]) == 1
+        assert "bad.conf:2:5" in capsys.readouterr().err

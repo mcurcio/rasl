@@ -92,7 +92,7 @@ content-type: application/json
 | `tick_count` | integer | Ticks run since the runtime started. |
 | `last_tick_age_seconds` | number or null | Seconds since the last tick finished; null before the first tick. |
 | `stall_after_seconds` | number or null | How long without a tick counts as a stall for the graph now running; null when the graph has no rate-driving sink, since it cannot stall. |
-| `disabled_nodes` | array of strings | Ids of nodes disabled for failing again and again, sorted. The `rasl` command does not disable failing nodes today, so it runs with this always empty. |
+| `disabled_nodes` | array of strings | Ids of nodes disabled after `max_consecutive_errors` failed pulls in a row (10 by default; see the README's `runtime` block), sorted. A config reload that changes a node re-enables it. |
 | `last_reload_ok` | boolean or null | Whether the last config reload succeeded; null if none has been tried, or the config is not watched (`--no-watch`). |
 | `last_reload_error` | string or null | Why the last reload failed, with file, line, column and the source line; null unless it failed. |
 | `last_reload_at` | number or null | When the last reload attempt ended, in Unix seconds; null if none has been tried. |

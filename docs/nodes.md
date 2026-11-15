@@ -43,6 +43,7 @@ Value types used below:
 | Setting | Type | Default | Meaning |
 |---|---|---|---|
 | `metadata` | map of strings | empty | Key-value metadata attached to the node's frames. |
+| `max_consecutive_errors` | int, 0 or more | the `runtime` block's (10) | Disable this node after this many failed pulls in a row; 0 means never. |
 
 Source nodes (`Waveform`, `SineSource`, `SeededRandom`, `literal`, `cron`, `SacnSource`) also accept `fps`
 (a frequency from 0.1 to 1000 Hz, unset by default). Only `SineSource` uses it; the other sources run at

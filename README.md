@@ -178,6 +178,9 @@ syntax. rasl reads these directives:
   `input.channels[0~150]`. The port is the receiving node's input port; leave it out when the node has only
   one input.
 - **`ui { host "127.0.0.1"; port 8080; }`**, at the top level, starts the web server without `--api-port`.
+- **`runtime { max_consecutive_errors 10; }`**, at the top level: a node whose pull fails this many times in a
+  row is disabled (no longer pulled) until a config reload changes it or rasl restarts. The default is 10, and
+  0 means never. A node's own `max_consecutive_errors` setting overrides it.
 
 A larger example, with a variable, a snippet and a slice:
 
@@ -295,7 +298,7 @@ When the web server runs, it serves:
   | Status | Meaning | HTTP |
   |---|---|---|
   | `ok` | The graph is running. | 200 |
-  | `degraded` | It is running, but the last config reload failed and the previous graph still runs. (A node disabled after repeated failures also counts, but the `rasl` command does not disable failing nodes today.) | 200 |
+  | `degraded` | It is running, but a node was disabled after repeated failures (see `runtime` above), or the last config reload failed and the previous graph still runs. | 200 |
   | `stalled` | It has rate-driving sinks, but no tick has finished for 10 ticks at the slowest sink's rate (at least 5 seconds). | 503 |
 
 The server has no authentication. It binds `127.0.0.1` unless `--api-host` (with `--api-port`) or the `ui`
@@ -313,7 +316,7 @@ follows within about a second, at the next tick; nothing restarts but what chang
 | a node's `connect` lines | the routing changes; the node keeps running |
 | a `@set` variable or an included file | the nodes that read it change, as above |
 | add or remove a node | it is started or stopped |
-| the `ui` block | nothing until rasl is restarted (a warning says so) |
+| the `ui` or `runtime` block | nothing until rasl is restarted (a warning says so); a bad value is still reported |
 
 A config with a problem is never applied, in whole or in part. The problem is printed with its file, line and
 column, the graph keeps running as it was, and `/health` reports `degraded` until the files are valid again.

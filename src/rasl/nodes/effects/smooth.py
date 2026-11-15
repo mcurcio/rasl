@@ -91,7 +91,7 @@ class SmoothNode(BaseNode):
         A config reload calls this in place of a restart, so the output goes on
         from where it was instead of jumping back to the input.
         """
-        self._set_metadata(config)
+        self._apply_base_config(config)
         self._apply_settings(config)
 
     async def pull(self, tick: TickContext) -> None:

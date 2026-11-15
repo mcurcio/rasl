@@ -172,7 +172,9 @@ class Runtime:
             self.timing.forget(stopping)
             self.timing.set_rates(self._rate_drivers)
 
-            # Nodes that take new settings without a restart
+            # Nodes that take new settings without a restart; a node disabled for
+            # failing gets another chance with them
+            self.executor.disabled -= set(update.updated)
             for node_id, config in update.updated.items():
                 try:
                     self._plan.nodes[node_id].update_config(config)
