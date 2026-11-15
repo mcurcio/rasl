@@ -4,10 +4,8 @@ directives, and one device config read end to end."""
 
 import pytest
 
-from rasl.config.connection import (
-    parse_connect_directive,
-    parse_port_ref,
-)
+from rasl.config.build import parse_config
+from rasl.config.connect import parse_connect_directive, parse_port_ref
 from rasl.config.document import (
     ConfigError,
     Directive,
@@ -19,7 +17,6 @@ from rasl.config.document import (
     parse_document,
     scalar,
 )
-from rasl.config.loader import parse_config
 from rasl.graph import Slice
 
 

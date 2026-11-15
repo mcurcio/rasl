@@ -2,9 +2,9 @@
 
 import pytest
 
-from rasl.config.connection import parse_port_ref
+from rasl.config.build import parse_config
+from rasl.config.connect import parse_port_ref
 from rasl.config.document import ConfigError
-from rasl.config.loader import parse_config
 from rasl.graph import Edge, Slice
 
 

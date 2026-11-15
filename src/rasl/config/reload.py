@@ -38,8 +38,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from rasl.config.build import build_plan, graph_directive
 from rasl.config.document import ConfigError, Directive, Rendered, children, load_document
-from rasl.config.loader import build_plan, graph_directive, node_id_of, node_spec
+from rasl.config.node_directive import node_id_of, node_spec
 from rasl.graph import ExecutionPlan
 from rasl.graph.node import get_node_class
 from rasl.runtime.plan_update import PlanUpdate

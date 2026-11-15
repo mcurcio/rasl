@@ -2,7 +2,8 @@
 
 import pytest
 
-from rasl.config.loader import ConfigError, parse_config
+from rasl.config.build import parse_config
+from rasl.config.document import ConfigError
 
 
 @pytest.fixture(autouse=True)

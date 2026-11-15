@@ -352,7 +352,7 @@ class TestNodesOwnTheirPorts:
         assert a.outputs.out.spec is WaveformNode.outputs.out.spec
 
     async def test_three_sources_of_one_class_keep_their_own_values(self) -> None:
-        from rasl.config.loader import parse_config
+        from rasl.config.build import parse_config
 
         plan = parse_config(
             """

@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 
 from rasl.color import ColorPayload
+from rasl.config.build import parse_config
 from rasl.config.document import ConfigError
-from rasl.config.loader import parse_config
 from rasl.nodes.literal_node import LiteralNode, build_payload, parse_literal
 from rasl.signal import MatrixPayload
 

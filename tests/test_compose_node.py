@@ -3,7 +3,7 @@
 import pytest
 
 from rasl.config.document import Directive, parse_document
-from rasl.config.loader import _extract_config_dict
+from rasl.config.node_directive import _extract_config_dict
 from rasl.graph import Edge, GraphBuilder
 from rasl.nodes.color.compose_node import ComposeNode
 

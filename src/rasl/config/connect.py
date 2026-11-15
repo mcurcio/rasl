@@ -2,7 +2,6 @@
 
 This module provides:
 - ConnectionDescriptor: Raw connection info from config (unresolved)
-- ConnectionSpec: Resolved connection with explicit ports and slices
 - parse_port_ref: Parse "node[slice].port" syntax
 - parse_connect_directive: A ``connect`` directive as a ConnectionDescriptor
 - resolve_connections: A node's descriptors as edges of a GraphBuilder
@@ -39,7 +38,7 @@ class ConnectionDescriptor:
     """Raw connection info from config, before resolution.
 
     This is what BaseNode produces when parsing connect directives.
-    The Graph resolves these into ConnectionSpec objects using node port info.
+    ``resolve_connections`` turns these into edges using the nodes' ports.
 
     Attributes:
         source: Raw source string (e.g., "upstream", "upstream.port", "upstream[0:100]").
@@ -53,25 +52,6 @@ class ConnectionDescriptor:
     target: str | None
     repeat: int = 1
     repeat_until: int | None = None
-
-
-@dataclass(frozen=True)
-class ConnectionSpec:
-    """A fully resolved connection ready for Graph.connect().
-
-    Attributes:
-        source_node: Name of upstream node.
-        source_port: Source output port name.
-        source_slice: Channel slice on source, or None for full port.
-        target_port: Target input port name.
-        target_slice: Channel slice on target, or None for full port.
-    """
-
-    source_node: str
-    source_port: str
-    source_slice: Slice | None
-    target_port: str
-    target_slice: Slice | None
 
 
 # Pattern for parsing port references: node[start:end].port or node.port[start:end]
