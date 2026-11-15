@@ -10,9 +10,9 @@ Components:
 
 Example:
     >>> from rasl.app.server import create_app, run_server
-    >>> from rasl.runtime import UnifiedScheduler
+    >>> from rasl.runtime import Runtime
     >>>
-    >>> app = create_app(scheduler, plan)
+    >>> app = create_app(runtime, plan)
     >>> await run_server(app, port=8080)
 """
 

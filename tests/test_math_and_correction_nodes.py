@@ -1,4 +1,4 @@
-"""MathNode and ColorCorrectionNode, pulled as the scheduler pulls them."""
+"""MathNode and ColorCorrectionNode, pulled as the runtime pulls them."""
 
 from __future__ import annotations
 
@@ -126,7 +126,7 @@ class TestSacnSinkPull:
 
     def test_it_drives_the_scheduler_at_the_rate_min_interval_allows(self) -> None:
         from rasl.graph import GraphBuilder
-        from rasl.runtime.unified import find_rate_drivers
+        from rasl.runtime import find_rate_drivers
 
         builder = GraphBuilder()
         builder.add_node(self._sink(min_interval_ms=25)[0])

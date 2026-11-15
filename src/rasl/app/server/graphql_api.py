@@ -77,20 +77,8 @@ class Node:
     metrics: Optional[NodeMetrics]
 
 
-def _runtime_monitor(runtime: Any) -> Optional[NodeMonitor]:
-    monitor = getattr(runtime, "_monitor", None)
-    return monitor if isinstance(monitor, NodeMonitor) else None
-
-
 def _get_node_stats(runtime: Any, node_id: Optional[str] = None) -> Dict[str, Any]:
-    getter = getattr(runtime, "get_node_stats", None)
-    if callable(getter):
-        return getter(node_id) if node_id is not None else getter()
-
-    monitor = _runtime_monitor(runtime)
-    if monitor is None:
-        return {}
-
+    monitor: NodeMonitor = runtime.monitor
     if node_id is not None:
         stats = monitor.get_stats(node_id)
         return stats.to_dict() if stats else {}

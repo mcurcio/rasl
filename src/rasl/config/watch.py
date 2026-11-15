@@ -1,9 +1,9 @@
-"""Watch the config files and apply their changes to the running scheduler.
+"""Watch the config files and apply their changes to the running runtime.
 
 ``watch_config`` checks the files a config was loaded from (the root and every
 file it includes) a few times a second. When one changes it reloads the config
 off the event loop, so ticks keep their timing, and hands the resulting plan
-update to the scheduler, which swaps it in at the next tick boundary.
+update to the runtime, which swaps it in at the next tick boundary.
 
 A reload that fails (a syntax error, an unknown node type, a bad connection) is
 reported and changes nothing: the graph keeps running as it was until the files
@@ -20,7 +20,7 @@ import anyio.to_thread
 import structlog
 
 from rasl.config.reload import ConfigSession
-from rasl.runtime.unified import UnifiedScheduler
+from rasl.runtime import Runtime
 
 logger = structlog.get_logger()
 
@@ -42,7 +42,7 @@ def _stamps(paths: tuple[str, ...]) -> Stamps:
 
 async def watch_config(
     session: ConfigSession,
-    scheduler: UnifiedScheduler,
+    runtime: Runtime,
     *,
     interval: float = 0.5,
 ) -> None:
@@ -50,7 +50,7 @@ async def watch_config(
 
     Args:
         session: The config as loaded; it is reloaded in place.
-        scheduler: The running scheduler, which receives each plan update.
+        runtime: The running runtime, which receives each plan update.
         interval: Seconds between checks. A change is acted on once the files
             have stayed the same for one interval, so a save in progress or
             several files saved together make one reload.
@@ -94,10 +94,10 @@ async def watch_config(
             logger.warning("config_change_needs_restart", change=ignored)
         logger.info("config_reloaded", changes=len(update.changes), detail=list(update.changes))
         if update.changes_graph:
-            applied = scheduler.request_update(update)
+            applied = runtime.request_update(update)
             await applied.wait()
-            if scheduler.plan is not update.plan:
-                # The scheduler refused it and said why (plan_update_failed)
+            if runtime.plan is not update.plan:
+                # The runtime refused it and said why (plan_update_failed)
                 print("Config reload failed; the graph keeps running as it was.", file=sys.stderr)
                 continue
         session.commit(update)

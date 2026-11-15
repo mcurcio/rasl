@@ -1,4 +1,4 @@
-"""UnifiedScheduler: when ticks happen, what nodes are told, and what never runs."""
+"""Runtime: when ticks happen, what nodes are told, and what never runs."""
 
 from __future__ import annotations
 
@@ -11,8 +11,7 @@ import pytest
 from rasl.graph import GraphBuilder
 from rasl.graph.node import BaseNode, TickContext, pull_rate
 from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
-from rasl.runtime import UnifiedScheduler
-from rasl.runtime.unified import DueTimes, find_rate_drivers, find_undriven
+from rasl.runtime import DueTimes, Runtime, find_rate_drivers, find_undriven
 from rasl.signal import Frame, MatrixPayload
 
 
@@ -37,7 +36,7 @@ class Probe(BaseNode):
 
 
 class Sink(Probe):
-    """A Probe that drives the scheduler at ``hz``."""
+    """A Probe that drives the runtime at ``hz``."""
 
     def __init__(self, node_id: str, hz: float, *, work: float = 0.0) -> None:
         super().__init__(node_id, work=work)
@@ -86,9 +85,9 @@ def _plan(nodes, edges=()):
     return builder.build()
 
 
-async def _run(scheduler: UnifiedScheduler, seconds: float) -> None:
+async def _run(runtime: Runtime, seconds: float) -> None:
     with anyio.move_on_after(seconds):
-        await scheduler.run()
+        await runtime.run()
 
 
 class TestDueTimes:
@@ -172,16 +171,16 @@ class TestWhatIsDriven:
 
     async def test_a_graph_nothing_drives_loads_and_idles(self) -> None:
         src, out = Probe("src"), Probe("out")
-        scheduler = UnifiedScheduler(_plan([src, out], [("src", "out")]))
-        await _run(scheduler, 0.15)
+        runtime = Runtime(_plan([src, out], [("src", "out")]))
+        await _run(runtime, 0.15)
         assert src.ticks == [] and out.ticks == []
-        assert scheduler._tick == 0
+        assert runtime.scheduler.tick_count == 0
 
 
 class TestTicks:
     async def test_t_and_dt_are_the_due_times_not_the_wake_up_times(self) -> None:
         sink = Sink("out", 50)
-        await _run(UnifiedScheduler(_plan([sink])), 0.25)
+        await _run(Runtime(_plan([sink])), 0.25)
         assert len(sink.ticks) >= 8
         assert [tick.tick for tick in sink.ticks] == list(range(len(sink.ticks)))
         assert np.allclose([tick.t for tick in sink.ticks], np.arange(len(sink.ticks)) / 50, atol=1e-9)
@@ -191,12 +190,12 @@ class TestTicks:
 
     async def test_a_rate_below_one_hz_is_not_pulled_every_second(self) -> None:
         slow, fast = Sink("slow", 2.5), Sink("fast", 20)
-        await _run(UnifiedScheduler(_plan([slow, fast])), 0.9)
+        await _run(Runtime(_plan([slow, fast])), 0.9)
         assert [round(tick.t, 6) for tick in slow.ticks] == [0.0, 0.4, 0.8]
 
     async def test_a_shared_upstream_node_runs_once_per_tick_with_its_own_dt(self) -> None:
         src, a, b = Probe("src"), Sink("a", 30), Sink("b", 20)
-        await _run(UnifiedScheduler(_plan([src, a, b], [("src", "a"), ("src", "b")])), 0.3)
+        await _run(Runtime(_plan([src, a, b], [("src", "a"), ("src", "b")])), 0.3)
         expected = sorted({round(tick.t, 6) for tick in a.ticks + b.ticks})
         assert [round(tick.t, 6) for tick in src.ticks] == expected
         # 0, 1/30, 1/20, 2/30, 1/10: the step is uneven, and dt says so
@@ -207,24 +206,24 @@ class TestTicks:
 class TestPush:
     async def test_a_pushed_frame_is_read_at_the_next_tick(self) -> None:
         src, out = Pusher("src", 0.01), Sink("out", 20)
-        await _run(UnifiedScheduler(_plan([src, out], [("src", "out")])), 0.3)
+        await _run(Runtime(_plan([src, out], [("src", "out")])), 0.3)
         seen = [value for value in out.seen if value is not None]
         assert len(seen) >= 4
         assert seen == sorted(seen) and seen[-1] > seen[0]  # the latest write each time
 
     async def test_a_push_never_causes_a_tick_or_wakes_the_scheduler(self) -> None:
         src, out = Pusher("src", 0.002), Sink("out", 10)
-        scheduler = UnifiedScheduler(_plan([src, out], [("src", "out")]))
+        runtime = Runtime(_plan([src, out], [("src", "out")]))
         sleeps = 0
-        sleep_until = scheduler._sleep_until
+        sleep_until = runtime.scheduler._sleep_until
 
-        async def counted(target_time: float) -> bool:
+        async def counted(target_time: float, should_stop) -> bool:
             nonlocal sleeps
             sleeps += 1
-            return await sleep_until(target_time)
+            return await sleep_until(target_time, should_stop)
 
-        scheduler._sleep_until = counted
-        await _run(scheduler, 0.45)
+        runtime.scheduler._sleep_until = counted
+        await _run(runtime, 0.45)
         assert src.writes > 50
         assert len(out.ticks) == 5  # 0, 0.1, 0.2, 0.3, 0.4
         assert sleeps <= 6  # one sleep per tick, however many frames were pushed
@@ -233,7 +232,7 @@ class TestPush:
 class TestOverload:
     async def test_a_sink_that_cannot_keep_up_drops_ticks_and_the_loop_stays_live(self) -> None:
         sink = Sink("out", 100, work=0.03)  # 30 ms of work every 10 ms
-        scheduler = UnifiedScheduler(_plan([sink]))
+        runtime = Runtime(_plan([sink]))
         others = 0
 
         async def other_work() -> None:
@@ -245,12 +244,12 @@ class TestOverload:
         started = time.monotonic()
         async with anyio.create_task_group() as tg:
             tg.start_soon(other_work)
-            await _run(scheduler, 0.5)  # used never to return: no await ever yielded
+            await _run(runtime, 0.5)  # used never to return: no await ever yielded
             tg.cancel_scope.cancel()
         assert time.monotonic() - started < 1.0
 
         assert others >= 5
-        assert scheduler._timing.dropped_ticks["out"] >= 10
+        assert runtime.timing.dropped_ticks["out"] >= 10
         # It runs as often as it can, in step with the clock: no backlog builds up
         assert 10 <= len(sink.ticks) <= 20
         assert sink.ticks[-1].t == pytest.approx(time.monotonic() - started, abs=0.2)
@@ -287,10 +286,10 @@ class TestFailures:
 
     async def test_a_failure_is_recorded_against_the_node_that_raised(self) -> None:
         src, bad, out, other = Probe("src"), Faulty("bad"), Sink("out", 50), Sink("other", 50)
-        scheduler = UnifiedScheduler(_plan([src, bad, out, other], [("src", "bad"), ("bad", "out")]))
-        await _run(scheduler, 0.15)
+        runtime = Runtime(_plan([src, bad, out, other], [("src", "bad"), ("bad", "out")]))
+        await _run(runtime, 0.15)
 
-        stats = scheduler.monitor.to_dict()
+        stats = runtime.monitor.to_dict()
         assert stats["bad"]["failure_count"] >= 3 and stats["bad"]["success_count"] == 0
         assert stats["bad"]["last_error"] == "boom"
         # Upstream of the failure ran; the sink it feeds was not reached
@@ -301,23 +300,23 @@ class TestFailures:
 
     async def test_by_default_a_failing_node_is_never_disabled(self) -> None:
         bad, out = Faulty("bad"), Sink("out", 100)
-        scheduler = UnifiedScheduler(_plan([bad, out], [("bad", "out")]))
-        await _run(scheduler, 0.2)
+        runtime = Runtime(_plan([bad, out], [("bad", "out")]))
+        await _run(runtime, 0.2)
         assert len(bad.ticks) >= 10 and out.ticks == []
-        assert scheduler._disabled_nodes == set()
+        assert runtime.executor.disabled == set()
 
     async def test_a_node_that_keeps_failing_is_disabled_and_the_rest_goes_on(self) -> None:
         bad, out = Faulty("bad"), Sink("out", 100)
-        scheduler = UnifiedScheduler(_plan([bad, out], [("bad", "out")]), max_consecutive_errors=3)
-        await _run(scheduler, 0.2)
+        runtime = Runtime(_plan([bad, out], [("bad", "out")]), max_consecutive_errors=3)
+        await _run(runtime, 0.2)
         assert len(bad.ticks) == 3  # pulled three times, then left alone
-        assert scheduler._disabled_nodes == {"bad"}
+        assert runtime.executor.disabled == {"bad"}
         assert len(out.ticks) >= 10  # the sink runs again once the node is out of the way
         assert all(value is None for value in out.seen)  # it never wrote a frame
 
     async def test_a_success_resets_the_count(self) -> None:
         bad, out = Faulty("bad"), Sink("out", 100)
-        scheduler = UnifiedScheduler(_plan([bad, out], [("bad", "out")]), max_consecutive_errors=3)
+        runtime = Runtime(_plan([bad, out], [("bad", "out")]), max_consecutive_errors=3)
 
         async def heal() -> None:
             while len(bad.ticks) < 2:
@@ -326,7 +325,7 @@ class TestFailures:
 
         async with anyio.create_task_group() as tg:
             tg.start_soon(heal)
-            await _run(scheduler, 0.2)
-        assert scheduler._disabled_nodes == set()
-        assert scheduler.monitor.get_stats("bad").consecutive_failures == 0
+            await _run(runtime, 0.2)
+        assert runtime.executor.disabled == set()
+        assert runtime.monitor.get_stats("bad").consecutive_failures == 0
         assert len(out.ticks) >= 5

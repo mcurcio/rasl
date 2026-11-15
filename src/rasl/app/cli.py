@@ -27,8 +27,7 @@ from rasl.config.document import Rendered, arg_texts, children
 from rasl.config.reload import ConfigSession
 from rasl.config.watch import watch_config
 from rasl.graph import ExecutionPlan
-from rasl.runtime import UnifiedScheduler
-from rasl.runtime.unified import find_undriven
+from rasl.runtime import Runtime, find_undriven
 
 # Configure structured logging
 structlog.configure(
@@ -125,19 +124,19 @@ def _create_parser() -> argparse.ArgumentParser:
 
 
 async def _run_with_shutdown(
-    scheduler: UnifiedScheduler,
+    runtime: Runtime,
     plan: "ExecutionPlan",
     api_host: Optional[str] = None,
     api_port: Optional[int] = None,
     session: Optional[ConfigSession] = None,
 ) -> None:
-    """Run the scheduler with graceful shutdown handling.
+    """Run the runtime with graceful shutdown handling.
 
     Sets up signal handlers for SIGINT and SIGTERM to enable
     graceful shutdown. Optionally starts the web API server.
 
     Args:
-        scheduler: The UnifiedScheduler instance to execute.
+        runtime: The Runtime instance to execute.
         plan: The ExecutionPlan for the API server.
         api_host: Host for the API server (if enabled).
         api_port: Port for the API server (if enabled).
@@ -156,14 +155,14 @@ async def _run_with_shutdown(
                     break
 
             tg.start_soon(_wait_for_signal)
-            tg.start_soon(scheduler.run)
+            tg.start_soon(runtime.run)
             if session is not None:
-                tg.start_soon(watch_config, session, scheduler)
+                tg.start_soon(watch_config, session, runtime)
             
             # Start API server if requested
             if api_port is not None:
                 from rasl.app.server.app import create_app, run_server
-                app = create_app(scheduler, plan)
+                app = create_app(runtime, plan)
                 logger.info("starting_api_server", host=api_host, port=api_port)
                 print(f"Dashboard: http://{api_host}:{api_port}/")
                 tg.start_soon(run_server, app, api_host, api_port)
@@ -223,10 +222,10 @@ def main(args: Optional[list[str]] = None) -> int:
         print(json.dumps(description, indent=2))
         return 0
 
-    scheduler = UnifiedScheduler(plan)
+    runtime = Runtime(plan)
     
     if parsed.profile:
-        scheduler.enable_profiling(True)
+        runtime.enable_profiling(True)
         logger.info("profiling_enabled")
     
     logger.info("starting_scheduler")
@@ -245,7 +244,7 @@ def main(args: Optional[list[str]] = None) -> int:
     try:
         anyio.run(
             _run_with_shutdown,
-            scheduler,
+            runtime,
             plan,
             api_host,
             api_port,

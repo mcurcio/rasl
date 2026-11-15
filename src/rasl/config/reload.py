@@ -24,12 +24,12 @@ running until the caller, having applied the update, says so with ``commit()``.
 
 Example:
     >>> session = ConfigSession("config.conf")
-    >>> scheduler = UnifiedScheduler(session.plan)
+    >>> runtime = Runtime(session.plan)
     >>> # ... later, after config.conf was edited:
     >>> update = session.reload()
     >>> if update is not None:
-    ...     await scheduler.request_update(update).wait()
-    ...     if scheduler.plan is update.plan:
+    ...     await runtime.request_update(update).wait()
+    ...     if runtime.plan is update.plan:
     ...         session.commit(update)
 """
 
@@ -100,7 +100,7 @@ class ConfigSession:
     def commit(self, update: PlanUpdate) -> None:
         """Record that ``update`` is now what runs.
 
-        Call it once the scheduler has applied the update. Until then the session
+        Call it once the runtime has applied the update. Until then the session
         describes the old config, so an update that was never applied is worked
         out again by the next ``reload()``.
         """
@@ -113,7 +113,7 @@ class ConfigSession:
         The session itself is not changed (see ``commit``).
 
         Returns:
-            The update to hand to the scheduler, or None when nothing a program
+            The update to hand to the runtime, or None when nothing a program
             reads changed (a comment, the layout, a quote style).
 
         Raises:
