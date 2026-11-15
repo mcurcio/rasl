@@ -1,0 +1,120 @@
+# Build the Python runtime's container image (Dockerfile) and push it to ghcr.
+#
+#   Dockerfile -> ghcr.io/<owner>/rasl
+#
+# Pull requests build and smoke-test without pushing, so a broken image fails the PR; a push
+# to alpha publishes. This is the only thing it publishes: no npm or PyPI packages (those are
+# build.yml's, which stays disabled, rasl-4v6).
+#
+# Tags: `sha-<full-git-sha>` only, tying the image to the commit that built it. No floating
+# tag: the deployment (mcurcio/iac, workloads/rasl) pins a tag and its digest.
+name: image
+
+on:
+    push:
+        branches: [alpha]
+        paths:
+            - Dockerfile
+            - .dockerignore
+            - pyproject.toml
+            - uv.lock
+            - src/**
+            - .github/workflows/image.yml
+    pull_request:
+        paths:
+            - Dockerfile
+            - .dockerignore
+            - pyproject.toml
+            - uv.lock
+            - src/**
+            - .github/workflows/image.yml
+    workflow_dispatch: {}
+
+concurrency:
+    group: image-${{ github.ref }}
+    cancel-in-progress: true
+
+env:
+    # amd64 only: the cluster that runs it is bare-metal x86
+    PLATFORMS: linux/amd64
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            packages: write
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Log in to ghcr
+              if: github.event_name != 'pull_request'
+              uses: docker/login-action@v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Image metadata
+              id: meta
+              uses: docker/metadata-action@v5
+              with:
+                  images: ghcr.io/${{ github.repository_owner }}/rasl
+                  tags: |
+                      type=sha,format=long
+
+            # Build into the local daemon first and smoke-test that image, so a broken image
+            # never reaches the registry
+            - name: Build for the smoke test
+              uses: docker/build-push-action@v6
+              with:
+                  context: .
+                  platforms: ${{ env.PLATFORMS }}
+                  load: true
+                  tags: rasl:smoke
+                  provenance: false
+                  sbom: false
+
+            - name: Smoke test
+              # Runs virtual.conf (no network devices) and checks the UI and the API answer,
+              # as a non-root user
+              run: |
+                  set -eu
+                  uid=$(docker run --rm --entrypoint id rasl:smoke -u)
+                  test "$uid" != 0
+                  docker run -d --name smoke -p 8080:8080 -v "$PWD/virtual.conf:/config/rasl.conf:ro" \
+                      rasl:smoke /config/rasl.conf --api-host 0.0.0.0 --api-port 8080
+                  ok=
+                  for _ in $(seq 1 30); do
+                      if curl -fsS -o /dev/null http://127.0.0.1:8080/; then ok=1; break; fi
+                      sleep 1
+                  done
+                  docker logs smoke
+                  test -n "$ok"
+                  curl -fsS -H 'content-type: application/json' -d '{"query":"{__typename}"}' \
+                      http://127.0.0.1:8080/graphql | grep -q '"Query"'
+                  docker rm -f smoke
+
+            - name: Push
+              id: build
+              if: github.event_name != 'pull_request'
+              uses: docker/build-push-action@v6
+              with:
+                  context: .
+                  platforms: ${{ env.PLATFORMS }}
+                  push: true
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+                  provenance: false
+                  sbom: false
+
+            - name: Summary
+              if: github.event_name != 'pull_request'
+              run: |
+                  {
+                      echo "### rasl image"
+                      echo
+                      echo "| tags | digest |"
+                      echo "| --- | --- |"
+                      echo "| \`${{ steps.meta.outputs.tags }}\` | \`${{ steps.build.outputs.digest }}\` |"
+                  } >> "$GITHUB_STEP_SUMMARY"
