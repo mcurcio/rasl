@@ -167,7 +167,7 @@ class CronNode(BaseNode):
             """``node cron <name> <field1> [field2 ... field5]``: the schedule's fields.
             Missing trailing fields are treated as "*"."""
             if not words:
-                raise ValueError("cron node requires: node cron <name> <field1> [field2 ... field5];")
+                return {}  # the schedule is given in the block instead
             if len(words) > 5:
                 raise ValueError(f"cron node supports 1-5 fields, got {len(words)}")
             return {"schedule": list(words)}

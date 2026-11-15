@@ -261,5 +261,6 @@ class TestValuesAfterTheNodeName:
         parse_config("graph {\n    node cron every * * * * *;\n}\n")
         with pytest.raises(ConfigError, match="cron node supports 1-5 fields, got 6"):
             parse_config("graph {\n    node cron every * * * * * *;\n}\n")
-        with pytest.raises(ConfigError, match="cron node requires"):
-            parse_config("graph {\n    node cron every;\n}\n")
+        # With no fields on the line, the schedule comes from the block
+        plan = parse_config("graph {\n    node cron every { schedule \"*/5 * * * *\"; }\n}\n")
+        assert "every" in plan.nodes
