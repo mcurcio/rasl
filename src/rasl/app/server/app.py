@@ -86,6 +86,9 @@ async def run_server(
         host=host,
         port=port,
         log_level="warning",  # Reduce uvicorn noise
+        # The app has no startup or shutdown handlers, and uvicorn's lifespan
+        # task logs a traceback when the server is cancelled on shutdown
+        lifespan="off",
     )
     server = uvicorn.Server(config)
     await server.serve()
