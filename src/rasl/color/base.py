@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Type
+from typing import Any, ClassVar
 
 import numpy as np
 from numpy.typing import NDArray
@@ -10,7 +10,7 @@ from numpy.typing import NDArray
 from rasl.color.convert.dispatch import convert as _convert_color
 from rasl.color.models import MODEL_COMPONENTS
 from rasl.color.models import normalize_model as _normalize_color_model
-from rasl.signal import FramePayload, MatrixPayload, PayloadDescriptor, payload
+from rasl.signal import MatrixPayload, PayloadDescriptor, payload
 
 
 @payload("color")
@@ -196,10 +196,6 @@ class ColorPayload(MatrixPayload):
             },
         )
 
-    @classmethod
-    def is_compatible_with(cls, other: Type[FramePayload]) -> bool:
-        """ColorPayload accepts any MatrixPayload (will be tagged/converted)."""
-        return issubclass(other, MatrixPayload)
 
     @classmethod
     def _coerce_component_shape(

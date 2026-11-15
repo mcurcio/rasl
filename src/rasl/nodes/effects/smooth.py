@@ -72,7 +72,7 @@ class SmoothNode(BaseNode):
             description="Optional boolean/mask to clear accumulator",
         ),
     )
-    outputs = PortGroup.outputs(output=OutputPortSpec(MatrixPayload))
+    outputs = PortGroup.outputs(output=OutputPortSpec(MatrixPayload, same_as="input"))
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)

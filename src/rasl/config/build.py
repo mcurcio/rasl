@@ -22,7 +22,7 @@ from rasl.config.document import (
     parse_document,
 )
 from rasl.config.node_directive import _node_config, node_spec
-from rasl.graph import ExecutionPlan, GraphBuilder
+from rasl.graph import ExecutionPlan, GraphBuilder, PortTypeError
 from rasl.graph.node import ensure_nodes_loaded
 
 
@@ -108,7 +108,18 @@ def build_plan(
                 tree=tree,
             ) from e
 
-    return builder.build(), configs
+    try:
+        plan = builder.build()
+    except PortTypeError as e:
+        # A pass-through output's type is known only once every edge is: placed on the
+        # node it feeds, like the connect errors above
+        raise config_error(
+            node_directives[e.node],
+            f"Node '{e.node}': {e}",
+            code="rasl/connect",
+            tree=tree,
+        ) from e
+    return plan, configs
 
 
 def parse_config(config_text: str) -> ExecutionPlan:

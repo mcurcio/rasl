@@ -7,7 +7,7 @@
 - ``ExecutionPlan``: the compiled graph a runtime executes
 """
 
-from rasl.graph.builder import CycleWarning, GraphBuilder
+from rasl.graph.builder import CycleWarning, GraphBuilder, PortTypeError
 from rasl.graph.edge import Edge
 from rasl.graph.plan import ExecutionPlan
 from rasl.graph.routing import CopySliceOp, EdgeOp, InputPortProgram, RepeatSliceOp
@@ -21,6 +21,7 @@ __all__ = [
     "ExecutionPlan",
     "GraphBuilder",
     "InputPortProgram",
+    "PortTypeError",
     "RepeatSliceOp",
     "Slice",
 ]

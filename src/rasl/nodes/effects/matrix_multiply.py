@@ -47,7 +47,7 @@ class MatrixMultiplyNode(BaseNode):
     inputs = PortGroup.inputs(
         input=InputPortSpec((MatrixPayload, ColorPayload)),
     )
-    outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
+    outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload, same_as="input"))
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)

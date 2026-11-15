@@ -112,14 +112,24 @@ leaves out `outputs`.
 `InputPortSpec(accepts, count=None, description="")`:
 
 - `accepts` is a payload class, a registered payload name such as `"matrix"` or `"color:rgb"`, or a tuple of
-  either (all classes or all names). A connection is refused at load time when the source port's payload type
-  is not accepted. Each payload type decides what it accepts, and every type in rasl today (the matrix, bool
-  and color types) accepts any matrix payload. So a port that names `RgbColorPayload` can still be fed a plain
-  matrix or an HSL color: check the shape or the color model in `pull` when it matters.
+  either (all classes or all names). A connection is refused at load time, with the file and line, when the
+  source port's payload type is not accepted. A port accepts its own type and its subclasses:
+  - `MatrixPayload` accepts every matrix, so colors and bools too.
+  - `ColorPayload` accepts any color model but not a plain matrix. A node that needs one model converts with
+    `payload.to_model(...)` in `pull`, as the built-in sinks do.
+  - A specific model such as `RgbColorPayload` accepts only that model.
+  - `BoolPayload` accepts only bools.
 - `count` is the number of elements: an `int` (fixed), `(min,)`, `(min, max)`, or `None` (any).
 
-`OutputPortSpec(produces, count=None, description="")` takes exactly one payload class or name; a tuple raises
-`ValueError`.
+`OutputPortSpec(produces, count=None, description="", same_as=None)` takes exactly one payload class or name; a
+tuple raises `ValueError`. Declare what the port really emits: a node whose output type depends on its settings
+(like `Compose`'s `output_type`) sets `self.outputs` in `__init__` with the resolved class.
+
+`same_as="input"` marks a pass-through output: one that passes on whatever payload type arrives at the named
+input, as a filter that keeps colors colors does (`Smooth`, `RangeMap`). When the graph is built, the output is
+typed as whatever feeds that input, followed through chains of such nodes, so `Color → Smooth → LifxSink` loads
+and `Waveform → Smooth → LifxSink` is refused. With nothing feeding the input, or sources of different types,
+the output has its `produces` type.
 
 A name that no payload is registered under makes the connection fail with a list of the registered names.
 `count` is checked when a config connects a slice to the port (a slice past the end is refused), and a fixed
