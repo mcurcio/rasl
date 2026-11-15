@@ -7,7 +7,8 @@ and the type-driven ColorPayload.to_model() API.
 import numpy as np
 import pytest
 
-from rasl.engine._color_convert import convert, _MODELS as MODELS
+from rasl.engine._color_convert import _MODELS as MODELS
+from rasl.engine._color_convert import convert
 from rasl.engine.frames import (
     ColorPayload,
     HsbkColorPayload,

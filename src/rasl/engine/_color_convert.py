@@ -6,10 +6,9 @@ Do not import it from nodes; use ColorPayload.to_model(...) instead.
 
 from __future__ import annotations
 
+import colour
 import numpy as np
 from numpy.typing import NDArray
-
-import colour
 
 colour.utilities.filter_warnings(colour_usage_warnings=False)
 

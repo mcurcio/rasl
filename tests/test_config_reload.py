@@ -10,8 +10,9 @@ import pytest
 
 from rasl.config.dispatch import ConfigError
 from rasl.config.reload import ConfigSession
+from rasl.config.watch import watch_config
 from rasl.engine.registry import ensure_nodes_loaded
-from rasl.runtime import UnifiedScheduler, watch_config
+from rasl.runtime import UnifiedScheduler
 
 BASE = """\
 @set $channels 8;
@@ -238,7 +239,7 @@ class TestReload:
     ) -> None:
         session = ConfigSession(config)
         plan, tree = session.plan, session.tree
-        descriptors = {i: n.get_connection_descriptors() for i, n in plan.nodes.items()}
+        edges = dict(plan.adjacency)
         edit(config, old, new)
 
         with pytest.raises(error):
@@ -246,7 +247,7 @@ class TestReload:
 
         assert session.plan is plan
         assert session.tree is tree
-        assert {i: n.get_connection_descriptors() for i, n in plan.nodes.items()} == descriptors
+        assert dict(plan.adjacency) == edges
 
         config.write_text(BASE)  # and the next good file loads as if nothing happened
         assert session.reload() is None

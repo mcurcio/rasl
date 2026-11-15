@@ -3,10 +3,10 @@
 import numpy as np
 import pytest
 
-from rasl.config.loader import parse_config
 from rasl.config.dispatch import ConfigError
-from rasl.nodes.literal_node import LiteralNode, parse_literal, build_payload
+from rasl.config.loader import parse_config
 from rasl.engine.frames import ColorPayload, MatrixPayload
+from rasl.nodes.literal_node import LiteralNode, build_payload, parse_literal
 
 
 class TestParseLiteral:

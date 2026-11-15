@@ -6,7 +6,7 @@ import anyio
 import numpy as np
 import pytest
 
-from rasl.engine.frames import MatrixPayload, Frame
+from rasl.engine.frames import Frame, MatrixPayload
 from rasl.engine.graph import GraphBuilder
 from rasl.engine.nodes import NodeContext
 from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup

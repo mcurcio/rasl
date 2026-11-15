@@ -12,7 +12,6 @@ from typing import Any, Mapping, MutableMapping
 
 from .base import FramePayload
 
-
 Metadata = Mapping[str, Any]
 """Type alias for frame metadata dictionaries."""
 

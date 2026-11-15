@@ -11,17 +11,17 @@ into an ExecutionPlan that the Runtime can execute. It handles:
 
 from __future__ import annotations
 
+import time
 import warnings
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Type
-
-from rasl.config.connect_parser import ResolvedSlice
-import time
 
 import numpy as np
 
 from rasl.engine.frames import Frame, FramePayload, MatrixPayload
 from rasl.engine.nodes import Node, get_inputs, get_outputs
+from rasl.engine.slices import Slice
+
 from .ports import InputPort, InputPortSpec, OutputPortSpec
 
 
@@ -57,8 +57,8 @@ class Edge:
         ...     source_port="out",
         ...     target="sink",
         ...     target_port="universe0",
-        ...     source_slice=ResolvedSlice(0, 151),
-        ...     target_slice=ResolvedSlice(0, 151),
+        ...     source_slice=Slice(0, 151),
+        ...     target_slice=Slice(0, 151),
         ... )
     """
 
@@ -74,10 +74,10 @@ class Edge:
     target_port: str
     """Name of the input port on the target node."""
 
-    source_slice: Optional[ResolvedSlice] = None
+    source_slice: Optional[Slice] = None
     """Optional channel slice on the source port (None = full port)."""
 
-    target_slice: Optional[ResolvedSlice] = None
+    target_slice: Optional[Slice] = None
     """Optional channel slice on the target port (None = full port)."""
 
     repeat: int = 1
@@ -471,8 +471,8 @@ class GraphBuilder:
         source_port: str,
         target: str,
         target_port: str,
-        source_slice: Optional[ResolvedSlice] = None,
-        target_slice: Optional[ResolvedSlice] = None,
+        source_slice: Optional[Slice] = None,
+        target_slice: Optional[Slice] = None,
         repeat: int = 1,
         repeat_until: int | None = None,
     ) -> None:
@@ -606,138 +606,10 @@ class GraphBuilder:
 
         self.connect(source, src_port_name, target, tgt_port_name)
 
-    def resolve_node_connections(self, target_node_id: str) -> None:
-        """Resolve connection descriptors for a node into edges.
-
-        Called after all nodes are added. Resolves ConnectionDescriptors
-        stored on the target node into actual Edge connections.
-
-        For repeat connections:
-        - If source has no slice, uses source port's channel count as slice length
-        - Target slices are offset by (repeat_index * slice_length)
-
-        Args:
-            target_node_id: ID of the node whose connections to resolve.
-
-        Raises:
-            KeyError: If target or source node not found.
-            ValueError: If port resolution fails.
-        """
-        from rasl.config.connection import parse_port_ref
-
-        if target_node_id not in self._nodes:
-            raise KeyError(f"Unknown target node '{target_node_id}'")
-
-        target_node = self._nodes[target_node_id]
-        tgt_inputs = get_inputs(target_node)
-
-        # Get connection descriptors from node
-        descriptors = target_node.get_connection_descriptors()
-
-        for desc in descriptors:
-            # Parse source reference
-            source_ref = parse_port_ref(desc.source)
-            if not source_ref.node:
-                raise ValueError(f"Source must specify a node: {desc.source}")
-
-            source_node_id = source_ref.node
-            if source_node_id not in self._nodes:
-                raise KeyError(f"Unknown source node '{source_node_id}'")
-
-            source_node = self._nodes[source_node_id]
-            src_outputs = get_outputs(source_node)
-
-            # Resolve source port (use default if not specified)
-            if source_ref.port:
-                source_port = source_ref.port
-            else:
-                source_port, _ = src_outputs.get_default()
-
-            # Get source port spec for channel info
-            src_spec = src_outputs.get(source_port)
-
-            # Resolve target port (use default if not specified)
-            if desc.target:
-                target_ref = parse_port_ref(desc.target)
-                if target_ref.node:
-                    # Could be port name (no dot) parsed as node
-                    target_port = target_ref.node
-                else:
-                    target_port, _ = tgt_inputs.get_default()
-                target_slice_base = target_ref.slice_
-            else:
-                target_port, _ = tgt_inputs.get_default()
-                target_slice_base = None
-
-            # If repeat is specified without explicit source/target slicing, treat it as
-            # an implicit repeat of the entire upstream frame. The runtime will expand
-            # the payload based on its (channels, elements) at runtime.
-            if (
-                (desc.repeat > 1 or desc.repeat_until is not None)
-                and source_ref.slice_ is None
-                and target_slice_base is None
-            ):
-                self.connect(
-                    source_node_id,
-                    source_port,
-                    target_node_id,
-                    target_port,
-                    None,
-                    None,
-                    repeat=desc.repeat,
-                    repeat_until=desc.repeat_until,
-                )
-                continue
-
-            if desc.repeat_until is not None:
-                raise ValueError(
-                    "repeat_until is only supported for implicit repeat connections "
-                    "(no source or target slicing)"
-                )
-
-            # Determine source slice and length for repeat
-            source_slice = source_ref.slice_
-            if source_slice and source_slice.end is not None:
-                slice_length = source_slice.end - source_slice.start
-            elif src_spec.spec.fixed_count is not None:
-                # No slice specified - use full port channel count
-                slice_length = src_spec.spec.fixed_count
-                # Create implicit full-port slice for repeat offset calculation
-                if desc.repeat > 1:
-                    source_slice = ResolvedSlice(0, slice_length)
-            else:
-                slice_length = None
-
-            # Create edges (possibly multiple for repeat)
-            for i in range(desc.repeat):
-                # Calculate target slice with offset
-                if desc.repeat > 1 and slice_length is not None:
-                    if target_slice_base is not None:
-                        offset = i * slice_length
-                        start = target_slice_base.start + offset
-                        end = start + slice_length if target_slice_base.end is not None else None
-                        target_slice = ResolvedSlice(start=start, end=end)
-                    else:
-                        # No target slice base - create one starting at offset
-                        offset = i * slice_length
-                        target_slice = ResolvedSlice(start=offset, end=offset + slice_length)
-                else:
-                    target_slice = target_slice_base
-
-                self.connect(
-                    source_node_id,
-                    source_port,
-                    target_node_id,
-                    target_port,
-                    source_slice,
-                    target_slice,
-                    repeat=1,
-                )
-
     @staticmethod
     def _check_slice_in_range(
         label: str,
-        slice_: Optional[ResolvedSlice],
+        slice_: Optional[Slice],
         spec: InputPortSpec | OutputPortSpec,
     ) -> None:
         """Refuse a slice that reaches past the end of a port.

@@ -15,11 +15,10 @@ from pydantic import Field
 
 from rasl.engine.frames import Frame, MatrixPayload
 from rasl.engine.nodes import BaseNode
+from rasl.engine.nodes.config import SourceNodeConfig
 from rasl.engine.ports import OutputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext
-from rasl.nodes.models import SourceNodeConfig
-
 
 SeededOutputType = Literal["phase", "speed", "uniform", "binary"]
 

@@ -26,7 +26,7 @@ import math
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 import anyio
 import numpy as np
@@ -34,14 +34,11 @@ import structlog
 
 from rasl.engine.frames import Frame
 from rasl.engine.graph import Edge, ExecutionPlan, InputPortProgram
-from typing import Any
 from rasl.engine.nodes import Node, NodeContext, get_inputs, get_outputs
 from rasl.engine.ports import InputPort, OutputPort, PortGroup
 from rasl.engine.tick import TickContext
 from rasl.runtime.monitor import NodeMonitor
-
-if TYPE_CHECKING:
-    from rasl.config.reload import PlanUpdate
+from rasl.runtime.plan_update import PlanUpdate
 
 logger = structlog.get_logger()
 
@@ -281,7 +278,7 @@ class UnifiedScheduler:
         self._monitor = NodeMonitor()
 
         # A plan update waiting for the next tick boundary (request_update)
-        self._pending_update: Optional[Tuple["PlanUpdate", anyio.Event]] = None
+        self._pending_update: Optional[Tuple[PlanUpdate, anyio.Event]] = None
 
         # Set by request_update to end a sleep early (made in run(), inside the loop)
         self._wake: Optional[anyio.Event] = None
@@ -346,10 +343,10 @@ class UnifiedScheduler:
         """The plan now running. A plan update replaces it at a tick boundary."""
         return self._plan
 
-    def request_update(self, update: "PlanUpdate") -> anyio.Event:
+    def request_update(self, update: PlanUpdate) -> anyio.Event:
         """Ask for a new plan to replace the running one at the next tick boundary.
 
-        The update names what differs (``rasl.config.reload.PlanUpdate``): nodes it
+        The update names what differs (``PlanUpdate``): nodes it
         removes or replaces are stopped, nodes it adds are started, nodes that take
         their new config in place get it, and every other node keeps running
         untouched while the routing and the schedule are rebuilt around it.

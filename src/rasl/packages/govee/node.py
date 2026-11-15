@@ -7,7 +7,6 @@ from typing import Any, Iterable
 import numpy as np
 from pydantic import Field, field_validator
 
-from rasl.config.units import parse_interval
 from rasl.engine.frames import (
     ColorPayload,
     MatrixPayload,
@@ -15,10 +14,11 @@ from rasl.engine.frames import (
     RgbwColorPayload,
 )
 from rasl.engine.nodes import BaseNode, NodeContext
+from rasl.engine.nodes.config import SinkNodeConfig
 from rasl.engine.ports import InputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext, pull_rate
-from rasl.nodes.models import SinkNodeConfig
+from rasl.engine.units import parse_interval
 
 from .client import (
     DEFAULT_GOVEE_PORT,

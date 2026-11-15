@@ -18,21 +18,22 @@ from __future__ import annotations
 
 import ast
 import time
-from typing import TYPE_CHECKING, Any, Literal as TypingLiteral
+from typing import TYPE_CHECKING, Any
+from typing import Literal as TypingLiteral
 
 import numpy as np
 from pydantic import Field
 
-from rasl.engine.nodes import BaseNode
 from rasl.engine.frames import (
     ColorPayload,
     Frame,
     FramePayload,
     MatrixPayload,
 )
+from rasl.engine.nodes import BaseNode
+from rasl.engine.nodes.config import SourceNodeConfig
 from rasl.engine.ports import OutputPortSpec, PortGroup
 from rasl.engine.registry import node
-from rasl.nodes.models import SourceNodeConfig
 
 if TYPE_CHECKING:
     from rasl.engine.tick import TickContext

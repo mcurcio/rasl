@@ -14,12 +14,12 @@ from typing import Optional
 
 from pydantic import Field
 
-from rasl.engine.nodes import BaseNode, NodeContext
 from rasl.engine.frames import ColorPayload, MatrixPayload
+from rasl.engine.nodes import BaseNode, NodeContext
+from rasl.engine.nodes.config import SinkNodeConfig
 from rasl.engine.ports import InputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext, pull_rate
-from rasl.nodes.models import SinkNodeConfig
 
 
 @node("ConsoleSinkNode", "ConsoleSink")

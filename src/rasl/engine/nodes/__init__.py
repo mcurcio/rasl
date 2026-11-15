@@ -12,18 +12,18 @@ Submodules:
 - base: BaseNode abstract class
 """
 
+from .base import BaseNode
 from .context import (
-    NodeContext,
     EmitCallable,
-    StartTaskCallable,
     InjectCallable,
+    NodeContext,
+    StartTaskCallable,
 )
 from .protocol import (
     Node,
     get_inputs,
     get_outputs,
 )
-from .base import BaseNode
 
 __all__ = [
     # Context

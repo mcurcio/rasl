@@ -10,10 +10,9 @@ due to its perceptual uniformity.
 
 from __future__ import annotations
 
+import colour
 import numpy as np
 from numpy.typing import NDArray
-
-import colour
 
 # Suppress colour-science warnings about domain/range
 colour.utilities.filter_warnings(colour_usage_warnings=False)

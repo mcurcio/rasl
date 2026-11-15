@@ -14,11 +14,11 @@ import numpy as np
 import sacn
 from pydantic import Field
 
-from rasl.engine.nodes import BaseNode, NodeContext
 from rasl.engine.frames import Frame, MatrixPayload
+from rasl.engine.nodes import BaseNode, NodeContext
+from rasl.engine.nodes.config import SinkNodeConfig
 from rasl.engine.ports import InputPortSpec, PortGroup
 from rasl.engine.registry import node
-from rasl.nodes.models import SinkNodeConfig
 
 from .shims import allow_sacn_universe_zero
 

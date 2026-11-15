@@ -27,12 +27,12 @@ from typing import TYPE_CHECKING
 import numpy as np
 from pydantic import Field
 
-from rasl.engine.nodes import BaseNode
 from rasl.engine.frames import ColorPayload, MatrixPayload, RgbColorPayload
+from rasl.engine.nodes import BaseNode
+from rasl.engine.nodes.config import TransformNodeConfig
 from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext
-from rasl.nodes.models import TransformNodeConfig
 
 from .convert import convert
 

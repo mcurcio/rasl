@@ -12,7 +12,13 @@ from typing import ClassVar
 import pytest
 from pydantic import BaseModel
 
-from rasl.config.dispatch import ConfigDispatch, config as config_handler
+from rasl.config.connection import (
+    ConnectionDescriptor,
+    parse_connect_directive,
+    parse_port_ref,
+)
+from rasl.config.dispatch import ConfigDispatch
+from rasl.config.dispatch import config as config_handler
 from rasl.config.document import (
     ConfigError,
     Directive,
@@ -25,12 +31,7 @@ from rasl.config.document import (
     scalar,
 )
 from rasl.config.loader import parse_config
-from rasl.config.connection import (
-    ConnectionDescriptor,
-    parse_connect_directive,
-    parse_port_ref,
-)
-from rasl.config.connect_parser import ResolvedSlice
+from rasl.engine.slices import Slice
 
 
 def _directive(text: str) -> Directive:
@@ -408,20 +409,20 @@ class TestParsePortRef:
         ref = parse_port_ref("upstream[0:100]")
         assert ref.node == "upstream"
         assert ref.port is None
-        assert ref.slice_ == ResolvedSlice(0, 100)
+        assert ref.slice_ == Slice(0, 100)
 
     def test_node_with_open_slice(self):
         """Parse node[start:] syntax (open-ended)."""
         ref = parse_port_ref("upstream[50:]")
         assert ref.node == "upstream"
-        assert ref.slice_ == ResolvedSlice(50, None)
+        assert ref.slice_ == Slice(50, None)
 
     def test_full_syntax(self):
         """Parse node[start:end].port syntax."""
         ref = parse_port_ref("upstream[0:151].rgb")
         assert ref.node == "upstream"
         assert ref.port == "rgb"
-        assert ref.slice_ == ResolvedSlice(0, 151)
+        assert ref.slice_ == Slice(0, 151)
 
     def test_empty_string(self):
         """Empty string returns empty PortRef."""

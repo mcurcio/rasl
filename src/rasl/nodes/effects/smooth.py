@@ -11,11 +11,11 @@ from pydantic import Field, ValidationInfo, field_validator
 
 from rasl.engine.frames import BoolPayload, ColorPayload, MatrixPayload
 from rasl.engine.nodes import BaseNode
+from rasl.engine.nodes.config import TransformNodeConfig
 from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext
-from rasl.config.units import parse_interval
-from rasl.nodes.models import TransformNodeConfig
+from rasl.engine.units import parse_interval
 
 from .._payload_utils import clone_payload_like
 

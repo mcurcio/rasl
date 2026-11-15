@@ -9,9 +9,9 @@ This package contains nodes for generating animated effects:
     - MatrixMultiplyNode: Fixed matrix channel mixing
 """
 
-from .math import MathNode
 from .cron import CronNode
 from .crossfade import CrossfadeNode
+from .math import MathNode
 from .matrix_multiply import MatrixMultiplyNode
 from .range_map import RangeMapNode
 from .twinkle import TwinkleEffectNode

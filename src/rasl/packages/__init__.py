@@ -15,7 +15,8 @@ These packages are optional and can be imported independently:
     from rasl.packages.sacn import SacnSourceNode, SacnSinkNode
     from rasl.packages.ddp import DdpSinkNode
 
-All package nodes are also re-exported from rasl.nodes for convenience.
+The registry imports this package as the "rasl.nodes" entry point named
+"devices", which registers every node below.
 """
 
 from . import ddp, govee, lifx, sacn

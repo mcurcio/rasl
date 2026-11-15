@@ -10,10 +10,10 @@ from pydantic import Field, field_validator
 
 from rasl.engine.frames import ColorPayload, MatrixPayload
 from rasl.engine.nodes import BaseNode
+from rasl.engine.nodes.config import TransformNodeConfig
 from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext
-from rasl.nodes.models import TransformNodeConfig
 
 from .._payload_utils import clone_payload_like
 

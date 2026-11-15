@@ -12,12 +12,11 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import Field
 
+from rasl.engine.frames import Frame, MatrixPayload
 from rasl.engine.nodes import BaseNode, NodeContext
-from rasl.engine.frames import MatrixPayload, Frame
+from rasl.engine.nodes.config import TransformNodeConfig
 from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.engine.registry import node
-from rasl.nodes.models import TransformNodeConfig
-
 
 Operation = Literal["multiply", "add", "subtract", "min", "max", "screen", "lerp"]
 

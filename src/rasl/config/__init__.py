@@ -26,7 +26,6 @@ from .channel_mapping import (
 from .connect_parser import (
     ConnectParseError,
     ParsedConnect,
-    ResolvedSlice,
     parse_connect,
     parse_connect_batch,
 )
@@ -40,13 +39,6 @@ from .connection import (
 from .dispatch import ConfigDispatch, config
 from .document import ConfigError, Directive, load_document, parse_document
 from .loader import load_config, parse_config
-# Re-export node config models from new location for backward compatibility
-from rasl.nodes.models import (
-    BaseNodeConfig,
-    SinkNodeConfig,
-    SourceNodeConfig,
-    TransformNodeConfig,
-)
 
 __all__ = [
     # New config dispatch system
@@ -61,7 +53,6 @@ __all__ = [
     "parse_port_ref",
     "PortRef",
     # Legacy config system
-    "BaseNodeConfig",
     "ChannelMapping",
     "ChannelOverlapError",
     "ConnectParseError",
@@ -72,8 +63,4 @@ __all__ = [
     "parse_connect_batch",
     "ParsedConnect",
     "PortChannelRegistry",
-    "ResolvedSlice",
-    "SinkNodeConfig",
-    "SourceNodeConfig",
-    "TransformNodeConfig",
 ]

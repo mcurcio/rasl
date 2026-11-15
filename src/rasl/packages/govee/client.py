@@ -8,7 +8,6 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable
 
-
 DEFAULT_GOVEE_PORT = 4003
 DEFAULT_CONNECT_TIMEOUT = 2.0
 DEFAULT_READ_TIMEOUT = 2.0

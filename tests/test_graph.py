@@ -4,7 +4,7 @@ import warnings
 
 import pytest
 
-from rasl.engine.frames import MatrixPayload, Frame
+from rasl.engine.frames import Frame, MatrixPayload
 from rasl.engine.graph import CycleWarning, Edge, ExecutionPlan, GraphBuilder
 from rasl.engine.nodes import NodeContext
 from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
@@ -332,7 +332,7 @@ class TestConnectValidation:
         ],
     )
     def test_a_slice_past_the_end_of_a_fixed_port_is_refused(self, source_slice, target_slice, port) -> None:
-        from rasl.config.connect_parser import ResolvedSlice
+        from rasl.engine.slices import Slice
 
         builder = self._builder(
             _Ported("a", out=OutputPortSpec(MatrixPayload, count=512)),
@@ -341,34 +341,34 @@ class TestConnectValidation:
         with pytest.raises(ValueError, match=rf"out of range for port {port}, which has \d+ elements"):
             builder.connect(
                 "a", "out", "b", "in",
-                ResolvedSlice(*source_slice) if source_slice else None,
-                ResolvedSlice(*target_slice) if target_slice else None,
+                Slice(*source_slice) if source_slice else None,
+                Slice(*target_slice) if target_slice else None,
             )
         assert builder.edges == []
 
     def test_a_slice_past_the_upper_bound_of_a_variable_port_is_refused(self) -> None:
-        from rasl.config.connect_parser import ResolvedSlice
+        from rasl.engine.slices import Slice
 
         builder = self._builder(_Ported("a"), _Ported("b", inp=InputPortSpec(MatrixPayload, count=(1, 10))))
         with pytest.raises(ValueError, match="b.in, which has at most 10 elements"):
-            builder.connect("a", "out", "b", "in", None, ResolvedSlice(8, 12))
+            builder.connect("a", "out", "b", "in", None, Slice(8, 12))
 
     def test_slices_inside_their_ports_connect(self) -> None:
-        from rasl.config.connect_parser import ResolvedSlice
+        from rasl.engine.slices import Slice
 
         builder = self._builder(
             _Ported("a", out=OutputPortSpec(MatrixPayload, count=512)),
             _Ported("b", inp=InputPortSpec(MatrixPayload, count=3)),
         )
-        builder.connect("a", "out", "b", "in", ResolvedSlice(509, 512), ResolvedSlice(0, 3))
-        builder.connect("a", "out", "b", "in", ResolvedSlice(511, None), ResolvedSlice(2, None))
+        builder.connect("a", "out", "b", "in", Slice(509, 512), Slice(0, 3))
+        builder.connect("a", "out", "b", "in", Slice(511, None), Slice(2, None))
         assert len(builder.edges) == 2
 
     def test_a_slice_on_an_unbounded_port_cannot_be_checked(self) -> None:
-        from rasl.config.connect_parser import ResolvedSlice
+        from rasl.engine.slices import Slice
 
         builder = self._builder(_Ported("a"), _Ported("b"))
-        builder.connect("a", "out", "b", "in", ResolvedSlice(600, 900), ResolvedSlice(0, 300))
+        builder.connect("a", "out", "b", "in", Slice(600, 900), Slice(0, 300))
         assert len(builder.edges) == 1
 
     def test_an_input_naming_an_unregistered_type_is_refused(self) -> None:

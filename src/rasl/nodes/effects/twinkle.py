@@ -19,12 +19,12 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import Field
 
-from rasl.engine.nodes import BaseNode
 from rasl.engine.frames import ColorPayload, OkhslColorPayload, RgbColorPayload
+from rasl.engine.nodes import BaseNode
+from rasl.engine.nodes.config import TransformNodeConfig
 from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext
-from rasl.nodes.models import TransformNodeConfig
 
 TwinkleMode = Literal["brightness", "whiteness"]
 

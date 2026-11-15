@@ -24,10 +24,10 @@ import numpy as np
 import structlog
 from anyio.streams.memory import MemoryObjectReceiveStream
 
-from rasl.config.connect_parser import ResolvedSlice
 from rasl.engine.frames import Frame, MatrixPayload
 from rasl.engine.graph import Edge, ExecutionPlan
 from rasl.engine.nodes import Node, NodeContext, get_inputs
+from rasl.engine.slices import Slice
 from rasl.runtime.monitor import NodeMonitor
 
 logger = structlog.get_logger()
@@ -68,9 +68,9 @@ class PortBuffer:
 
 def _apply_slice(
     source_data: np.ndarray,
-    source_slice: Optional[ResolvedSlice],
+    source_slice: Optional[Slice],
     target_buffer: np.ndarray,
-    target_slice: Optional[ResolvedSlice],
+    target_slice: Optional[Slice],
 ) -> None:
     """Apply source slice to target buffer at target slice position.
 

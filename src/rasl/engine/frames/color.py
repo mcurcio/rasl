@@ -11,11 +11,11 @@ from typing import Any, ClassVar, Type
 import numpy as np
 from numpy.typing import NDArray
 
-from .base import FramePayload, PayloadDescriptor
-from .matrix import MatrixPayload
-from ..registry import payload
 from .._color_convert import convert as _convert_color
 from .._color_convert import normalize_model as _normalize_color_model
+from ..registry import payload
+from .base import FramePayload, PayloadDescriptor
+from .matrix import MatrixPayload
 
 
 @payload("color")

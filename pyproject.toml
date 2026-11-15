@@ -27,7 +27,9 @@ dependencies = [
 rasl = "rasl.cli:main"
 
 [project.entry-points."rasl.nodes"]
+# Each is a module that registers its nodes when imported
 builtin = "rasl.nodes"
+devices = "rasl.packages"
 
 [build-system]
 requires = ["uv_build>=0.8.18,<0.9.0"]
@@ -35,12 +37,52 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "import-linter>=2.16",
     "pytest>=9.0.1",
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.0.0",
+    "ruff>=0.17.5",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-v --tb=short"
+
+[tool.ruff]
+src = ["src", "tests"]
+line-length = 110
+
+[tool.ruff.lint]
+# F: names that are unused or undefined. I: one import order.
+select = ["F", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+# Package __init__ files import names to re-export them, and node modules to register them
+"__init__.py" = ["F401"]
+# A stale copy of engine/_color_convert.py, to be deleted with rasl-pd0.27
+"src/rasl/nodes/color/convert.py" = ["F821", "F841"]
+
+[tool.importlinter]
+root_package = "rasl"
+# An import under TYPE_CHECKING is still a dependency on that package's design
+exclude_type_checking_imports = false
+
+[[tool.importlinter.contracts]]
+name = "Packages import in one direction (rasl-39p)"
+type = "layers"
+# A package may import only from the lines below its own. Packages on one line
+# may not import each other.
+layers = [
+    "rasl.cli",
+    "rasl.server",
+    "rasl.config",
+    "rasl.runtime | rasl.nodes | rasl.packages",
+    "rasl.engine",
+]
+
+[[tool.importlinter.contracts]]
+name = "The config language reaches nodes only through the registry (rasl-39p)"
+type = "forbidden"
+source_modules = ["rasl.config"]
+forbidden_modules = ["rasl.nodes", "rasl.packages"]

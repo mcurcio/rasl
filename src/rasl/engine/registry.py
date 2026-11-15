@@ -183,11 +183,8 @@ def ensure_nodes_loaded() -> None:
         return
     _initialized = True
 
-    # Load built-in nodes first (deferred to avoid circular imports)
-    from rasl.nodes import _register_all_nodes
-    _register_all_nodes()
-
-    # Then load any external plugins via entry points
+    # Built-in nodes and device packages are entry points too (pyproject.toml),
+    # so the engine names no node package
     try:
         from importlib.metadata import entry_points
     except ImportError:

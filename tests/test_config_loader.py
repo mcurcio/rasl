@@ -9,8 +9,8 @@ from rasl.config.loader import ConfigError, parse_config
 def setup_nodes():
     """Ensure nodes are registered before tests."""
     # Import nodes to trigger registration (don't reset registry)
-    from rasl.engine.registry import ensure_nodes_loaded
     import rasl.nodes  # noqa: F401
+    from rasl.engine.registry import ensure_nodes_loaded
     ensure_nodes_loaded()
     yield
 

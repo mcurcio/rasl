@@ -5,7 +5,7 @@ import pytest
 
 from rasl.config.document import Directive, parse_document
 from rasl.config.loader import _extract_config_dict
-from rasl.engine.frames import MatrixPayload, Frame
+from rasl.engine.frames import Frame, MatrixPayload
 from rasl.engine.graph import Edge, GraphBuilder
 from rasl.nodes.color.compose_node import ComposeNode
 

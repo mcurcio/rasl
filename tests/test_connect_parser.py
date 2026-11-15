@@ -5,18 +5,18 @@ import pytest
 from rasl.config import (
     ConnectParseError,
     ParsedConnect,
-    ResolvedSlice,
     parse_connect,
     parse_connect_batch,
 )
+from rasl.engine.slices import Slice
 
 
-class TestResolvedSlice:
-    """Tests for ResolvedSlice dataclass."""
+class TestSlice:
+    """Tests for Slice dataclass."""
 
     def test_single_channel(self) -> None:
         """Single channel slice has explicit end."""
-        s = ResolvedSlice(start=5, end=6)
+        s = Slice(start=5, end=6)
         assert s.start == 5
         assert s.end == 6
         assert not s.is_open
@@ -25,7 +25,7 @@ class TestResolvedSlice:
 
     def test_range_slice(self) -> None:
         """Range slice has explicit start and end."""
-        s = ResolvedSlice(start=0, end=10)
+        s = Slice(start=0, end=10)
         assert s.start == 0
         assert s.end == 10
         assert not s.is_open
@@ -34,7 +34,7 @@ class TestResolvedSlice:
 
     def test_open_ended_slice(self) -> None:
         """Open-ended slice has no end."""
-        s = ResolvedSlice(start=5, end=None)
+        s = Slice(start=5, end=None)
         assert s.start == 5
         assert s.end is None
         assert s.is_open
@@ -72,19 +72,19 @@ class TestParseConnect:
         result = parse_connect("upstream[5]")
         assert result.source_node == "upstream"
         assert result.source_port is None
-        assert result.source_slice == ResolvedSlice(5, 6)
+        assert result.source_slice == Slice(5, 6)
 
     def test_node_with_range_slice(self) -> None:
         """Parse node[start:end] range slice."""
         result = parse_connect("upstream[0:10]")
         assert result.source_node == "upstream"
-        assert result.source_slice == ResolvedSlice(0, 10)
+        assert result.source_slice == Slice(0, 10)
 
     def test_node_with_open_slice(self) -> None:
         """Parse node[start:] open-ended slice."""
         result = parse_connect("upstream[5:]")
         assert result.source_node == "upstream"
-        assert result.source_slice == ResolvedSlice(5, None)
+        assert result.source_slice == Slice(5, None)
         assert result.source_slice.is_open
 
     def test_node_port_with_slice(self) -> None:
@@ -92,7 +92,7 @@ class TestParseConnect:
         result = parse_connect("upstream.rgb[0:3]")
         assert result.source_node == "upstream"
         assert result.source_port == "rgb"
-        assert result.source_slice == ResolvedSlice(0, 3)
+        assert result.source_slice == Slice(0, 3)
 
     def test_with_dest_port(self) -> None:
         """Parse with destination port."""
@@ -106,7 +106,7 @@ class TestParseConnect:
         result = parse_connect("upstream input[0:3]")
         assert result.source_node == "upstream"
         assert result.dest_port == "input"
-        assert result.dest_slice == ResolvedSlice(0, 3)
+        assert result.dest_slice == Slice(0, 3)
 
     def test_full_specification(self) -> None:
         """Parse full source and dest specification."""
@@ -114,9 +114,9 @@ class TestParseConnect:
         assert result == ParsedConnect(
             source_node="upstream",
             source_port="rgb",
-            source_slice=ResolvedSlice(0, 3),
+            source_slice=Slice(0, 3),
             dest_port="color",
-            dest_slice=ResolvedSlice(6, 9),
+            dest_slice=Slice(6, 9),
         )
 
     def test_whitespace_handling(self) -> None:

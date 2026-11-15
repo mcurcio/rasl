@@ -33,10 +33,10 @@ from rasl.engine.frames import (
     RgbwColorPayload,
 )
 from rasl.engine.nodes import BaseNode
+from rasl.engine.nodes.config import TransformNodeConfig
 from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext
-from rasl.nodes.models import TransformNodeConfig
 
 # Map model names to payload classes
 FRAME_CLASSES: dict[str, type[ColorPayload]] = {

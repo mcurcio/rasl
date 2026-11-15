@@ -28,12 +28,12 @@ from typing import Callable
 import numpy as np
 from pydantic import Field
 
-from rasl.engine.nodes import BaseNode
 from rasl.engine.frames import BoolPayload, Frame
+from rasl.engine.nodes import BaseNode
+from rasl.engine.nodes.config import SourceNodeConfig
 from rasl.engine.ports import OutputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext
-from rasl.nodes.models import SourceNodeConfig
 
 
 @dataclass(frozen=True, slots=True)

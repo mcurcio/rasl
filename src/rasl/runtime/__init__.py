@@ -19,15 +19,15 @@ Example:
 """
 
 from .monitor import NodeMonitor, NodeStats
+from .plan_update import PlanUpdate
 from .scheduler import Runtime, RuntimeConfig
 from .unified import UnifiedScheduler
-from .watch import watch_config
 
 __all__ = [
     "Runtime",
     "RuntimeConfig",
     "NodeMonitor",
     "NodeStats",
+    "PlanUpdate",
     "UnifiedScheduler",
-    "watch_config",
 ]

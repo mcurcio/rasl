@@ -2,11 +2,11 @@
 
 import pytest
 
-from rasl.config.connect_parser import ResolvedSlice
 from rasl.config.connection import parse_port_ref
 from rasl.config.document import ConfigError
 from rasl.config.loader import parse_config
 from rasl.engine.graph import Edge
+from rasl.engine.slices import Slice
 
 
 class TestParsePortWithSlice:
@@ -22,13 +22,13 @@ class TestParsePortWithSlice:
         """Port with range slice parses correctly."""
         ref = parse_port_ref("node.out[0:151]")
         assert ref.port == "out"
-        assert ref.slice_ == ResolvedSlice(0, 151)
+        assert ref.slice_ == Slice(0, 151)
 
     def test_open_ended_slice(self):
         """Port with open-ended slice parses correctly."""
         ref = parse_port_ref("node.out[100:]")
         assert ref.port == "out"
-        assert ref.slice_ == ResolvedSlice(100, None)
+        assert ref.slice_ == Slice(100, None)
 
     def test_single_index_slice(self):
         """Port with single index - note: new parser doesn't auto-expand to range."""
@@ -36,7 +36,7 @@ class TestParsePortWithSlice:
         # This is a behavior change from the old parser
         ref = parse_port_ref("node.out[5:]")
         assert ref.port == "out"
-        assert ref.slice_ == ResolvedSlice(5, None)
+        assert ref.slice_ == Slice(5, None)
 
 
 class TestEdgeWithSlices:
@@ -60,11 +60,11 @@ class TestEdgeWithSlices:
             source_port="out",
             target="sink",
             target_port="universe0",
-            source_slice=ResolvedSlice(0, 151),
-            target_slice=ResolvedSlice(0, 151),
+            source_slice=Slice(0, 151),
+            target_slice=Slice(0, 151),
         )
-        assert edge.source_slice == ResolvedSlice(0, 151)
-        assert edge.target_slice == ResolvedSlice(0, 151)
+        assert edge.source_slice == Slice(0, 151)
+        assert edge.target_slice == Slice(0, 151)
 
 
 class TestConfigParserWithSlices:
@@ -86,8 +86,8 @@ class TestConfigParserWithSlices:
         plan = parse_config(config)
 
         edge = plan.adjacency["sine"][0]
-        assert edge.source_slice == ResolvedSlice(50, 150)
-        assert edge.target_slice == ResolvedSlice(0, 100)
+        assert edge.source_slice == Slice(50, 150)
+        assert edge.target_slice == Slice(0, 100)
 
     def test_parse_multiple_sliced_connects(self):
         """Test parsing multiple sliced connects to same target."""
@@ -109,12 +109,12 @@ class TestConfigParserWithSlices:
         assert len(edges) == 2
 
         # First edge
-        assert edges[0].source_slice == ResolvedSlice(0, 100)
-        assert edges[0].target_slice == ResolvedSlice(0, 100)
+        assert edges[0].source_slice == Slice(0, 100)
+        assert edges[0].target_slice == Slice(0, 100)
 
         # Second edge
-        assert edges[1].source_slice == ResolvedSlice(0, 100)
-        assert edges[1].target_slice == ResolvedSlice(100, 200)
+        assert edges[1].source_slice == Slice(0, 100)
+        assert edges[1].target_slice == Slice(100, 200)
 
 
 class TestRepeatWithoutSlices:

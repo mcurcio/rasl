@@ -13,12 +13,11 @@ from rasl.nodes.effects.seeded_random import SeededRandomNode
 from rasl.nodes.effects.waveform import (
     WaveformNode,
     attack_decay_wave,
-    sine_wave,
-    triangle_wave,
     sawtooth_wave,
+    sine_wave,
     square_wave,
+    triangle_wave,
 )
-
 
 # ─────────────────────────────────────────────────────────────────────
 # Waveform Function Tests

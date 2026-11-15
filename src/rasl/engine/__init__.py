@@ -37,14 +37,15 @@ from .frames import (
     LinearRgbColorPayload,
     MatrixPayload,
     Metadata,
-    OklabColorPayload,
-    OklchColorPayload,
     OkhslColorPayload,
     OkhsvColorPayload,
+    OklabColorPayload,
+    OklchColorPayload,
     PayloadDescriptor,
     Rec709RgbPrimeColorPayload,
     RgbColorPayload,
 )
+from .graph import CycleWarning, Edge, ExecutionPlan, GraphBuilder
 from .nodes import (
     BaseNode,
     EmitCallable,
@@ -55,7 +56,6 @@ from .nodes import (
     get_inputs,
     get_outputs,
 )
-from .graph import CycleWarning, Edge, ExecutionPlan, GraphBuilder
 from .ports import (
     EMPTY_PORTS,
     AcceptsSpec,

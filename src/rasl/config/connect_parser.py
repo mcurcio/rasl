@@ -20,6 +20,8 @@ import warnings
 from dataclasses import dataclass
 from typing import Optional
 
+from rasl.engine.slices import Slice
+
 
 class ConnectParseError(Exception):
     """Error parsing a connect directive.
@@ -50,40 +52,6 @@ class ConnectParseError(Exception):
 
 
 @dataclass(frozen=True, slots=True)
-class ResolvedSlice:
-    """A slice resolved from config syntax.
-
-    Attributes:
-        start: Starting channel index (inclusive, 0-based).
-        end: Ending channel index (exclusive). None = open-ended.
-    """
-
-    start: int
-    end: Optional[int] = None
-
-    @property
-    def is_open(self) -> bool:
-        """True if this slice has no explicit end."""
-        return self.end is None
-
-    def length(self, port_channels: Optional[int]) -> Optional[int]:
-        """Compute length given port's channel count.
-
-        Args:
-            port_channels: The port's fixed channel count, or None if variable.
-
-        Returns:
-            The number of channels in this slice, or None if both slice
-            and port are unbounded.
-        """
-        if self.end is not None:
-            return self.end - self.start
-        if port_channels is not None:
-            return port_channels - self.start
-        return None  # Both open-ended
-
-
-@dataclass(frozen=True, slots=True)
 class ParsedConnect:
     """Result of parsing a connect directive.
 
@@ -97,9 +65,9 @@ class ParsedConnect:
 
     source_node: str
     source_port: Optional[str] = None
-    source_slice: Optional[ResolvedSlice] = None
+    source_slice: Optional[Slice] = None
     dest_port: Optional[str] = None
-    dest_slice: Optional[ResolvedSlice] = None
+    dest_slice: Optional[Slice] = None
 
 
 # Token patterns
@@ -157,13 +125,13 @@ class _Tokenizer:
         return None
 
 
-def _parse_slice(tokenizer: _Tokenizer) -> ResolvedSlice:
+def _parse_slice(tokenizer: _Tokenizer) -> Slice:
     """Parse a slice expression after '['.
 
     Forms:
-        [n]       -> ResolvedSlice(n, n+1)
-        [start:]  -> ResolvedSlice(start, None)
-        [start:end] -> ResolvedSlice(start, end)
+        [n]       -> Slice(n, n+1)
+        [start:]  -> Slice(start, None)
+        [start:end] -> Slice(start, end)
     """
     start_pos = tokenizer.pos
     start = tokenizer.read_integer()
@@ -192,20 +160,20 @@ def _parse_slice(tokenizer: _Tokenizer) -> ResolvedSlice:
                     source_text=tokenizer.source,
                 )
             tokenizer.expect("]")
-            return ResolvedSlice(start, end)
+            return Slice(start, end)
         else:
             # Open-ended: [start:]
             tokenizer.expect("]")
-            return ResolvedSlice(start, None)
+            return Slice(start, None)
     else:
         # Single index: [n] -> [n:n+1]
         tokenizer.expect("]")
-        return ResolvedSlice(start, start + 1)
+        return Slice(start, start + 1)
 
 
 def _parse_source_spec(
     tokenizer: _Tokenizer,
-) -> tuple[str, Optional[str], Optional[ResolvedSlice]]:
+) -> tuple[str, Optional[str], Optional[Slice]]:
     """Parse source specification: node[.port][slice]"""
     node = tokenizer.read_identifier()
     if node is None:
@@ -216,7 +184,7 @@ def _parse_source_spec(
         )
 
     port: Optional[str] = None
-    slice_spec: Optional[ResolvedSlice] = None
+    slice_spec: Optional[Slice] = None
 
     # Check for .port
     if tokenizer.consume("."):
@@ -237,7 +205,7 @@ def _parse_source_spec(
 
 def _parse_dest_spec(
     tokenizer: _Tokenizer,
-) -> tuple[Optional[str], Optional[ResolvedSlice]]:
+) -> tuple[Optional[str], Optional[Slice]]:
     """Parse destination specification: port[slice]"""
     port = tokenizer.read_identifier()
     if port is None:
@@ -247,7 +215,7 @@ def _parse_dest_spec(
             source_text=tokenizer.source,
         )
 
-    slice_spec: Optional[ResolvedSlice] = None
+    slice_spec: Optional[Slice] = None
     if tokenizer.consume("["):
         slice_spec = _parse_slice(tokenizer)
 
@@ -275,9 +243,9 @@ def parse_connect(source: str) -> ParsedConnect:
         ParsedConnect(
             source_node='upstream',
             source_port='rgb',
-            source_slice=ResolvedSlice(start=0, end=3),
+            source_slice=Slice(start=0, end=3),
             dest_port='input',
-            dest_slice=ResolvedSlice(start=0, end=3),
+            dest_slice=Slice(start=0, end=3),
         )
     """
     warnings.warn(
@@ -298,7 +266,7 @@ def parse_connect(source: str) -> ParsedConnect:
 
     # Check for optional dest spec
     dest_port: Optional[str] = None
-    dest_slice: Optional[ResolvedSlice] = None
+    dest_slice: Optional[Slice] = None
 
     if not tokenizer.at_end():
         dest_port, dest_slice = _parse_dest_spec(tokenizer)

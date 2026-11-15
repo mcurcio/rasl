@@ -2,8 +2,8 @@
 
 import pytest
 
-from rasl.nodes.models import SourceNodeConfig, TransformNodeConfig
 from rasl.engine.nodes import BaseNode
+from rasl.engine.nodes.config import SourceNodeConfig, TransformNodeConfig
 from rasl.engine.registry import (
     get_node_class,
     get_node_registry,

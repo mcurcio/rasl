@@ -1,7 +1,7 @@
 """Tests for unit parsing utilities."""
 
 
-from rasl.config.units import parse_interval, parse_frequency
+from rasl.engine.units import parse_frequency, parse_interval
 
 
 class TestParseInterval:

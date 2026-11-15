@@ -15,17 +15,16 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import Field, field_validator
 
-from rasl.engine.nodes import BaseNode
 from rasl.engine.frames import (
     Frame,
     FramePayload,
     MatrixPayload,
 )
-from rasl.engine.nodes import NodeContext
+from rasl.engine.nodes import BaseNode, NodeContext
+from rasl.engine.nodes.config import TransformNodeConfig
 from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.engine.registry import get_payload_type, node
 from rasl.engine.tick import TickContext
-from rasl.nodes.models import TransformNodeConfig
 
 if TYPE_CHECKING:
     from rasl.engine.graph import Edge

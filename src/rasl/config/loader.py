@@ -7,8 +7,8 @@ The loader handles:
 - `graph` block: Top-level graph container
 - `node` blocks: Dispatched to node classes for construction
 
-Nodes handle their own `connect` directives via BaseNode.parse_connect_directives().
-The Graph resolves connection descriptors into edges using node port info.
+- `connect` directives in a node's block: read here and resolved into edges
+  against the ports the nodes declare (see ``rasl.config.connection``)
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from rasl.config.connection import parse_connect_directive, resolve_connections
 from rasl.config.document import (
     ConfigError,
     Directive,
@@ -363,60 +364,49 @@ def build_plan(
     ensure_nodes_loaded()
     keep = keep or {}
     update = update or {}
-    reused = {**keep, **update}
-    # A reused node's connections are read again below; put them back if the build fails.
-    saved = {node_id: node.get_connection_descriptors() for node_id, node in reused.items()}
 
-    try:
-        builder = GraphBuilder()
-        node_directives: dict[str, Directive] = {}  # Track directives for connect parsing
-        configs: dict[str, Any] = {}
+    builder = GraphBuilder()
+    node_directives: dict[str, Directive] = {}
+    configs: dict[str, Any] = {}
 
-        # First pass: build all nodes
-        for directive in children(graph_directive(tree), "node"):
-            node_type, node_id, extra_args = node_spec(directive, tree)
-            if node_id in keep:
-                node = keep[node_id]
+    # First pass: build all nodes
+    for directive in children(graph_directive(tree), "node"):
+        node_type, node_id, extra_args = node_spec(directive, tree)
+        if node_id in keep:
+            node = keep[node_id]
+        else:
+            node_class, config = _node_config(
+                node_type, node_id, directive, tree, extra_args=extra_args
+            )
+            if node_id in update:
+                node = update[node_id]
+                configs[node_id] = config
             else:
-                node_class, config = _node_config(
-                    node_type, node_id, directive, tree, extra_args=extra_args
-                )
-                if node_id in update:
-                    node = update[node_id]
-                    configs[node_id] = config
-                else:
-                    node = node_class(config)
-            if node_id in reused:
-                node._connection_descriptors = []
-            builder.add_node(node)
-            node_directives[node_id] = directive
+                node = node_class(config)
+        builder.add_node(node)
+        node_directives[node_id] = directive
 
-        # Second pass: parse connect directives on each node
-        for node_id, directive in node_directives.items():
-            node = builder.nodes[node_id]
-            # BaseNode parses connect directives and stores ConnectionDescriptors
-            node.parse_connect_directives(directive)
+    # Second pass: each node's connect directives become edges, now that every
+    # node (and so every port) is known
+    for node_id, directive in node_directives.items():
+        descriptors = [
+            parse_connect_directive(child)
+            for child in directive.block or ()
+            if child.name == "connect"
+        ]
+        try:
+            resolve_connections(builder, node_id, descriptors)
+        except (KeyError, ValueError, TypeError) as e:
+            # The graph's own message, placed on the node whose connect it is
+            message = e.args[0] if isinstance(e, KeyError) and e.args else str(e)
+            raise config_error(
+                directive,
+                f"Node '{node_id}': {message}",
+                code="rasl/connect",
+                tree=tree,
+            ) from e
 
-        # Third pass: resolve connection descriptors into edges
-        for node_id, directive in node_directives.items():
-            try:
-                builder.resolve_node_connections(node_id)
-            except (KeyError, ValueError, TypeError) as e:
-                # The graph's own message, placed on the node whose connect it is
-                message = e.args[0] if isinstance(e, KeyError) and e.args else str(e)
-                raise config_error(
-                    directive,
-                    f"Node '{node_id}': {message}",
-                    code="rasl/connect",
-                    tree=tree,
-                ) from e
-
-        return builder.build(), configs
-    except BaseException:
-        for node_id, descriptors in saved.items():
-            reused[node_id]._connection_descriptors = descriptors
-        raise
-
+    return builder.build(), configs
 
 
 def parse_config(config_text: str) -> ExecutionPlan:

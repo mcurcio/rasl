@@ -22,7 +22,6 @@ class Probe(BaseNode):
 
     def __init__(self, node_id: str, *, work: float = 0.0) -> None:
         self.id = node_id
-        self._connection_descriptors = []
         self.inputs = PortGroup.inputs(**{"in": InputPortSpec(MatrixPayload)})
         self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
         self.ticks: list[TickContext] = []

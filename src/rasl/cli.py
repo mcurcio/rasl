@@ -25,8 +25,9 @@ import structlog
 from rasl import __version__
 from rasl.config.document import Rendered, arg_texts, children
 from rasl.config.reload import ConfigSession
+from rasl.config.watch import watch_config
 from rasl.engine.graph import ExecutionPlan
-from rasl.runtime import UnifiedScheduler, watch_config
+from rasl.runtime import UnifiedScheduler
 from rasl.runtime.unified import find_undriven
 
 # Configure structured logging

@@ -14,14 +14,14 @@ from typing import Any, Optional
 
 import numpy as np
 import sacn
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from numpy.typing import NDArray
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from rasl.engine.frames import Frame, MatrixPayload
 from rasl.engine.nodes import BaseNode, NodeContext
-from rasl.engine.frames import MatrixPayload, Frame
-from rasl.engine.ports import OutputPortSpec, OutputPort, PortGroup, EMPTY_PORTS
+from rasl.engine.nodes.config import SourceNodeConfig
+from rasl.engine.ports import EMPTY_PORTS, OutputPort, OutputPortSpec, PortGroup
 from rasl.engine.registry import node
-from rasl.nodes.models import SourceNodeConfig
 
 
 class SacnUniverseConfig(BaseModel):
