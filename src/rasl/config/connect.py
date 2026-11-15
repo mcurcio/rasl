@@ -218,6 +218,13 @@ def resolve_connections(
 
         # Get source port spec for channel info
         src_spec = src_outputs.get(source_port)
+        if src_spec is None:
+            # The graph's own wording (GraphBuilder.connect), raised here because the
+            # spec is read below, before the graph would see the port
+            raise ValueError(
+                f"Node '{source_node_id}' has no output port '{source_port}'. "
+                f"Available: {src_outputs.names}"
+            )
 
         # Resolve target port (use default if not specified)
         if desc.target:
