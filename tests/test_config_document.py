@@ -20,7 +20,7 @@ from rasl.config.document import (
     scalar,
 )
 from rasl.config.loader import parse_config
-from rasl.engine.slices import Slice
+from rasl.graph import Slice
 
 
 def _directive(text: str) -> Directive:

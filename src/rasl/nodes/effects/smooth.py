@@ -9,14 +9,12 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import Field
 
-from rasl.engine.frames import BoolPayload, ColorPayload, MatrixPayload
-from rasl.engine.nodes import BaseNode
-from rasl.engine.nodes.config import TransformNodeConfig
-from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
-from rasl.engine.registry import node
-from rasl.engine.tick import TickContext
-from rasl.engine.units import Duration
+from rasl.color import ColorPayload
+from rasl.graph.node import BaseNode, TickContext, TransformNodeConfig, node
+from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.nodes._payload_utils import clone_payload_like
+from rasl.signal import BoolPayload, MatrixPayload
+from rasl.units import Duration
 
 
 @node("SmoothNode", "Smooth")

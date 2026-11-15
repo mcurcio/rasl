@@ -16,12 +16,9 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import Field
 
-from rasl.engine.frames import Frame, MatrixPayload
-from rasl.engine.nodes import BaseNode
-from rasl.engine.nodes.config import SourceNodeConfig
-from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
-from rasl.engine.registry import node
-from rasl.engine.tick import TickContext
+from rasl.graph.node import BaseNode, SourceNodeConfig, TickContext, node
+from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
+from rasl.signal import Frame, MatrixPayload
 
 WaveShape = Literal["sine", "triangle", "sawtooth", "attack_decay", "square"]
 

@@ -3,9 +3,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from rasl.engine.frames import BoolPayload, ColorPayload, Frame
-from rasl.engine.tick import TickContext
+from rasl.color import ColorPayload
+from rasl.graph.node import TickContext
 from rasl.nodes.effects.crossfade import CrossfadeNode
+from rasl.signal import BoolPayload, Frame
 
 
 def _tick(*, tick: int = 0, t: float = 0.0, dt: float = 0.0, wall_time: float = 0.0) -> TickContext:

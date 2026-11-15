@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping, MutableMapping
 
-from rasl.engine.frames.base import FramePayload
+from rasl.signal.payload import FramePayload
 
 Metadata = Mapping[str, Any]
 """Type alias for frame metadata dictionaries."""
@@ -48,7 +48,7 @@ class Frame:
     Example:
         >>> import numpy as np
         >>> import time
-        >>> from rasl.engine.frames import MatrixPayload
+        >>> from rasl.signal import MatrixPayload
         >>> frame = Frame(
         ...     topic="sacn.universe.1",
         ...     timestamp=time.monotonic(),

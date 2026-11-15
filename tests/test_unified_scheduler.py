@@ -8,13 +8,12 @@ import anyio
 import numpy as np
 import pytest
 
-from rasl.engine import GraphBuilder
-from rasl.engine.frames import Frame, MatrixPayload
-from rasl.engine.nodes import BaseNode
-from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
-from rasl.engine.tick import TickContext, pull_rate
+from rasl.graph import GraphBuilder
+from rasl.graph.node import BaseNode, TickContext, pull_rate
+from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.runtime import UnifiedScheduler
 from rasl.runtime.unified import DueTimes, find_rate_drivers, find_undriven
+from rasl.signal import Frame, MatrixPayload
 
 
 class Probe(BaseNode):

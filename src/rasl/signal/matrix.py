@@ -11,8 +11,8 @@ from typing import Any, ClassVar, Type
 import numpy as np
 from numpy.typing import NDArray
 
-from rasl.engine.frames.base import FramePayload, PayloadDescriptor
-from rasl.engine.registry import payload
+from rasl.signal.payload import FramePayload, PayloadDescriptor
+from rasl.signal.registry import payload
 
 
 @payload("matrix")

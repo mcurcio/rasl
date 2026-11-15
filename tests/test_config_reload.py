@@ -11,7 +11,7 @@ import pytest
 from rasl.config.document import ConfigError
 from rasl.config.reload import ConfigSession
 from rasl.config.watch import watch_config
-from rasl.engine.registry import ensure_nodes_loaded
+from rasl.graph.node import ensure_nodes_loaded
 from rasl.runtime import UnifiedScheduler
 
 BASE = """\

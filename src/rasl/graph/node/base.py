@@ -12,11 +12,11 @@ Pull-based execution model:
 
 Example:
     >>> from rasl.config.document import Directive
-    >>> from rasl.engine.nodes import NodeContext
-    >>> from rasl.engine.frames import MatrixPayload
-    >>> from rasl.engine.ports import PortGroup
-    >>> from rasl.engine.tick import TickContext, pull_rate
-    >>> from rasl.engine.nodes.config import SinkNodeConfig
+    >>> from rasl.graph.node import NodeContext
+    >>> from rasl.signal import MatrixPayload
+    >>> from rasl.graph.ports import PortGroup
+    >>> from rasl.graph.node import TickContext, pull_rate
+    >>> from rasl.graph.node import SinkNodeConfig
     >>>
     >>> @node("MySink")
     ... class MySink(BaseNode):
@@ -36,13 +36,13 @@ from abc import ABC
 from types import MappingProxyType
 from typing import TYPE_CHECKING, ClassVar, Sequence, Type
 
-from rasl.engine.frames.frame import EMPTY_METADATA
+from rasl.signal import EMPTY_METADATA
 
 if TYPE_CHECKING:
-    from rasl.engine.graph import Edge
-    from rasl.engine.nodes.config import BaseNodeConfig
-    from rasl.engine.nodes.context import NodeContext
-    from rasl.engine.tick import TickContext
+    from rasl.graph.edge import Edge
+    from rasl.graph.node.config import BaseNodeConfig
+    from rasl.graph.node.context import NodeContext
+    from rasl.graph.node.tick import TickContext
 
 
 class BaseNode(ABC):

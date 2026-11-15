@@ -40,8 +40,8 @@ from typing import Any
 
 from rasl.config.document import ConfigError, Directive, Rendered, children, load_document
 from rasl.config.loader import build_plan, graph_directive, node_id_of, node_spec
-from rasl.engine.graph import ExecutionPlan
-from rasl.engine.registry import get_node_class
+from rasl.graph import ExecutionPlan
+from rasl.graph.node import get_node_class
 from rasl.runtime.plan_update import PlanUpdate
 
 _CONNECTION_KEYWORDS = ("connect", "edge")

@@ -5,9 +5,10 @@ import math
 import numpy as np
 import pytest
 
-from rasl.engine.frames import BoolPayload, ColorPayload, Frame, MatrixPayload
-from rasl.engine.tick import TickContext
+from rasl.color import ColorPayload
+from rasl.graph.node import TickContext
 from rasl.nodes.effects.smooth import SmoothNode
+from rasl.signal import BoolPayload, Frame, MatrixPayload
 
 
 def _frame(payload) -> Frame:

@@ -24,7 +24,7 @@ Nodes are registered via the @node decorator and discovered by the
 config loader through the registry, which imports this package as the
 "rasl.nodes" entry point named "builtin". Importing it registers every
 built-in node. The config base classes (BaseNodeConfig and the Source,
-Transform and Sink bases) are in rasl.engine.nodes.config.
+Transform and Sink bases) are in rasl.graph.node.
 
 Example configuration::
 

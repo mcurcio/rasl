@@ -4,10 +4,10 @@ import warnings
 
 import pytest
 
-from rasl.engine.frames import Frame, MatrixPayload
-from rasl.engine.graph import CycleWarning, Edge, ExecutionPlan, GraphBuilder
-from rasl.engine.nodes import NodeContext
-from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
+from rasl.graph import CycleWarning, Edge, ExecutionPlan, GraphBuilder
+from rasl.graph.node import NodeContext
+from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
+from rasl.signal import Frame, MatrixPayload
 
 
 class MockSourceNode:
@@ -332,7 +332,7 @@ class TestConnectValidation:
         ],
     )
     def test_a_slice_past_the_end_of_a_fixed_port_is_refused(self, source_slice, target_slice, port) -> None:
-        from rasl.engine.slices import Slice
+        from rasl.graph import Slice
 
         builder = self._builder(
             _Ported("a", out=OutputPortSpec(MatrixPayload, count=512)),
@@ -347,14 +347,14 @@ class TestConnectValidation:
         assert builder.edges == []
 
     def test_a_slice_past_the_upper_bound_of_a_variable_port_is_refused(self) -> None:
-        from rasl.engine.slices import Slice
+        from rasl.graph import Slice
 
         builder = self._builder(_Ported("a"), _Ported("b", inp=InputPortSpec(MatrixPayload, count=(1, 10))))
         with pytest.raises(ValueError, match="b.in, which has at most 10 elements"):
             builder.connect("a", "out", "b", "in", None, Slice(8, 12))
 
     def test_slices_inside_their_ports_connect(self) -> None:
-        from rasl.engine.slices import Slice
+        from rasl.graph import Slice
 
         builder = self._builder(
             _Ported("a", out=OutputPortSpec(MatrixPayload, count=512)),
@@ -365,7 +365,7 @@ class TestConnectValidation:
         assert len(builder.edges) == 2
 
     def test_a_slice_on_an_unbounded_port_cannot_be_checked(self) -> None:
-        from rasl.engine.slices import Slice
+        from rasl.graph import Slice
 
         builder = self._builder(_Ported("a"), _Ported("b"))
         builder.connect("a", "out", "b", "in", Slice(600, 900), Slice(0, 300))

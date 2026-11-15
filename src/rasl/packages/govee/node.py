@@ -7,24 +7,17 @@ from typing import Any, Iterable
 import numpy as np
 from pydantic import Field
 
-from rasl.engine.frames import (
-    ColorPayload,
-    MatrixPayload,
-    RgbColorPayload,
-    RgbwColorPayload,
-)
-from rasl.engine.nodes import BaseNode, NodeContext
-from rasl.engine.nodes.config import SinkNodeConfig
-from rasl.engine.ports import InputPortSpec, PortGroup
-from rasl.engine.registry import node
-from rasl.engine.tick import TickContext, pull_rate
-from rasl.engine.units import Frequency
+from rasl.color import ColorPayload, RgbColorPayload, RgbwColorPayload
+from rasl.graph.node import BaseNode, NodeContext, SinkNodeConfig, TickContext, node, pull_rate
+from rasl.graph.ports import InputPortSpec, PortGroup
 from rasl.packages.govee.client import (
     DEFAULT_GOVEE_PORT,
     GoveeDeviceInfo,
     GoveeLightClient,
     GoveeSegmentInfo,
 )
+from rasl.signal import MatrixPayload
+from rasl.units import Frequency
 
 
 @node("GoveeLightNode", "GoveeLight")

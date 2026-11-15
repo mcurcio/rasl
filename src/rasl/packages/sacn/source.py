@@ -17,11 +17,9 @@ import sacn
 from numpy.typing import NDArray
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from rasl.engine.frames import Frame, MatrixPayload
-from rasl.engine.nodes import BaseNode, NodeContext
-from rasl.engine.nodes.config import SourceNodeConfig
-from rasl.engine.ports import EMPTY_PORTS, OutputPort, OutputPortSpec, PortGroup
-from rasl.engine.registry import node
+from rasl.graph.node import BaseNode, NodeContext, SourceNodeConfig, node
+from rasl.graph.ports import EMPTY_PORTS, OutputPort, OutputPortSpec, PortGroup
+from rasl.signal import Frame, MatrixPayload
 
 
 class SacnUniverseConfig(BaseModel):

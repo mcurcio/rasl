@@ -9,7 +9,7 @@ import strawberry
 from strawberry.fastapi import BaseContext
 from strawberry.types import Info
 
-from rasl.engine.nodes import get_inputs, get_outputs
+from rasl.graph.node import get_inputs, get_outputs
 from rasl.runtime.monitor import NodeMonitor
 
 

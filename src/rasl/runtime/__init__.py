@@ -6,7 +6,7 @@ using anyio for async concurrency.
 UnifiedScheduler runs a plan: pull-based execution driven by sink frame rates.
 
 Example:
-    >>> from rasl.engine import GraphBuilder
+    >>> from rasl.graph import GraphBuilder
     >>> from rasl.runtime import UnifiedScheduler
     >>>
     >>> builder = GraphBuilder()

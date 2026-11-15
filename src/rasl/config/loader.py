@@ -31,8 +31,8 @@ from rasl.config.document import (
     parse_document,
     scalar,
 )
-from rasl.engine.graph import ExecutionPlan, GraphBuilder
-from rasl.engine.registry import ensure_nodes_loaded, get_node_class
+from rasl.graph import ExecutionPlan, GraphBuilder
+from rasl.graph.node import ensure_nodes_loaded, get_node_class
 
 
 def _extract_config_dict(

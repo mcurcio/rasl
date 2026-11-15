@@ -5,8 +5,7 @@ import pytest
 from rasl.config.connection import parse_port_ref
 from rasl.config.document import ConfigError
 from rasl.config.loader import parse_config
-from rasl.engine.graph import Edge
-from rasl.engine.slices import Slice
+from rasl.graph import Edge, Slice
 
 
 class TestParsePortWithSlice:

@@ -3,9 +3,8 @@
 import pytest
 from pydantic import Field
 
-from rasl.engine.nodes import BaseNode
-from rasl.engine.nodes.config import BaseNodeConfig, SourceNodeConfig, TransformNodeConfig
-from rasl.engine.units import Frequency
+from rasl.graph.node import BaseNode, BaseNodeConfig, SourceNodeConfig, TransformNodeConfig
+from rasl.units import Frequency
 
 
 class TestBaseNodeConfig:

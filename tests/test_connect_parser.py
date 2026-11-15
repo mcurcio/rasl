@@ -8,7 +8,7 @@ from rasl.config import (
     parse_connect,
     parse_connect_batch,
 )
-from rasl.engine.slices import Slice
+from rasl.graph import Slice
 
 
 class TestSlice:

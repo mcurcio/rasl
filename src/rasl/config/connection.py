@@ -15,9 +15,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from rasl.config.document import Directive, arg_texts, children
-from rasl.engine.graph import GraphBuilder
-from rasl.engine.nodes import get_inputs, get_outputs
-from rasl.engine.slices import Slice
+from rasl.graph import GraphBuilder, Slice
+from rasl.graph.node import get_inputs, get_outputs
 
 
 @dataclass(frozen=True)

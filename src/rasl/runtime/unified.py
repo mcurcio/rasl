@@ -32,13 +32,12 @@ import anyio
 import numpy as np
 import structlog
 
-from rasl.engine.frames import Frame
-from rasl.engine.graph import Edge, ExecutionPlan, InputPortProgram
-from rasl.engine.nodes import Node, NodeContext, get_inputs, get_outputs
-from rasl.engine.ports import InputPort, OutputPort, PortGroup
-from rasl.engine.tick import TickContext
+from rasl.graph import Edge, ExecutionPlan, InputPortProgram
+from rasl.graph.node import Node, NodeContext, TickContext, get_inputs, get_outputs
+from rasl.graph.ports import InputPort, OutputPort, PortGroup
 from rasl.runtime.monitor import NodeMonitor
 from rasl.runtime.plan_update import PlanUpdate
+from rasl.signal import Frame
 
 logger = structlog.get_logger()
 

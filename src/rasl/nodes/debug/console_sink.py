@@ -14,13 +14,11 @@ from typing import Optional
 
 from pydantic import Field, field_validator
 
-from rasl.engine.frames import ColorPayload, MatrixPayload
-from rasl.engine.nodes import BaseNode, NodeContext
-from rasl.engine.nodes.config import SinkNodeConfig
-from rasl.engine.ports import InputPortSpec, PortGroup
-from rasl.engine.registry import node
-from rasl.engine.tick import TickContext, pull_rate
-from rasl.engine.units import Frequency
+from rasl.color import ColorPayload
+from rasl.graph.node import BaseNode, NodeContext, SinkNodeConfig, TickContext, node, pull_rate
+from rasl.graph.ports import InputPortSpec, PortGroup
+from rasl.signal import MatrixPayload
+from rasl.units import Frequency
 
 
 @node("ConsoleSinkNode", "ConsoleSink")

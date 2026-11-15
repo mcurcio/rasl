@@ -24,19 +24,13 @@ from typing import Literal as TypingLiteral
 import numpy as np
 from pydantic import Field
 
-from rasl.engine.frames import (
-    ColorPayload,
-    Frame,
-    FramePayload,
-    MatrixPayload,
-)
-from rasl.engine.nodes import BaseNode
-from rasl.engine.nodes.config import SourceNodeConfig
-from rasl.engine.ports import OutputPortSpec, PortGroup
-from rasl.engine.registry import node
+from rasl.color import ColorPayload
+from rasl.graph.node import BaseNode, SourceNodeConfig, node
+from rasl.graph.ports import OutputPortSpec, PortGroup
+from rasl.signal import Frame, FramePayload, MatrixPayload
 
 if TYPE_CHECKING:
-    from rasl.engine.tick import TickContext
+    from rasl.graph.node import TickContext
 
 
 def parse_literal(literal_str: str) -> Any:

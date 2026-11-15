@@ -1,20 +1,8 @@
-"""Node and payload type registries for plugin architecture.
+"""The node registry: node classes by the type names configs use.
 
-This module provides decorators for registering node classes and payload
-types, enabling a plugin-based architecture where the core engine has no
-knowledge of specific implementations.
-
-Example:
-    >>> from rasl.engine.registry import node, payload
-    >>>
-    >>> @payload("array")
-    ... class ArrayPayload:
-    ...     pass
-    >>>
-    >>> @node("MySourceNode", "MySource")
-    ... class MySourceNode(BaseNode):
-    ...     class Config(SourceNodeConfig):
-    ...         param: float = 1.0
+A node class registers itself with ``@node("Name", "Alias")``. Built-in nodes
+and device packages are loaded through the ``rasl.nodes`` entry points, like
+any plugin, so this module names no node package.
 """
 
 from __future__ import annotations
@@ -22,13 +10,14 @@ from __future__ import annotations
 import warnings
 from typing import TYPE_CHECKING, Type, TypeVar
 
+from rasl.signal.registry import _PAYLOAD_REGISTRY
+
 if TYPE_CHECKING:
-    from rasl.engine.nodes import BaseNode
+    from rasl.graph.node.base import BaseNode
 
 T = TypeVar("T")
 
 _NODE_REGISTRY: dict[str, Type["BaseNode"]] = {}
-_PAYLOAD_REGISTRY: dict[str, Type] = {}
 _initialized = False
 
 
@@ -102,66 +91,6 @@ def get_node_registry() -> dict[str, Type["BaseNode"]]:
         Dict mapping names to node classes.
     """
     return dict(_NODE_REGISTRY)
-
-
-# ─────────────────────────────────────────────────────────────────────
-# Payload Registration
-# ─────────────────────────────────────────────────────────────────────
-
-
-def payload(name: str):
-    """Class decorator to register a payload type.
-
-    Payload types are referenced by name in PortSpec.accepts, allowing
-    the port system to be decoupled from specific payload implementations.
-
-    Args:
-        name: Payload type name (e.g., "array", "event", "color").
-
-    Returns:
-        Decorator function that registers the class and returns it unchanged.
-
-    Example:
-        >>> @payload("array")
-        ... class ArrayPayload(np.ndarray):
-        ...     pass
-    """
-
-    def decorator(cls: Type[T]) -> Type[T]:
-        _PAYLOAD_REGISTRY[name] = cls
-        return cls
-
-    return decorator
-
-
-def get_payload_type(name: str) -> Type | None:
-    """Look up a registered payload type by name.
-
-    Args:
-        name: Payload type name.
-
-    Returns:
-        The payload class, or None if not found.
-    """
-    return _PAYLOAD_REGISTRY.get(name)
-
-
-def list_payload_types() -> list[str]:
-    """List all registered payload type names.
-
-    Returns:
-        Sorted list of all registered payload names.
-    """
-    return sorted(_PAYLOAD_REGISTRY.keys())
-
-
-def get_payload_registry() -> dict[str, Type]:
-    """Get a copy of the full payload registry.
-
-    Returns:
-        Dict mapping names to payload classes.
-    """
-    return dict(_PAYLOAD_REGISTRY)
 
 
 # ─────────────────────────────────────────────────────────────────────

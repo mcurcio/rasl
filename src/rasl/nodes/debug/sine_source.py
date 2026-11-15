@@ -14,11 +14,9 @@ import anyio
 import numpy as np
 from pydantic import Field
 
-from rasl.engine.frames import Frame, MatrixPayload
-from rasl.engine.nodes import BaseNode, NodeContext
-from rasl.engine.nodes.config import SourceNodeConfig
-from rasl.engine.ports import OutputPortSpec, PortGroup
-from rasl.engine.registry import node
+from rasl.graph.node import BaseNode, NodeContext, SourceNodeConfig, node
+from rasl.graph.ports import OutputPortSpec, PortGroup
+from rasl.signal import Frame, MatrixPayload
 
 
 @node("SineSourceNode", "SineSource")

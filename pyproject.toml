@@ -76,7 +76,9 @@ layers = [
     "rasl.server",
     "rasl.config",
     "rasl.runtime | rasl.nodes | rasl.packages",
-    "rasl.engine",
+    "rasl.graph | rasl.color",
+    "rasl.signal",
+    "rasl.units",
 ]
 
 [[tool.importlinter.contracts]]

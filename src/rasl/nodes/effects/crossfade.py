@@ -5,17 +5,15 @@ from typing import TYPE_CHECKING
 import numpy as np
 from pydantic import Field
 
-from rasl.engine.frames import BoolPayload, ColorPayload, HslColorPayload
-from rasl.engine.nodes import BaseNode
-from rasl.engine.nodes.config import TransformNodeConfig
-from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
-from rasl.engine.registry import node
-from rasl.engine.tick import TickContext
+from rasl.color import ColorPayload, HslColorPayload
+from rasl.graph.node import BaseNode, TickContext, TransformNodeConfig, node
+from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
+from rasl.signal import BoolPayload
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
-    from rasl.engine.graph import Edge
+    from rasl.graph import Edge
 
 
 @node("CrossfadeNode", "Crossfade", "crossfade")

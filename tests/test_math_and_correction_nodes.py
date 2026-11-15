@@ -5,10 +5,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from rasl.engine.frames import Frame, HsbkColorPayload, LinearRgbColorPayload, MatrixPayload, RgbColorPayload
-from rasl.engine.tick import TickContext
+from rasl.color import HsbkColorPayload, LinearRgbColorPayload, RgbColorPayload
+from rasl.graph.node import TickContext
 from rasl.nodes.color.correction_node import ColorCorrectionNode
 from rasl.nodes.effects.math import MathNode
+from rasl.signal import Frame, MatrixPayload
 
 TICK = TickContext(tick=0, t=0.0, dt=0.0, wall_time=0.0)
 
@@ -124,7 +125,7 @@ class TestSacnSinkPull:
         return node, output
 
     def test_it_drives_the_scheduler_at_the_rate_min_interval_allows(self) -> None:
-        from rasl.engine import GraphBuilder
+        from rasl.graph import GraphBuilder
         from rasl.runtime.unified import find_rate_drivers
 
         builder = GraphBuilder()

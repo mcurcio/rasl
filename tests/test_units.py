@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from rasl.engine.units import Duration, Frequency
+from rasl.units import Duration, Frequency
 
 
 class TestDuration:

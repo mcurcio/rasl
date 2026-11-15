@@ -20,7 +20,7 @@ import warnings
 from dataclasses import dataclass
 from typing import Optional
 
-from rasl.engine.slices import Slice
+from rasl.graph import Slice
 
 
 class ConnectParseError(Exception):

@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from rasl.engine.graph import ExecutionPlan
+    from rasl.graph import ExecutionPlan
     from rasl.runtime import UnifiedScheduler
 
 

@@ -2,8 +2,8 @@
 
 import pytest
 
-from rasl.engine.frames import MatrixPayload
-from rasl.engine.ports import InputPortSpec, OutputPortSpec
+from rasl.graph.ports import InputPortSpec, OutputPortSpec
+from rasl.signal import MatrixPayload
 
 
 class TestPortSpecChannels:

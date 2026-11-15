@@ -5,7 +5,7 @@ import time
 import numpy as np
 import pytest
 
-from rasl.engine.frames import Frame
+from rasl.signal import Frame
 
 
 class TestFrame:

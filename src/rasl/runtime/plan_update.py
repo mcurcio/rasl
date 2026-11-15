@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from rasl.engine.graph import ExecutionPlan
+from rasl.graph import ExecutionPlan
 
 
 @dataclass(frozen=True)

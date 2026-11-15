@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from numpy.typing import NDArray
 
-from rasl.engine.frames import ColorPayload, FramePayload, MatrixPayload
+from rasl.color import ColorPayload
+from rasl.signal import FramePayload, MatrixPayload
 
 
 def clone_payload_like(payload: FramePayload, data: NDArray) -> FramePayload:

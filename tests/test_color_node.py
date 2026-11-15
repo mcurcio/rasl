@@ -3,15 +3,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from rasl.engine.frames import (
-    Frame,
-    MatrixPayload,
-    OkhslColorPayload,
-    OklchColorPayload,
-    RgbColorPayload,
-)
-from rasl.engine.tick import TickContext
+from rasl.color import OkhslColorPayload, OklchColorPayload, RgbColorPayload
+from rasl.graph.node import TickContext
 from rasl.nodes.color.color_node import ColorNode
+from rasl.signal import Frame, MatrixPayload
 
 
 def _tick(*, tick: int = 0, t: float = 0.0, dt: float = 0.0, wall_time: float = 0.0) -> TickContext:

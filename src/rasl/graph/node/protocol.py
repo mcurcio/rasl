@@ -8,11 +8,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, Union
 
-from rasl.engine.nodes.context import NodeContext
-from rasl.engine.ports import EMPTY_PORTS, PortGroup, _EmptyPortGroup
+from rasl.graph.node.context import NodeContext
+from rasl.graph.ports.group import EMPTY_PORTS, PortGroup, _EmptyPortGroup
 
 if TYPE_CHECKING:
-    from rasl.engine.tick import TickContext
+    from rasl.graph.node.tick import TickContext
 
 
 class Node(Protocol):
@@ -42,9 +42,9 @@ class Node(Protocol):
         outputs: PortGroup of output port specs (optional, omit for sinks).
 
     Example:
-        >>> from rasl.engine.frames import MatrixPayload
-        >>> from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
-        >>> from rasl.engine.tick import TickContext, pull_rate
+        >>> from rasl.signal import MatrixPayload
+        >>> from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
+        >>> from rasl.graph.node import TickContext, pull_rate
         >>>
         >>> class MyTransform:
         ...     id: str = "my_transform"

@@ -10,7 +10,7 @@ def setup_nodes():
     """Ensure nodes are registered before tests."""
     # Import nodes to trigger registration (don't reset registry)
     import rasl.nodes  # noqa: F401
-    from rasl.engine.registry import ensure_nodes_loaded
+    from rasl.graph.node import ensure_nodes_loaded
     ensure_nodes_loaded()
     yield
 

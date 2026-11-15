@@ -18,12 +18,11 @@ from typing import Literal
 
 import numpy as np
 
-from rasl.engine.frames import (
+from rasl.color import (
     ColorPayload,
     HsbkColorPayload,
     HslColorPayload,
     LinearRgbColorPayload,
-    MatrixPayload,
     OkhslColorPayload,
     OkhsvColorPayload,
     OklabColorPayload,
@@ -32,11 +31,9 @@ from rasl.engine.frames import (
     RgbColorPayload,
     RgbwColorPayload,
 )
-from rasl.engine.nodes import BaseNode
-from rasl.engine.nodes.config import TransformNodeConfig
-from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
-from rasl.engine.registry import node
-from rasl.engine.tick import TickContext
+from rasl.graph.node import BaseNode, TickContext, TransformNodeConfig, node
+from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
+from rasl.signal import MatrixPayload
 
 # Map model names to payload classes
 FRAME_CLASSES: dict[str, type[ColorPayload]] = {

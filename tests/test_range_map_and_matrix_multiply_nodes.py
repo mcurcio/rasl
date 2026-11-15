@@ -3,10 +3,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from rasl.engine.frames import ColorPayload, Frame, MatrixPayload
-from rasl.engine.tick import TickContext
+from rasl.color import ColorPayload
+from rasl.graph.node import TickContext
 from rasl.nodes.effects.matrix_multiply import MatrixMultiplyNode
 from rasl.nodes.effects.range_map import RangeMapNode
+from rasl.signal import Frame, MatrixPayload
 
 
 def _frame(payload) -> Frame:

@@ -14,7 +14,7 @@ from rasl.server.graphql_api import RASLContext, schema
 from rasl.server.state import AppState
 
 if TYPE_CHECKING:
-    from rasl.engine.graph import ExecutionPlan
+    from rasl.graph import ExecutionPlan
     from rasl.runtime import UnifiedScheduler
 
 logger = structlog.get_logger()
