@@ -1,3 +1,7 @@
+> **Historical design document.** This page describes an early design of rasl (September 2025) that was not built as written. It is kept as source material for design history. For how rasl works today, see the [documentation index](README.md).
+>
+> Not in the code: the REST API under `/api/v1/`, `create_web_app(...)`, graph upload, node parameter updates, WebSocket topics, CORS and a UI in `rasl/ui/dist/`. The server serves `GET /health`, GraphQL at `/graphql` (queries `health`, `graph`, `metrics` and `node(nodeId)`, the subscription `metricsStream` over graphql-transport-ws, no mutations) and the dashboard at `/`. A graph changes only when its config files change. See the [README](../README.md#web-ui-and-api).
+
 # Web API and UI Integration
 
 RASL provides comprehensive REST and WebSocket APIs for monitoring, controlling, and integrating with the execution engine. This document details the web interface architecture and API specifications.

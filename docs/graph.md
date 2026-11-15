@@ -1,4 +1,6 @@
-
+> **Historical design document.** This page describes an early design of rasl (September 2025) that was not built as written. It is kept as source material for design history. For how rasl works today, see the [documentation index](README.md).
+>
+> Not in the code: instance-first Python wiring (`sine.ports.out >> amp.ports.in`), `Engine(...)` with `FixedRateScheduler` and `MonotonicClock`, end-of-stream policies, `CSVSource`, `NetworkSource`, schema alignment and the graph spec serialization. The graph is built from a config file by `GraphBuilder`, with `connect` directives; ticks are driven by sinks that declare `@pull_rate`. `Crossfade` takes only `seconds`, with ports `input0`, `input1` and `selector`.
 
 # Graph Model — RASL
 

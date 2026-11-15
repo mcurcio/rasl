@@ -1,3 +1,7 @@
+> **Historical design document.** This page describes an early design of rasl (September 2025) that was not built as written. It is kept as source material for design history. For how rasl works today, see the [documentation index](README.md).
+>
+> Not in the code: the `rasl.plugins` entry-point group, format, protocol and UI plugins, a plugin manager and runtime registration decorators. The only extension point is the `rasl.nodes` entry-point group: each entry names a module that registers nodes with `@node` when imported. See [CONTRIBUTING.md: Writing a node](../CONTRIBUTING.md#writing-a-node).
+
 # Plugin System Architecture
 
 RASL's plugin system enables extending core functionality with custom nodes, file formats, and UI components while maintaining clean separation between core engine and domain-specific features.

@@ -1,3 +1,5 @@
+> **Debugging note, not documentation.** These are notes from one DDP diagnostic capture of `family_room.conf` in December 2025 (the raw log is `ddp_diag_run.txt`). They describe that run only, and are kept for the record. `family_room.conf` does not pass `rasl --validate` today.
+
 # DDP Diagnostics: family_room.conf
 
 ## Summary

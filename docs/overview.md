@@ -1,3 +1,7 @@
+> **Historical design document.** This page describes an early design of rasl (September 2025) that was not built as written. It is kept as source material for design history. For how rasl works today, see the [documentation index](README.md).
+>
+> Not in the code: graphs written as Python scripts, the `rasl run` command, the REST/WebSocket API, execution modes and liveness detection. Today a graph is a knobly config file with a `graph { }` block, run with `rasl <file>`; reload watches the config files; the web surface is GraphQL at `/graphql` and `GET /health`. The name used here, "Real-Time Animation Show Library", is not the project's name ("Real-time Async Streaming for Lighting").
+
 # RASL Overview
 
 **RASL (Real-Time Animation Show Library)** is a standalone Python application for building and running real-time animation graphs targeting lights, motors, kinetic sculptures, and other channel-based systems.

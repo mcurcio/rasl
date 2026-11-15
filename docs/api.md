@@ -1,3 +1,7 @@
+> **Historical design document.** This page describes an early design of rasl (September 2025) that was not built as written. It is kept as source material for design history. For how rasl works today, see the [documentation index](README.md).
+>
+> Not in the code: the Frame/Range/Components/Schema types, the Clock protocol, `Engine`, the `HttpApi` REST/WebSocket façade, mixins, the plugin API and the typed errors described here. The real node contract is `BaseNode` with a nested pydantic `Config`, the `@node` decorator, `PortGroup` ports and `@pull_rate`; see [CONTRIBUTING.md: Writing a node](../CONTRIBUTING.md#writing-a-node).
+
 # RASL Public APIs — Interface Specification (Python)
 
 > Purpose: this file defines the **top‑layer interfaces** that concrete implementations extend from. It focuses on

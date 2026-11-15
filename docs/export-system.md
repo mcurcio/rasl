@@ -1,3 +1,7 @@
+> **Historical design document.** This page describes an early design of rasl (September 2025) that was not built as written. It is kept as source material for design history. For how rasl works today, see the [documentation index](README.md).
+>
+> Not in the code: there is no export feature. rasl has no `export` command, no offline renderer and no FSEQ, CSV or JSON writers.
+
 # Export System Architecture
 
 RASL's export system enables offline rendering of deterministic and controllable graphs to various file formats. This bridges RASL's real-time execution model with traditional sequence-based lighting tools like xLights.

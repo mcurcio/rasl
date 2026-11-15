@@ -1,3 +1,7 @@
+> **Historical design document.** This page describes an early design of rasl (September 2025) that was not built as written. It is kept as source material for design history. For how rasl works today, see the [documentation index](README.md).
+>
+> Not in the code: the `rasl.core` package (`Engine`, `FixedRateScheduler`, `AdaptiveScheduler`, `ManualScheduler`, `Validator`, `NodeMonitor`), execution modes and frame budget management. The runtime is `rasl.runtime`: `Runtime`, `Scheduler`, `Executor` and `NodeHost`, with diagnostics, monitoring, timing and plan updates.
+
 # Execution Engine Architecture
 
 The RASL execution engine coordinates all components to run animation graphs in real-time. This document details the engine's internal architecture and component interactions.

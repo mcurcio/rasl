@@ -1,3 +1,7 @@
+> **Historical design document.** This page describes an early design of rasl (September 2025) that was not built as written. It is kept as source material for design history. For how rasl works today, see the [documentation index](README.md).
+>
+> Not in the code: sequence time, time-domain bridging nodes, liveness types (FINITE, GENERATOR, STREAMING), execution modes, end-of-stream policies and export duration policies. Time is the scheduler's tick (`TickContext`); the rate comes from the sinks' `@pull_rate`, and a node that is not upstream of such a sink never runs.
+
 # Time and Liveness in RASL
 
 Time handling and source lifecycle management are fundamental to RASL's execution model. This document explains how time flows through graphs and how different source types behave.

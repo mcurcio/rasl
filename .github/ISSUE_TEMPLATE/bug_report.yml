@@ -1,0 +1,52 @@
+name: Bug report
+description: Something in rasl does not work as described.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. For a security problem, do not use this form: see SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The output of `uv run rasl --version`, or the container image tag (`sha-...`).
+      placeholder: rasl 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: how
+    attributes:
+      label: How you run rasl
+      options:
+        - From a checkout, with uv
+        - The container image (ghcr.io/mcurcio/rasl)
+        - Other (say below)
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Config
+      description: The smallest config that shows the problem. Remove addresses you do not want to share.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The exact command you ran, with its flags.
+      placeholder: uv run rasl my.conf --api-port 8080
+  - type: textarea
+    id: output
+    attributes:
+      label: Error or output
+      description: The full error, including its file:line:col location if it has one.
+      render: text
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened instead
+    validations:
+      required: true

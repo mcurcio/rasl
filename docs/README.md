@@ -1,102 +1,60 @@
-# RASL Documentation
+# rasl documentation
 
-Welcome to the RASL (Real-Time Animation Show Library) documentation. This collection of documents provides comprehensive guidance for understanding, using, and extending RASL.
+rasl is a real-time lighting engine. You describe a graph of nodes (sources, effects, color conversions and
+outputs) in a config file, and the `rasl` command runs it, reloading when the file changes. The Python runtime in
+`src/rasl/` is the product. This page says where each topic is documented, and which pages in this folder are
+current.
 
-## Documentation Structure
+## Current documentation
 
-### Getting Started
-- **[Overview](overview.md)** - High-level introduction to RASL's concepts and philosophy
-- **[User Guide](user-guide.md)** - Step-by-step guide to creating your first animations
-- **[API Reference](api.md)** - Complete interface specifications and type definitions
+The current user documentation is in the repository's [README](../README.md):
 
-### Core Architecture
-- **[Time and Liveness](time-and-liveness.md)** - Understanding execution modes, time domains, and source lifecycles
-- **[Graph Model](graph.md)** - How nodes connect, data flows, and validation works
-- **[Execution Engine](execution-engine.md)** - Scheduler, executor, validator, and monitoring systems
+| Topic | Where |
+|---|---|
+| Installing from source, and the container image and its settings | [README: Installation](../README.md#installation), [Container](../README.md#container) |
+| A first config, validated and run | [README: Quick start](../README.md#quick-start) |
+| The config file: the `graph` block, `node`, `connect`, slices, the `ui` block | [README: Configuration](../README.md#configuration) |
+| The config syntax itself (knobly: `@set`, `@snippet`, `@use`, `@include`) | [knobly language reference](https://mcurcio.github.io/knobly/language/) |
+| The built-in node types | [README: Node types](../README.md#node-types) |
+| Every node type's settings, with types, defaults and sink examples | [nodes.md](nodes.md) |
+| The `rasl` command and its flags | [README: Command line](../README.md#command-line) |
+| The dashboard, GraphQL at `/graphql` and `GET /health` | [README: Web UI and API](../README.md#web-ui-and-api) |
+| What a config change does to a running graph | [README: Live reload](../README.md#live-reload) |
+| The repository layout, the checks, writing a node, building the image | [CONTRIBUTING.md](../CONTRIBUTING.md) |
+| Reporting a vulnerability, and what to know before exposing rasl on a network | [SECURITY.md](../SECURITY.md) |
 
-### Development Guides
-- **[Node Development](node-development.md)** - Creating custom sources, transforms, and sinks
-- **[Plugin System](plugin-system.md)** - Extending RASL with plugins and maintaining compatibility
-- **[Web API](web-api.md)** - REST/WebSocket APIs for monitoring and control
+The docstrings in `src/rasl/` are the detailed reference for the code: every public module, class and function
+has one. Each node's docstrings describe its settings, but for writing a config use [nodes.md](nodes.md):
+several node docstrings have no example, and the examples that exist still wrap the nodes in an old `rasl { }`
+root block, which rasl no longer reads (it needs `graph { }`).
 
-### Advanced Topics
-- **[Export System](export-system.md)** - Offline rendering and format interoperability
+The JavaScript workspace in `js/` is a separate implementation with its own documentation:
+[js/README.md](../js/README.md) and the README in each `js/packages/*` folder.
 
-## Quick Navigation
+## Historical design documents
 
-### For Users
-Start with the **[Overview](overview.md)** to understand RASL's approach, then follow the **[User Guide](user-guide.md)** to create your first animation. The **[API Reference](api.md)** provides details on all available nodes and functions.
+The pages below describe an early design of rasl, from September 2025, under the name "Real-Time Animation Show
+Library". That design was not built as written: it has graphs written as Python scripts, a `rasl run` command,
+a REST and WebSocket API, execution modes, a liveness model, mixins, plugins and an export system, none of which
+exist in the code. Each page says so at the top. They stay here as source material for design history. Do not
+use them to learn how rasl works today.
 
-### For Developers
-Begin with **[Node Development](node-development.md)** to understand the base class architecture and mixin system. The **[Execution Engine](execution-engine.md)** document explains how the core engine works. For extending functionality, see **[Plugin System](plugin-system.md)**.
+| Page | What it describes | What exists instead |
+|---|---|---|
+| [overview.md](overview.md) | The early concept: Python-script graphs, execution modes, REST/WebSocket | Config files with a `graph` block, run with `rasl <file>` |
+| [architecture.md](architecture.md) | The early system components | The packages listed in [CONTRIBUTING.md](../CONTRIBUTING.md#the-python-packages) |
+| [user-guide.md](user-guide.md) | `pip install rasl`, Python scripts, `rasl run`, `rasl export` | The README; rasl is installed from source or run as a container, not from PyPI |
+| [api.md](api.md) | An interface spec: Frame, Schema, Engine, an HTTP façade, mixins | `BaseNode`, `@node`, ports and payloads (see [CONTRIBUTING.md](../CONTRIBUTING.md#writing-a-node)) |
+| [graph.md](graph.md) | Wiring port objects in Python (`>>`), an `Engine`, end-of-stream policies | Graphs built from config by `GraphBuilder`, with `connect` directives |
+| [execution-engine.md](execution-engine.md) | A `rasl.core` engine, validator and schedulers | `rasl.runtime`: `Runtime`, `Scheduler`, `Executor`, `NodeHost` |
+| [time-and-liveness.md](time-and-liveness.md) | Liveness types, execution modes, time-domain bridging | The scheduler's tick; sinks with `@pull_rate` set the rate |
+| [node-development.md](node-development.md) | `BaseSource`/`BaseTransform`/`BaseSink`, mixins, `param_spec` | [CONTRIBUTING.md: Writing a node](../CONTRIBUTING.md#writing-a-node) |
+| [plugin-system.md](plugin-system.md) | A plugin manager with node, format, protocol and UI plugins | The `rasl.nodes` entry-point group, for nodes only |
+| [web-api.md](web-api.md) | A REST API under `/api/v1/` and WebSocket topics | `GET /health`, GraphQL at `/graphql`, the dashboard at `/` |
+| [export-system.md](export-system.md) | Offline rendering to FSEQ, CSV and JSON | Nothing: there is no export feature |
 
-### For Integrators  
-The **[Web API](web-api.md)** document details REST and WebSocket interfaces for building custom UIs or integrating with other systems. **[Export System](export-system.md)** covers offline rendering and format compatibility.
+## Other files
 
-### For Architects
-**[Time and Liveness](time-and-liveness.md)** explains RASL's execution model and how it differs from timeline-based sequencers. **[Graph Model](graph.md)** covers the DAG execution and validation system.
-
-## Key Concepts Quick Reference
-
-### Execution Modes
-- **DETERMINISTIC**: Pure finite sources → predictable duration, export possible
-- **CONTROLLABLE**: Finite + generator sources → user-controlled duration, export possible
-- **LIVE**: Any streaming sources → real-time only, no export
-
-### Source Liveness Types
-- **FINITE**: Bounded media with definite end (CSV file, audio file played once)
-- **GENERATOR**: Can produce data indefinitely but may end naturally (sine wave, noise)
-- **STREAMING**: External, potentially infinite streams (network input, live audio)
-
-### Node Types
-- **Source**: Data generators with output ports only
-- **Transform**: Data processors with input and output ports
-- **Sink**: Output handlers with input ports only
-
-### Time Model
-- **Sequence Time**: Primary time reference (t=0.0 at start)
-- **Frame**: `{t, dt, seq}` time reference for all nodes
-- **Time Domain Bridging**: Explicit conversion between different time references
-
-## Architecture Principles
-
-### Separation of Concerns
-- **Base Classes**: Handle engine integration, lifecycle, error propagation
-- **Child Classes**: Focus purely on domain logic and algorithms
-- **Mixins**: Provide composable behaviors (looping, duration, rate limiting)
-
-### Explicit Over Magic
-- **Time domain conversions** are visible nodes, not hidden engine behavior
-- **Looping behavior** is explicit in source configuration
-- **Error handling** distinguishes between EOS (silent) and errors (noisy)
-
-### Real-time Performance
-- **Lazy evaluation**: Nodes compute only when sinks demand data
-- **Per-frame memoization**: Shared subgraphs compute once per frame
-- **Frame budgets**: Configurable timing constraints for real-time operation
-
-## Contributing
-
-### Documentation Updates
-Documentation is written in Markdown and should be kept up-to-date with code changes. Each document focuses on a specific domain to maintain clarity and avoid overwhelming detail.
-
-### Code Examples
-All code examples in documentation should be:
-- **Runnable**: Can be executed as-is or with minimal setup
-- **Realistic**: Demonstrate actual use cases, not toy examples
-- **Well-commented**: Explain the important concepts being illustrated
-
-### Cross-References
-Documents should link to related concepts in other documents to help readers navigate the architecture. Use relative links to maintain portability.
-
-## Version Information
-
-This documentation corresponds to RASL version 0.1.0 and reflects the target architecture. Some features may not yet be implemented - check the main README.md for current implementation status.
-
-## Getting Help
-
-- **GitHub Issues**: Report bugs or request features
-- **Discussions**: Ask questions about usage or architecture
-- **Examples**: See the `examples/` directory for working code samples
-
-The documentation is designed to grow with RASL - as new features are added and the architecture evolves, these documents will be updated to reflect the current state and best practices.
+- [test_output.md](test_output.md) and `ddp_diag_run.txt` are notes and a raw log from one DDP debugging session
+  in December 2025. They are not documentation.
+- `assets/` holds the logo, drawn by `tools/logo.py`.

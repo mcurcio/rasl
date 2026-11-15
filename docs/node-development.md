@@ -1,3 +1,7 @@
+> **Historical design document.** This page describes an early design of rasl (September 2025) that was not built as written. It is kept as source material for design history. For how rasl works today, see the [documentation index](README.md).
+>
+> Not in the code: `BaseSource`, `BaseTransform` and `BaseSink`, the looping, duration and rate-limit mixins, `_determine_base_liveness`, `_generate_data`, `param_spec` and `port_schema`. Nodes subclass `BaseNode`, register with `@node("Name", "Alias")`, declare a nested pydantic `Config` and their ports as `PortGroup`s, and implement `async pull(tick)`. See [CONTRIBUTING.md: Writing a node](../CONTRIBUTING.md#writing-a-node).
+
 # Node Development Guide
 
 This guide explains how to create custom sources, transforms, and sinks in RASL. The architecture emphasizes **separation of concerns** - base classes handle engine integration while your code focuses purely on domain logic.

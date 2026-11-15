@@ -1,3 +1,7 @@
+> **Historical design document.** This page describes an early design of rasl (September 2025) that was not built as written. It is kept as source material for design history. For how rasl works today, see the [documentation index](README.md).
+>
+> Not in the code: the Python-script loader, `>>` wiring, the `ScaleBias`, `ToRGB` and `SACNSink` nodes, schema validation, the REST/WebSocket API, liveness and execution modes. Nodes are wired with `connect` directives in a config file; the packages that exist are listed in [CONTRIBUTING.md](../CONTRIBUTING.md#the-python-packages).
+
 # RASL Architecture Overview
 
 > **Note**: This document provides a high-level architectural overview. For detailed information on specific topics, see the [Documentation Index](README.md).

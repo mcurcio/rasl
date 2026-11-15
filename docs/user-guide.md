@@ -1,3 +1,7 @@
+> **Historical design document.** This page describes an early design of rasl (September 2025) that was not built as written. It is kept as source material for design history. For how rasl works today, see the [documentation index](README.md).
+>
+> Not in the code: `pip install rasl` (rasl is not on PyPI), `from rasl import *` scripts, the nodes and functions named here (`SineSource(freq=...)`, `ScaleBias`, `ToRGB`, `ColorTemperature`, `TestPatternSource`, `SACNSink`, `expose_parameter()`), `>>` wiring, the `rasl run`, `validate`, `export` and `examples` commands, and parameter controls in the web UI. The command today is `rasl [--validate | --describe] [--api-port PORT] [--api-host HOST] [--no-watch] [--profile] <config>`; see the [README](../README.md).
+
 # RASL User Guide
 
 ## Getting Started

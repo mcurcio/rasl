@@ -22,7 +22,7 @@ uv run ruff check src tests                        # Python: unused or undefined
 
 The Python packages under `src/rasl/` are domains, and import each other in one direction:
 `app` → `config` → `runtime` | `nodes` | `devices` → `graph` | `color` → `signal` → `units`
-(packages joined by `|` do not import each other). `README.md` says what each owns. The order is
+(packages joined by `|` do not import each other). `CONTRIBUTING.md` says what each owns. The order is
 set in `pyproject.toml` under `[tool.importlinter]` and checked by `tests/test_import_layers.py`
 (or `uv run lint-imports`). A new import that goes against it fails the tests: move the code, do
 not add an exception. `tests/` mirrors the packages.
