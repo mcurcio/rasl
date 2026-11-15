@@ -9,20 +9,8 @@ Example:
     >>>
     >>> plan = load_config("config.conf")
     >>> # plan is an ExecutionPlan ready for Runtime
-
-New config dispatch system:
-    >>> from rasl.config import ConfigDispatch, config, load_document
-    >>>
-    >>> tree = load_document("config.conf")
-    >>> # tree.block holds the top-level directives;
-    >>> # use ConfigDispatch to route directives to handlers
 """
 
-from .channel_mapping import (
-    ChannelMapping,
-    ChannelOverlapError,
-    PortChannelRegistry,
-)
 from .connect_parser import (
     ConnectParseError,
     ParsedConnect,
@@ -36,14 +24,10 @@ from .connection import (
     parse_connect_directive,
     parse_port_ref,
 )
-from .dispatch import ConfigDispatch, config
 from .document import ConfigError, Directive, load_document, parse_document
 from .loader import load_config, parse_config
 
 __all__ = [
-    # New config dispatch system
-    "config",
-    "ConfigDispatch",
     "ConfigError",
     "ConnectionDescriptor",
     "ConnectionSpec",
@@ -52,9 +36,6 @@ __all__ = [
     "parse_connect_directive",
     "parse_port_ref",
     "PortRef",
-    # Legacy config system
-    "ChannelMapping",
-    "ChannelOverlapError",
     "ConnectParseError",
     "load_config",
     "parse_config",
@@ -62,5 +43,4 @@ __all__ = [
     "parse_connect",
     "parse_connect_batch",
     "ParsedConnect",
-    "PortChannelRegistry",
 ]

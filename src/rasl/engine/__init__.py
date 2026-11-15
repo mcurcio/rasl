@@ -48,7 +48,6 @@ from .frames import (
 from .graph import CycleWarning, Edge, ExecutionPlan, GraphBuilder
 from .nodes import (
     BaseNode,
-    EmitCallable,
     InjectCallable,
     Node,
     NodeContext,
@@ -113,7 +112,6 @@ __all__ = [
     "BaseNode",
     "Node",
     "NodeContext",
-    "EmitCallable",
     "InjectCallable",
     "StartTaskCallable",
     "get_inputs",

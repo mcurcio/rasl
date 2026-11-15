@@ -13,14 +13,6 @@ if TYPE_CHECKING:
     from ..frames import Frame
 
 
-EmitCallable = Callable[[str, "Frame"], Awaitable[None]]
-"""Type alias for the emit callback function signature (legacy).
-
-Args:
-    port: The output port name to emit on.
-    frame: The Frame to send to downstream nodes.
-"""
-
 StartTaskCallable = Callable[[Callable[..., Awaitable[None]], Tuple[Any, ...]], None]
 """Type alias for background task spawning function signature."""
 
@@ -65,10 +57,6 @@ class NodeContext:
 
     _inject: Optional[InjectCallable] = None
     """Internal callback for injecting pushed frames."""
-
-    # Legacy emit callback (for backwards compatibility during transition)
-    emit: EmitCallable | None = None
-    """Legacy: Async callback to emit frames. Use outputs.write() instead."""
 
     def start_background(self, func: Callable[..., Awaitable[None]], *args: Any) -> None:
         """Spawn a background async task within the node's task group.

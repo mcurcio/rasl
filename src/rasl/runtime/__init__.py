@@ -3,9 +3,7 @@
 This package provides schedulers that execute a compiled ExecutionPlan
 using anyio for async concurrency.
 
-Two schedulers are available:
-- UnifiedScheduler: Pull-based execution driven by sink frame rates (recommended)
-- Runtime: Legacy push-based execution (deprecated)
+UnifiedScheduler runs a plan: pull-based execution driven by sink frame rates.
 
 Example:
     >>> from rasl.engine import GraphBuilder
@@ -20,12 +18,9 @@ Example:
 
 from .monitor import NodeMonitor, NodeStats
 from .plan_update import PlanUpdate
-from .scheduler import Runtime, RuntimeConfig
 from .unified import UnifiedScheduler
 
 __all__ = [
-    "Runtime",
-    "RuntimeConfig",
     "NodeMonitor",
     "NodeStats",
     "PlanUpdate",

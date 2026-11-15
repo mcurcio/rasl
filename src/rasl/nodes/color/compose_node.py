@@ -20,7 +20,7 @@ from rasl.engine.frames import (
     FramePayload,
     MatrixPayload,
 )
-from rasl.engine.nodes import BaseNode, NodeContext
+from rasl.engine.nodes import BaseNode
 from rasl.engine.nodes.config import TransformNodeConfig
 from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.engine.registry import get_payload_type, node
@@ -234,24 +234,3 @@ class ComposeNode(BaseNode):
                     payload=payload,
                 )
             )
-
-    async def handle(self, port: str, frame: Frame, ctx: NodeContext) -> None:
-        """Push-style handler using same composition logic as pull()."""
-        if port not in self._port_names:
-            return
-
-        data = np.asarray(frame.payload, dtype=np.float32)
-        count = len(data)
-        if count <= 0:
-            return
-
-        self._resolved_length = count
-
-        buffers: dict[str, NDArray[np.float32] | None] = {name: None for name in self._port_names}
-        buffers[port] = data
-
-        out = self._compose_matrix(count, buffers)
-        payload = self._make_payload(out)
-
-        out_frame = frame.with_payload(payload)
-        await ctx.emit("out", out_frame)

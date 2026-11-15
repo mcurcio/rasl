@@ -1,4 +1,4 @@
-"""LIFX LAN package: shared discovery cache + sink nodes."""
+"""LIFX LAN package: LAN client and sink node."""
 
 from .node import LifxSinkNode
 

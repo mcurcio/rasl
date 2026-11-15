@@ -26,7 +26,7 @@ _KELVIN_RANGE = _MAX_KELVIN - _MIN_KELVIN
 
 @node("LifxSinkNode", "LifxSink")
 class LifxSinkNode(BaseNode):
-    """Pull-driven sink that emits HSBK frames to a LIFX IP or group target."""
+    """Pull-driven sink that emits HSBK frames to LIFX lights by IP address."""
 
     class Config(SinkNodeConfig):
         arg_fields: ClassVar[list[str]] = ["target"]

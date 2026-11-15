@@ -8,7 +8,7 @@ from pathlib import Path
 import anyio
 import pytest
 
-from rasl.config.dispatch import ConfigError
+from rasl.config.document import ConfigError
 from rasl.config.reload import ConfigSession
 from rasl.config.watch import watch_config
 from rasl.engine.registry import ensure_nodes_loaded

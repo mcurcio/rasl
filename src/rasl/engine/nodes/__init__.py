@@ -14,7 +14,6 @@ Submodules:
 
 from .base import BaseNode
 from .context import (
-    EmitCallable,
     InjectCallable,
     NodeContext,
     StartTaskCallable,
@@ -28,7 +27,6 @@ from .protocol import (
 __all__ = [
     # Context
     "NodeContext",
-    "EmitCallable",
     "StartTaskCallable",
     "InjectCallable",
     # Protocol

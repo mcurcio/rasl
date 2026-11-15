@@ -214,9 +214,6 @@ class SacnSourceNode(BaseNode):
         )
         self._channels_port.write(merged_frame)
 
-    async def handle(self, port: str, frame: Frame, ctx: NodeContext) -> None:
-        pass  # Source nodes don't receive frames
-
     async def stop(self, ctx: NodeContext) -> None:
         if self._receiver is not None:
             self._receiver.stop()

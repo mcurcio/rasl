@@ -7,18 +7,18 @@ It handles rate limiting to respect minimum packet intervals.
 
 from __future__ import annotations
 
-import time
 from typing import Optional
 
 import numpy as np
 import sacn
 from pydantic import Field
 
-from rasl.engine.frames import Frame, MatrixPayload
+from rasl.engine.frames import MatrixPayload
 from rasl.engine.nodes import BaseNode, NodeContext
 from rasl.engine.nodes.config import SinkNodeConfig
 from rasl.engine.ports import InputPortSpec, PortGroup
 from rasl.engine.registry import node
+from rasl.engine.tick import TickContext, pull_rate
 
 from .shims import allow_sacn_universe_zero
 
@@ -32,8 +32,8 @@ class SacnSinkNode(BaseNode):
 
     SacnSinkNode receives normalized channel data from upstream nodes
     and transmits it as sACN packets to the configured target host
-    and universe. It respects minimum packet intervals to avoid
-    overwhelming receivers.
+    and universe. It is a rate-driving sink: it pulls its input and sends
+    one packet every ``min_interval_ms`` (40 a second when that is 0).
 
     Example config:
         rasl {
@@ -65,8 +65,8 @@ class SacnSinkNode(BaseNode):
         self._config = config
         self._input_port = config.input_port
 
-        # Build dynamic input port
-        self.inputs = PortGroup.inputs(dmx=InputPortSpec(MatrixPayload))
+        # The input port carries the configured name
+        self.inputs = PortGroup.inputs(**{self._input_port: InputPortSpec(MatrixPayload)})
 
         # Strongly-typed config access
         self._target_host = config.target_host
@@ -77,32 +77,35 @@ class SacnSinkNode(BaseNode):
         self._bind_address = config.bind_address
         self._bind_port = config.bind_port
 
+        # Packets per second: as many as min_interval_ms allows (40 when it is 0)
+        self._fps = 40 if self._min_interval_ms <= 0 else max(1, int(1000 / self._min_interval_ms))
+
         self._sender: Optional[sacn.sACNsender] = None
-        self._last_send_time: float = 0.0
 
     async def start(self, ctx: NodeContext) -> None:
-        fps = 40 if self._min_interval_ms <= 0 else max(1, int(1000 / self._min_interval_ms))
         self._sender = sacn.sACNsender(
             source_name=self._source_name,
             bind_address=self._bind_address,
             bind_port=self._bind_port,
-            fps=fps,
+            fps=self._fps,
         )
         self._sender.start()
         self._sender.activate_output(self._target_universe)
         self._sender[self._target_universe].destination = self._target_host
         self._sender[self._target_universe].priority = self._priority
 
-    async def handle(self, port: str, frame: Frame, ctx: NodeContext) -> None:
-        if port != self._input_port or self._sender is None:
+    @pull_rate(lambda self: self._fps)
+    async def pull(self, tick: TickContext) -> None:
+        """Send the input's latest frame as one universe of DMX."""
+        if self._sender is None:
+            return
+        frame = self.inputs.get(self._input_port).read()
+        if frame is None:
             return
 
-        now = time.monotonic()
-        elapsed_ms = (now - self._last_send_time) * 1000
-        if elapsed_ms < self._min_interval_ms:
-            return
-
-        dmx_data = (np.clip(frame.payload, 0.0, 1.0) * 255.0).astype(np.uint8)
+        # Rows in order, each row's components in order: RGB pixels become R, G, B, R, ...
+        values = np.asarray(frame.payload, dtype=np.float32).reshape(-1)
+        dmx_data = (np.clip(values, 0.0, 1.0) * 255.0).astype(np.uint8)
         if len(dmx_data) < 512:
             padded = np.zeros(512, dtype=np.uint8)
             padded[: len(dmx_data)] = dmx_data
@@ -111,7 +114,6 @@ class SacnSinkNode(BaseNode):
             dmx_data = dmx_data[:512]
 
         self._sender[self._target_universe].dmx_data = tuple(dmx_data.tolist())
-        self._last_send_time = now
 
     async def stop(self, ctx: NodeContext) -> None:
         if self._sender is not None:

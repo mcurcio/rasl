@@ -4,9 +4,6 @@ This module provides the abstract base class that all node implementations
 must inherit from. It handles common initialization (id, metadata) and
 defines the lifecycle interface.
 
-BaseNode also handles the `connect` directive via the config dispatch system,
-collecting ConnectionSpec objects that the Graph resolves into edges.
-
 Pull-based execution model:
     - Nodes implement pull(tick) to compute outputs from inputs
     - Read from self.inputs.<port>.read()

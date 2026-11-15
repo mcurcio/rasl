@@ -156,6 +156,3 @@ class MathNode(BaseNode):
         else:
             # Default to multiply
             return a * b
-
-    async def stop(self, ctx: NodeContext) -> None:
-        pass

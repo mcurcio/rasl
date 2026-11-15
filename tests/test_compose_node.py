@@ -1,11 +1,9 @@
 """Tests for ComposeNode."""
 
-import numpy as np
 import pytest
 
 from rasl.config.document import Directive, parse_document
 from rasl.config.loader import _extract_config_dict
-from rasl.engine.frames import Frame, MatrixPayload
 from rasl.engine.graph import Edge, GraphBuilder
 from rasl.nodes.color.compose_node import ComposeNode
 
@@ -157,74 +155,6 @@ class TestComposeNodeValidation:
             Edge(source="src2", source_port="out", target="compose", target_port="b"),
         ]
         node.validate_connections(edges)
-
-
-class TestComposeNodeHandle:
-    """Tests for ComposeNode frame handling."""
-
-    @pytest.fixture
-    def compose_node(self) -> ComposeNode:
-        """Create a 3-port compose node with fills for sat/light."""
-        config = ComposeNode.Config(
-            id="compose",
-            ports=["hue", "saturation", "lightness"],
-            fill={"saturation": 1.0, "lightness": 0.5},
-        )
-        return ComposeNode(config)
-
-    @pytest.mark.anyio
-    async def test_interleaves_output(self, compose_node: ComposeNode) -> None:
-        """Output is correctly interleaved."""
-        # Mock context that captures emitted frames
-        emitted: list[Frame] = []
-
-        class MockContext:
-            async def emit(self, port: str, frame: Frame) -> None:
-                emitted.append(frame)
-
-        ctx = MockContext()
-
-        # Send hue data: [0.1, 0.2, 0.3]
-        hue_data = np.array([0.1, 0.2, 0.3], dtype=np.float32)
-        frame = Frame(
-            topic="test",
-            timestamp=0.0,
-            payload=MatrixPayload(hue_data),
-        )
-
-        await compose_node.handle("hue", frame, ctx)  # type: ignore
-
-        assert len(emitted) == 1
-        out = np.asarray(emitted[0].payload, dtype=np.float32)
-
-        # Expected: shape (count, 3) with columns [hue, saturation, lightness]
-        expected = np.array(
-            [[0.1, 1.0, 0.5], [0.2, 1.0, 0.5], [0.3, 1.0, 0.5]],
-            dtype=np.float32,
-        )
-        np.testing.assert_array_almost_equal(out, expected)
-
-    @pytest.mark.anyio
-    async def test_ignores_unknown_ports(self, compose_node: ComposeNode) -> None:
-        """Frames on unknown ports are ignored."""
-        emitted: list[Frame] = []
-
-        class MockContext:
-            async def emit(self, port: str, frame: Frame) -> None:
-                emitted.append(frame)
-
-        ctx = MockContext()
-
-        frame = Frame(
-            topic="test",
-            timestamp=0.0,
-            payload=MatrixPayload(np.array([1.0], dtype=np.float32)),
-        )
-
-        await compose_node.handle("unknown_port", frame, ctx)  # type: ignore
-
-        # No output since port is unknown and no length resolved
-        assert len(emitted) == 0
 
 
 def _directive(text: str) -> Directive:

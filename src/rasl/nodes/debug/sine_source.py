@@ -87,8 +87,5 @@ class SineSourceNode(BaseNode):
             out_port.commit(frame)
             await anyio.sleep(interval)
 
-    async def handle(self, port: str, frame: Frame, ctx: NodeContext) -> None:
-        pass  # Source nodes don't receive frames
-
     async def stop(self, ctx: NodeContext) -> None:
         pass

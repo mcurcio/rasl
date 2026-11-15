@@ -34,7 +34,6 @@ from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.engine.registry import node
 from rasl.engine.tick import TickContext
 
-
 if TYPE_CHECKING:
     pass
 

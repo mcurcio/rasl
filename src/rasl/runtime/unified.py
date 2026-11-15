@@ -662,15 +662,6 @@ class UnifiedScheduler:
             _inject=_inject,
         )
 
-        async def _emit(port: str, frame: Frame) -> None:
-            out = outputs.get(port) if outputs else None
-            if out is None:
-                return
-            if isinstance(out, OutputPort):
-                out.write(frame)
-
-        ctx.emit = _emit
-
         # Registered before start, so a node whose start fails is still stopped
         self._node_runtimes[node_id] = NodeRuntime(
             node=node,
