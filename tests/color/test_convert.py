@@ -17,7 +17,7 @@ from rasl.color import (
     RgbColorPayload,
     convert,
 )
-from rasl.color.models import _MODELS as MODELS
+from rasl.color.models import MODELS as MODELS
 
 
 class TestColorConvert:
@@ -25,7 +25,7 @@ class TestColorConvert:
 
     def test_supported_models(self) -> None:
         """Verify all expected models are supported."""
-        # Note: internal _MODELS doesn't include 'rgb' alias (normalized to 'srgb')
+        # Note: internal MODELS doesn't include 'rgb' alias (normalized to 'srgb')
         expected = {
             "oklch",
             "oklab",

@@ -103,6 +103,8 @@ def build_payload(kind: str, subtype: str | None, value: Any) -> FramePayload:
     elif kind == "matrix":
         # Matrix payload - pass through as-is
         arr = np.asarray(value, dtype=np.float32)
+        if arr.ndim == 0:
+            arr = arr.reshape(1, 1)  # a single number is one element of one component
         return MatrixPayload(arr)
     
     else:

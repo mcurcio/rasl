@@ -153,3 +153,17 @@ class TestLiteralNodeConfig:
         assert "console" in plan.nodes
         # Check adjacency shows connection
         assert "static_hsl" in plan.adjacency
+
+
+@pytest.mark.parametrize(
+    ("kind", "subtype", "value", "shape"),
+    [
+        ("color", "rgbw", [[1, 0, 0, 0.5]], (1, 4)),
+        ("color", "hsbk", [[0.1, 1, 1, 0.5], [0.2, 1, 1, 0.5]], (2, 4)),
+        ("matrix", None, 0.5, (1, 1)),
+    ],
+)
+def test_build_payload_shapes(kind, subtype, value, shape) -> None:
+    from rasl.nodes.literal_node import build_payload
+
+    assert build_payload(kind, subtype, value).data.shape == shape

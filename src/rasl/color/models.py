@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-_MODELS: frozenset[str] = frozenset(
+MODELS: frozenset[str] = frozenset(
     {
         "oklch",
         "oklab",
@@ -18,7 +18,7 @@ _MODELS: frozenset[str] = frozenset(
     }
 )
 
-_DEFAULT_COMPONENTS: dict[str, int] = {
+MODEL_COMPONENTS: dict[str, int] = {
     "srgb": 3,
     "linear": 3,
     "rec709_rgb_prime": 3,
@@ -40,8 +40,8 @@ def normalize_model(model: str) -> str:
         return "linear"
     if model in {"rec709", "rec709_rgb", "rec709rgb", "rec709_rgb_prime"}:
         return "rec709_rgb_prime"
-    if model not in _MODELS:
-        raise ValueError(f"Unknown color model: {model}. Supported: {sorted(_MODELS)}")
+    if model not in MODELS:
+        raise ValueError(f"Unknown color model: {model}. Supported: {sorted(MODELS)}")
     return model
 
 
@@ -50,7 +50,7 @@ def _resolve_components(model: str, override: int | None) -> int:
         if override <= 0:
             raise ValueError("components override must be positive")
         return override
-    components = _DEFAULT_COMPONENTS.get(model)
+    components = MODEL_COMPONENTS.get(model)
     if components is None:
         raise ValueError(
             f"Conversion requires component count for model '{model}', "
