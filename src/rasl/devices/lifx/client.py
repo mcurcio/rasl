@@ -1,3 +1,5 @@
+"""LIFX LAN client: target parsing and LightSetColor packets sent over UDP."""
+
 from __future__ import annotations
 
 import asyncio
@@ -49,6 +51,7 @@ class LifxLanClient:
             self._transport = None
 
     def describe(self) -> dict[str, str | int | None]:
+        """Return the endpoint's ip, port and MAC (hex, or None) as log fields."""
         mac = (
             self._endpoint.mac.hex()
             if self._endpoint.mac is not None

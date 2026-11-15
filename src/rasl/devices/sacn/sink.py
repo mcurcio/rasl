@@ -79,6 +79,9 @@ class SacnSinkNode(BaseNode):
         self._sender: Optional[sacn.sACNsender] = None
 
     async def start(self, ctx: NodeContext) -> None:
+        """Start the sACN sender thread and activate the target universe, addressed to
+        ``target_host``.
+        """
         self._sender = sacn.sACNsender(
             source_name=self._source_name,
             bind_address=self._bind_address,
@@ -112,6 +115,7 @@ class SacnSinkNode(BaseNode):
         self._sender[self._target_universe].dmx_data = tuple(dmx_data.tolist())
 
     async def stop(self, ctx: NodeContext) -> None:
+        """Deactivate the universe and stop the sender thread."""
         if self._sender is not None:
             try:
                 self._sender.deactivate_output(self._target_universe)

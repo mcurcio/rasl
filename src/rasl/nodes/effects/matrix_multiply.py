@@ -31,6 +31,7 @@ class MatrixMultiplyNode(BaseNode):
         @field_validator("matrix")
         @classmethod
         def validate_matrix(cls, value: Sequence[Sequence[float]]) -> List[Tuple[float, ...]]:
+            """Require a square matrix and convert its rows to tuples of floats."""
             size = len(value)
             if size == 0:
                 raise ValueError("matrix must contain at least one row")
@@ -54,6 +55,15 @@ class MatrixMultiplyNode(BaseNode):
         self._channel_count = self._matrix.shape[0]
 
     async def pull(self, tick: TickContext) -> None:
+        """Multiply each row of the input by the matrix and write the result to ``out``.
+
+        Rows are treated as row vectors (``data @ matrix``): output component ``j`` is the sum
+        over ``i`` of input component ``i`` times ``matrix[i][j]``. The output keeps the input's
+        payload type. Writes nothing when the input has no frame.
+
+        Raises:
+            ValueError: The payload's column count differs from the matrix size.
+        """
         frame = self.inputs.input.read()
         if frame is None:
             return

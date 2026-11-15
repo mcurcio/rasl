@@ -26,6 +26,8 @@ class LifxSinkNode(BaseNode):
     """Pull-driven sink that emits HSBK frames to LIFX lights by IP address."""
 
     class Config(SinkNodeConfig):
+        """Targets, pull rate and fade settings for LifxSinkNode."""
+
         arg_fields: ClassVar[list[str]] = ["target"]
 
         target: str = Field(
@@ -78,6 +80,10 @@ class LifxSinkNode(BaseNode):
         self._last_unresolved_log = 0.0
 
     async def start(self, ctx: NodeContext) -> None:
+        """Open one UDP transport per configured target.
+
+        A target whose transport fails to open is logged and skipped; the node still starts.
+        """
         self._ctx = ctx
         self._clients = []
         failures = 0
@@ -104,6 +110,7 @@ class LifxSinkNode(BaseNode):
         )
 
     async def stop(self, ctx: NodeContext) -> None:
+        """Close every UDP transport and log the sent and dropped frame counts."""
         for client in self._clients:
             client.stop()
         self._clients.clear()
@@ -116,6 +123,16 @@ class LifxSinkNode(BaseNode):
 
     @pull_rate(lambda self: self._fps)
     async def pull(self, tick: TickContext) -> None:
+        """Send the input's latest frame to the targets as LightSetColor packets.
+
+        Converts the payload to HSBK (a plain MatrixPayload is read as RGB) and scales each row to
+        LIFX units: hue, saturation and brightness from 0..1 to 0..65535, kelvin from 0..1 to
+        1500..9000. Rows go to targets one to one when the counts match; a single row goes to every
+        target; a single target gets the first row. Any other combination drops the frame.
+
+        Does nothing when the input has no frame. A frame counts as sent when at least one target
+        was sent a packet, and as dropped otherwise.
+        """
         port = self.inputs.get(self._input_port)
         if port is None:
             return

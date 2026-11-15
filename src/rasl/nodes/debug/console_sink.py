@@ -81,6 +81,7 @@ class ConsoleSinkNode(BaseNode):
         self._ctx: Optional[NodeContext] = None
 
     async def start(self, ctx: NodeContext) -> None:
+        """Keep the context for logging and log the sink's settings."""
         self._ctx = ctx
         ctx.logger.info(
             event="console_sink_started",
@@ -121,6 +122,7 @@ class ConsoleSinkNode(BaseNode):
         self._ctx.logger.info(**log_data)
 
     async def stop(self, ctx: NodeContext) -> None:
+        """Log the number of frames logged since start."""
         ctx.logger.info(
             event="console_sink_stopped",
             label=self._label,

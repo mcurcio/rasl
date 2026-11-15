@@ -61,6 +61,7 @@ class SineSourceNode(BaseNode):
         self._topic = config.topic or f"sine.{self.id}"
 
     async def start(self, ctx: NodeContext) -> None:
+        """Start the background task that writes a frame to ``dmx`` every ``1 / fps`` seconds."""
         ctx.start_background(self._run_loop, ctx)
 
     async def _run_loop(self, ctx: NodeContext) -> None:
@@ -86,4 +87,5 @@ class SineSourceNode(BaseNode):
             await anyio.sleep(interval)
 
     async def stop(self, ctx: NodeContext) -> None:
+        """Do nothing: the node context cancels the background task."""
         pass

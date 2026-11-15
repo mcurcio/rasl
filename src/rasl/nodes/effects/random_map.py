@@ -45,6 +45,16 @@ class RandomMapNode(BaseNode):
         self._rng = np.random.default_rng(config.seed)
 
     async def pull(self, tick: TickContext) -> None:
+        """Write the input's rows, picked through a fixed random index mapping, to ``out``.
+
+        The mapping is drawn on the first frame, with replacement: an input row can appear
+        several times or not at all. The output has ``channel_count`` rows (the input's count by
+        default) and is always a plain MatrixPayload. Writes nothing when the input has no
+        frame.
+
+        Raises:
+            ValueError: The payload is empty, or its row count differs from the first frame's.
+        """
         frame = self.inputs.input.read()
         if frame is None:
             return

@@ -80,11 +80,16 @@ class SacnSourceNode(BaseNode):
 
         @model_validator(mode="after")
         def ensure_universe_config(self) -> "SacnSourceNode.Config":
+            """Require at least one universe, from ``universes`` or a ``universe`` block."""
             if not self.universe_blocks and not self.universes:
                 raise ValueError("SacnSource requires universes via 'universes' list or 'universe' blocks")
             return self
 
         def resolve_universe_configs(self) -> list[SacnUniverseConfig]:
+            """Merge ``universes`` and the ``universe`` blocks into one entry per id, sorted.
+
+            A block takes precedence over the same id in ``universes``.
+            """
             configs: dict[int, SacnUniverseConfig] = {block.id: block for block in self.universe_blocks}
             if self.universes:
                 for universe in self.universes:
@@ -126,6 +131,11 @@ class SacnSourceNode(BaseNode):
         }
 
     async def start(self, ctx: NodeContext) -> None:
+        """Start the sACN receiver thread and register a listener for each universe.
+
+        The listeners run on the receiver's thread and write frames to the output ports from
+        there.
+        """
         self._ctx = ctx
         self._loop = asyncio.get_running_loop()
         self._receiver = sacn.sACNreceiver(
@@ -213,6 +223,7 @@ class SacnSourceNode(BaseNode):
         self._channels_port.write(merged_frame)
 
     async def stop(self, ctx: NodeContext) -> None:
+        """Stop the receiver thread."""
         if self._receiver is not None:
             self._receiver.stop()
             self._receiver = None

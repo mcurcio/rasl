@@ -22,7 +22,15 @@ SeededOutputType = Literal["phase", "speed", "uniform", "binary"]
 
 @node("SeededRandomNode", "SeededRandom")
 class SeededRandomNode(BaseNode):
+    """Source node that emits a fixed set of random values, one per channel.
+
+    The values are drawn from the seed once, at construction, and written unchanged on every
+    pull.
+    """
+
     class Config(SourceNodeConfig):
+        """Seed, channel count and value distribution for SeededRandomNode."""
+
         seed: int = Field(42, description="Random seed")
         output_channels: int = Field(512, ge=1, le=65536, description="Number of output channels")
         output_type: SeededOutputType = Field(
@@ -66,6 +74,7 @@ class SeededRandomNode(BaseNode):
         self._values = values
 
     async def pull(self, tick: TickContext) -> None:
+        """Write the precomputed values to ``out`` as a (channels, 1) MatrixPayload."""
         out_port = self.outputs.out
         buf = out_port.acquire(self._channels)
         arr = np.asarray(buf, dtype=np.float32)

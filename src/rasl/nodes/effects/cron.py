@@ -154,6 +154,8 @@ class CronNode(BaseNode):
     """
 
     class Config(SourceNodeConfig):
+        """The schedule for CronNode."""
+
         schedule: str | list[str] = Field(
             "*",
             description=(
@@ -192,6 +194,11 @@ class CronNode(BaseNode):
         self._buf = np.zeros((1, 1), dtype=np.bool_)
 
     async def pull(self, tick: TickContext) -> None:
+        """Write a 1x1 BoolPayload to ``out``: True when the current minute matches the schedule.
+
+        The schedule is compared with the system's local time (``datetime.now()``), not the
+        tick's; the frame's timestamp is the tick's wall time.
+        """
         now = datetime.now()
 
         minute = now.minute

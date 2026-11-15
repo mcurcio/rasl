@@ -20,6 +20,8 @@ class GoveeLightNode(BaseNode):
     """Pull-driven sink that sends RGB/RGBW segment colors to a Govee light."""
 
     class Config(SinkNodeConfig):
+        """Device address, pull rate and channel layout for GoveeLightNode."""
+
         host: str = Field(..., description="Target Govee device IPv4/hostname")
         port: int = Field(
             DEFAULT_GOVEE_PORT,
@@ -65,6 +67,12 @@ class GoveeLightNode(BaseNode):
         self._frames_dropped = 0
 
     async def start(self, ctx: NodeContext) -> None:
+        """Create the TCP client and query the device for its segments and channel count.
+
+        The ``devStatus`` query is a blocking socket call. If it fails or returns nothing, the node
+        still starts: it uses ``segment_channels`` (3 when unset) and takes the segment count from
+        the first frame. A channel count other than 3 or 4 is logged and replaced by 3.
+        """
         self._ctx = ctx
         self._client = GoveeLightClient(self._host, self._port)
         info: GoveeDeviceInfo | None = None
@@ -108,6 +116,7 @@ class GoveeLightNode(BaseNode):
         )
 
     async def stop(self, ctx: NodeContext) -> None:
+        """Close the TCP socket and log the sent and dropped frame counts."""
         if self._client is not None:
             self._client.close()
             self._client = None
@@ -121,6 +130,16 @@ class GoveeLightNode(BaseNode):
 
     @pull_rate(lambda self: self._fps)
     async def pull(self, tick: TickContext) -> None:
+        """Send the input's latest frame as one color per segment.
+
+        Converts the payload to RGB, or to RGBW for a 4-channel device (a plain MatrixPayload is
+        read as RGB), rounds each component to a byte and sends one ``colorwc`` command: a color
+        for every segment, and the first row as the device color. The send is a blocking socket
+        call.
+
+        Does nothing when the input has no frame. Drops the frame, and counts it, when the
+        conversion fails, the row count differs from the segment count, or the send fails.
+        """
         if self._client is None:
             return
 

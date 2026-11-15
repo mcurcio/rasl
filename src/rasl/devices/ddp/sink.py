@@ -73,6 +73,7 @@ class DdpSinkNode(BaseNode):
         @field_validator("fps")
         @classmethod
         def validate_fps(cls, v: Frequency) -> Frequency:
+            """Reject rates above 1000 Hz."""
             if v.hz > 1000:
                 raise ValueError("fps too high (max 1000hz)")
             return v

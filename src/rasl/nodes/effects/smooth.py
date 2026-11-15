@@ -95,6 +95,15 @@ class SmoothNode(BaseNode):
         self._apply_settings(config)
 
     async def pull(self, tick: TickContext) -> None:
+        """Move the smoothed state towards the input and write it to ``output``.
+
+        The first frame, and any frame whose shape differs from the state's, passes through
+        unchanged and becomes the state. Values selected by a ``reset`` frame are set to the
+        input: a single nonzero value selects all of them, otherwise the frame is a mask with
+        one entry per value (repeated or cut to fit). The rest move by the exponential share for
+        ``tick.dt``, capped by the slew limit. The output keeps the input's payload type. Writes
+        nothing when ``input`` has no frame.
+        """
         frame = self.inputs.input.read()
         if frame is None:
             return
