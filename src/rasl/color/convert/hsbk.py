@@ -63,8 +63,10 @@ def _kelvin_to_srgb_white(kelvin: NDArray | float) -> NDArray:
 _NEUTRAL_KELVIN = 6600.0
 """The temperature whose white is (1, 1, 1): at it, HSBK is plain HSV."""
 
-_KELVIN_GRID = np.linspace(_MIN_KELVIN, _MAX_KELVIN, 76)
-"""The temperatures ``_srgb_to_hsbk`` chooses from, 100 K apart (6600 K is one of them)."""
+_KELVIN_GRID = np.linspace(_MIN_KELVIN, _MAX_KELVIN, 151)
+"""The temperatures ``_srgb_to_hsbk`` chooses from, 50 K apart (6600 K is one of them).
+Finer costs time (about 10 ms for 512 pixels at this spacing); coarser leaves a white
+between two grid temperatures visibly tinted."""
 
 
 def _srgb_to_hsbk(srgb: NDArray) -> NDArray:
