@@ -8,14 +8,9 @@ import numpy as np
 from pydantic import Field
 
 from rasl.color import ColorPayload, RgbColorPayload, RgbwColorPayload
+from rasl.devices.govee.client import DEFAULT_GOVEE_PORT, GoveeDeviceInfo, GoveeLightClient, GoveeSegmentInfo
 from rasl.graph.node import BaseNode, NodeContext, SinkNodeConfig, TickContext, node, pull_rate
 from rasl.graph.ports import InputPortSpec, PortGroup
-from rasl.packages.govee.client import (
-    DEFAULT_GOVEE_PORT,
-    GoveeDeviceInfo,
-    GoveeLightClient,
-    GoveeSegmentInfo,
-)
 from rasl.signal import MatrixPayload
 from rasl.units import Frequency
 

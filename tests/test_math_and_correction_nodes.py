@@ -117,7 +117,7 @@ class TestSacnSinkPull:
         dmx_data: tuple[int, ...] = ()
 
     def _sink(self, **config):
-        from rasl.packages.sacn import SacnSinkNode
+        from rasl.devices.sacn.sink import SacnSinkNode
 
         node = SacnSinkNode(SacnSinkNode.Config(id="out", target_host="127.0.0.1", **config))
         output = self._Output()

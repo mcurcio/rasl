@@ -10,8 +10,8 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from strawberry.fastapi import GraphQLRouter
 
-from rasl.server.graphql_api import RASLContext, schema
-from rasl.server.state import AppState
+from rasl.app.server.graphql_api import RASLContext, schema
+from rasl.app.server.state import AppState
 
 if TYPE_CHECKING:
     from rasl.graph import ExecutionPlan

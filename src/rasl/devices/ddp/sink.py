@@ -20,9 +20,9 @@ import numpy as np
 from pydantic import Field, field_validator
 
 from rasl.color import ColorPayload
+from rasl.devices.ddp.client import DDPClient
 from rasl.graph.node import BaseNode, NodeContext, SinkNodeConfig, TickContext, node, pull_rate
 from rasl.graph.ports import InputPortSpec, PortGroup
-from rasl.packages.ddp.client import DDPClient
 from rasl.signal import FramePayload, MatrixPayload
 from rasl.units import Frequency
 

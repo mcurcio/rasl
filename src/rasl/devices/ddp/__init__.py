@@ -16,7 +16,7 @@ Example config:
     }
 """
 
-from rasl.packages.ddp.client import DDPClient
-from rasl.packages.ddp.sink import DdpSinkNode
+from rasl.devices.ddp.client import DDPClient
+from rasl.devices.ddp.sink import DdpSinkNode
 
 __all__ = ["DDPClient", "DdpSinkNode"]

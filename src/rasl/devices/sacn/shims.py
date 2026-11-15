@@ -5,7 +5,7 @@ The sacn library by default rejects universe 0, but some LED controllers
 patches the sacn library to allow universe 0.
 
 Usage:
-    from rasl.packages.sacn.shims import allow_sacn_universe_zero
+    from rasl.devices.sacn.shims import allow_sacn_universe_zero
     allow_sacn_universe_zero()  # Call once at startup
 """
 

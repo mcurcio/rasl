@@ -9,14 +9,14 @@ Components:
     - run_server: Convenience function to run the server
 
 Example:
-    >>> from rasl.server import create_app, run_server
+    >>> from rasl.app.server import create_app, run_server
     >>> from rasl.runtime import UnifiedScheduler
     >>>
     >>> app = create_app(scheduler, plan)
     >>> await run_server(app, port=8080)
 """
 
-from rasl.server.app import create_app, run_server
-from rasl.server.state import AppState
+from rasl.app.server.app import create_app, run_server
+from rasl.app.server.state import AppState
 
 __all__ = ["AppState", "create_app", "run_server"]

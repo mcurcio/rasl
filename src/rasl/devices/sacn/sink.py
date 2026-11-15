@@ -13,9 +13,9 @@ import numpy as np
 import sacn
 from pydantic import Field
 
+from rasl.devices.sacn.shims import allow_sacn_universe_zero
 from rasl.graph.node import BaseNode, NodeContext, SinkNodeConfig, TickContext, node, pull_rate
 from rasl.graph.ports import InputPortSpec, PortGroup
-from rasl.packages.sacn.shims import allow_sacn_universe_zero
 from rasl.signal import MatrixPayload
 
 # Apply universe 0 patch at module load

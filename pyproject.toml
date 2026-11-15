@@ -24,12 +24,12 @@ dependencies = [
 ]
 
 [project.scripts]
-rasl = "rasl.cli:main"
+rasl = "rasl.app.cli:main"
 
 [project.entry-points."rasl.nodes"]
 # Each is a module that registers its nodes when imported
 builtin = "rasl.nodes"
-devices = "rasl.packages"
+devices = "rasl.devices"
 
 [build-system]
 requires = ["uv_build>=0.8.18,<0.9.0"]
@@ -72,10 +72,9 @@ type = "layers"
 # A package may import only from the lines below its own. Packages on one line
 # may not import each other.
 layers = [
-    "rasl.cli",
-    "rasl.server",
+    "rasl.app",
     "rasl.config",
-    "rasl.runtime | rasl.nodes | rasl.packages",
+    "rasl.runtime | rasl.nodes | rasl.devices",
     "rasl.graph | rasl.color",
     "rasl.signal",
     "rasl.units",
@@ -85,4 +84,4 @@ layers = [
 name = "The config language reaches nodes only through the registry (rasl-39p)"
 type = "forbidden"
 source_modules = ["rasl.config"]
-forbidden_modules = ["rasl.nodes", "rasl.packages"]
+forbidden_modules = ["rasl.nodes", "rasl.devices"]

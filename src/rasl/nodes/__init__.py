@@ -16,9 +16,9 @@ nodes/
     ├── console_sink.py - ConsoleSinkNode (log to console)
     └── sine_source.py  - SineSourceNode (test waveform)
 
-Protocol nodes are in rasl.packages:
-    - rasl.packages.sacn: SacnSourceNode, SacnSinkNode
-    - rasl.packages.ddp: DdpSinkNode
+Protocol nodes are in rasl.devices:
+    - rasl.devices.sacn: SacnSourceNode, SacnSinkNode
+    - rasl.devices.ddp: DdpSinkNode
 
 Nodes are registered via the @node decorator and discovered by the
 config loader through the registry, which imports this package as the

@@ -162,7 +162,7 @@ async def _run_with_shutdown(
             
             # Start API server if requested
             if api_port is not None:
-                from rasl.server import create_app, run_server
+                from rasl.app.server.app import create_app, run_server
                 app = create_app(scheduler, plan)
                 logger.info("starting_api_server", host=api_host, port=api_port)
                 print(f"Dashboard: http://{api_host}:{api_port}/")

@@ -7,7 +7,6 @@ and the type-driven ColorPayload.to_model() API.
 import numpy as np
 import pytest
 
-from rasl.color.models import _MODELS as MODELS
 from rasl.color import (
     ColorPayload,
     HsbkColorPayload,
@@ -18,6 +17,7 @@ from rasl.color import (
     RgbColorPayload,
     convert,
 )
+from rasl.color.models import _MODELS as MODELS
 
 
 class TestColorConvert:

@@ -9,9 +9,9 @@ import numpy as np
 from pydantic import Field
 
 from rasl.color import ColorPayload, HsbkColorPayload, RgbColorPayload
+from rasl.devices.lifx.client import LifxLanClient, parse_target_list
 from rasl.graph.node import BaseNode, NodeContext, SinkNodeConfig, TickContext, node, pull_rate
 from rasl.graph.ports import InputPortSpec, PortGroup
-from rasl.packages.lifx.client import LifxLanClient, parse_target_list
 from rasl.signal import MatrixPayload
 from rasl.units import Frequency
 
