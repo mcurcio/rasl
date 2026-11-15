@@ -27,6 +27,7 @@ from rasl.config.document import Rendered, arg_texts, children
 from rasl.config.reload import ConfigSession
 from rasl.engine.graph import ExecutionPlan
 from rasl.runtime import UnifiedScheduler, watch_config
+from rasl.runtime.unified import find_undriven
 
 # Configure structured logging
 structlog.configure(
@@ -205,6 +206,15 @@ def main(args: Optional[list[str]] = None) -> int:
 
     if parsed.validate:
         print(f"Config valid: {len(plan.nodes)} nodes, order: {plan.topological_order}")
+        undriven = find_undriven(plan)
+        if undriven:
+            # The graph still loads (it can be inspected); these just never run
+            print(
+                "Warning: nothing pulls these nodes, so they will never run "
+                "(no sink that declares a rate is downstream of them): "
+                + ", ".join(undriven),
+                file=sys.stderr,
+            )
         return 0
 
     if parsed.describe:

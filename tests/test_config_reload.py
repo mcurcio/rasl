@@ -230,7 +230,7 @@ class TestReload:
             ("fps 50;", "fps 50", ConfigError),  # a syntax slip, read as a bad value
             ("fps 30; }", "fps 30;", ConfigError),  # an unclosed block
             ("node Waveform other", "node Mystery other", ConfigError),
-            ("connect wave input;", "connect nowhere input;", KeyError),
+            ("connect wave input;", "connect nowhere input;", ConfigError),  # an unknown node, placed on the node that connects to it
         ],
     )
     def test_a_failed_reload_changes_nothing(
@@ -448,7 +448,7 @@ class TestSchedulerUpdate:
         sink = "    node ConsoleSink out { fps 100; connect wave; }\n"
 
         async def body() -> None:
-            assert scheduler._schedule == []  # nothing drives a tick yet
+            assert scheduler._rate_drivers == {}  # nothing drives a tick yet
             edit(path, "}\n}\n", "}\n" + sink + "}\n")
             await apply(scheduler, session)
             await until(lambda: scheduler._tick > 0)
@@ -457,7 +457,7 @@ class TestSchedulerUpdate:
             await apply(scheduler, session)
             ticks = scheduler._tick
             await anyio.sleep(0.05)  # five periods of the sink that is gone
-            assert scheduler._schedule == [] and scheduler._tick == ticks
+            assert scheduler._rate_drivers == {} and scheduler._tick == ticks
 
         await run_then(scheduler, body)
 

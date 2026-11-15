@@ -5,6 +5,7 @@ import pytest
 
 from rasl.config.connect_parser import ResolvedSlice
 from rasl.config.connection import parse_port_ref
+from rasl.config.document import ConfigError
 from rasl.config.loader import parse_config
 from rasl.engine.graph import Edge
 
@@ -173,5 +174,55 @@ class TestRepeatWithoutSlices:
             }
         }
         """
-        with pytest.raises(ValueError, match="repeat_until is only supported"):
+        with pytest.raises(ConfigError, match="repeat_until is only supported"):
             parse_config(config)
+
+
+class TestConnectErrorsArePlaced:
+    """A connection the graph refuses is reported on the node that asks for it."""
+
+    def test_a_slice_out_of_range_is_a_config_error_on_the_connecting_node(self):
+        config = """
+        graph {
+            node cron minute * * * * *;
+            node ConsoleSink sink {
+                fps 1;
+                connect minute[0~4];
+            }
+        }
+        """
+        with pytest.raises(
+            ConfigError,
+            match=r"Node 'sink': Slice \[0:4\] is out of range for port minute.out, which has 1 elements",
+        ) as caught:
+            parse_config(config)
+        assert caught.value.line == 4
+
+    def test_an_unknown_source_node_is_a_config_error_on_the_connecting_node(self):
+        config = """
+        graph {
+            node ConsoleSink sink {
+                fps 1;
+                connect nowhere;
+            }
+        }
+        """
+        with pytest.raises(ConfigError, match="Node 'sink': Unknown source node 'nowhere'") as caught:
+            parse_config(config)
+        assert caught.value.line == 3
+
+    def test_a_missing_default_port_says_which_node(self):
+        config = """
+        graph {
+            node SacnSource input {
+                universes 1;
+            }
+            node ConsoleSink sink {
+                fps 1;
+                connect input;
+            }
+        }
+        """
+        with pytest.raises(ConfigError, match="Node 'sink': No default port") as caught:
+            parse_config(config)
+        assert caught.value.line == 6

@@ -492,9 +492,11 @@ class GraphBuilder:
 
         Raises:
             KeyError: If source or target node ID is not registered.
-            ValueError: If a port does not exist on its node, or if
-                slice lengths are incompatible.
-            TypeError: If the port types are incompatible.
+            ValueError: If a port does not exist on its node, if a slice
+                reaches past the end of a sized port, or if slice lengths
+                are incompatible.
+            TypeError: If the port types are incompatible, or a port names
+                a payload type that is not registered.
         """
         if source not in self._nodes:
             raise KeyError(f"Unknown source node '{source}'")
@@ -525,6 +527,25 @@ class GraphBuilder:
             raise ValueError("Port lookup failed")
         src_port_spec = src_spec.spec
         tgt_port_spec = tgt_spec.spec
+
+        src_label = f"{source}.{source_port}"
+        tgt_label = f"{target}.{target_port}"
+
+        # A type name nothing is registered under would match any payload
+        for label, port_spec in ((src_label, src_port_spec), (tgt_label, tgt_port_spec)):
+            unknown = port_spec.unknown_type_names()
+            if unknown:
+                from .registry import list_payload_types
+
+                raise TypeError(
+                    f"Port {label} names a payload type that is not registered: "
+                    f"{', '.join(repr(name) for name in unknown)}. "
+                    f"Registered: {', '.join(list_payload_types())}"
+                )
+
+        # A slice must lie inside a port whose size is known
+        self._check_slice_in_range(src_label, source_slice, src_port_spec)
+        self._check_slice_in_range(tgt_label, target_slice, tgt_port_spec)
 
         # Type compatibility check
         src_type = self._get_primary_type(src_port_spec)
@@ -712,6 +733,30 @@ class GraphBuilder:
                     target_slice,
                     repeat=1,
                 )
+
+    @staticmethod
+    def _check_slice_in_range(
+        label: str,
+        slice_: Optional[ResolvedSlice],
+        spec: InputPortSpec | OutputPortSpec,
+    ) -> None:
+        """Refuse a slice that reaches past the end of a port.
+
+        Only a port with a fixed count or an upper bound has an end; a slice on
+        an unbounded port cannot be checked until frames flow.
+
+        Raises:
+            ValueError: If the slice starts at or past the end, or ends past it.
+        """
+        limit = spec.max_count
+        if slice_ is None or limit is None:
+            return
+        if slice_.start >= limit or (slice_.end is not None and slice_.end > limit):
+            end = "" if slice_.end is None else slice_.end
+            size = f"has {limit} elements" if spec.fixed_count is not None else f"has at most {limit} elements"
+            raise ValueError(
+                f"Slice [{slice_.start}:{end}] is out of range for port {label}, which {size}"
+            )
 
     def _get_primary_type(self, spec: OutputPortSpec) -> Type[FramePayload] | None:
         """Extract the primary output type from a port spec.
