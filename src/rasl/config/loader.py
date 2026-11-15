@@ -398,8 +398,18 @@ def build_plan(
             node.parse_connect_directives(directive)
 
         # Third pass: resolve connection descriptors into edges
-        for node_id in node_directives:
-            builder.resolve_node_connections(node_id)
+        for node_id, directive in node_directives.items():
+            try:
+                builder.resolve_node_connections(node_id)
+            except (KeyError, ValueError, TypeError) as e:
+                # The graph's own message, placed on the node whose connect it is
+                message = e.args[0] if isinstance(e, KeyError) and e.args else str(e)
+                raise config_error(
+                    directive,
+                    f"Node '{node_id}': {message}",
+                    code="rasl/connect",
+                    tree=tree,
+                ) from e
 
         return builder.build(), configs
     except BaseException:

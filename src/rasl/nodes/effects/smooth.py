@@ -7,7 +7,7 @@ from typing import Optional
 
 import numpy as np
 from numpy.typing import NDArray
-from pydantic import Field, field_validator
+from pydantic import Field, ValidationInfo, field_validator
 
 from rasl.engine.frames import BoolPayload, ColorPayload, MatrixPayload
 from rasl.engine.nodes import BaseNode
@@ -28,6 +28,24 @@ class SmoothNode(BaseNode):
     exponential moving average, and emits the smoothed payload. A `reset` port
     can clear parts (or all) of the accumulator so the next frame passes
     through unchanged.
+
+    Both settings are times, and both follow the tick's ``dt``, so the result
+    over a span of time is the same whatever rate the node is pulled at:
+
+    - ``smooth_period``: how quickly the output follows the input. After one
+      period the output has covered about 63% of a step; after three, 95%.
+    - ``slew_period``: a speed limit on top of that. A full-scale change
+      (0 to 1) takes at least this long, so ``slew_period 2s`` means a channel
+      can never fade faster than black to full in two seconds.
+
+    Example config:
+        graph {
+            node Smooth soft {
+                smooth_period 200ms;
+                slew_period 2s;
+                connect source;
+            }
+        }
     """
 
     class Config(TransformNodeConfig):
@@ -37,10 +55,12 @@ class SmoothNode(BaseNode):
             "50ms",
             description="Human-readable response time (e.g., '50ms', '1s'); 0 disables smoothing",
         )
-        max_delta: float = Field(
-            0.0,
-            ge=0.0,
-            description="Maximum allowed per-frame change per component (0 disables)",
+        slew_period: str = Field(
+            "0ms",
+            description=(
+                "Shortest time a full-scale change (0 to 1) may take (e.g., '500ms', '2s'); "
+                "smaller changes take proportionally less; 0 disables"
+            ),
         )
         bypass_epsilon: float = Field(
             0.0,
@@ -48,16 +68,19 @@ class SmoothNode(BaseNode):
             description="If difference is below this threshold, reuse previous output",
         )
 
-        @field_validator("smooth_period")
+        @field_validator("smooth_period", "slew_period")
         @classmethod
-        def _validate_smooth_period(cls, value: str) -> str:
+        def _validate_period(cls, value: str, info: ValidationInfo) -> str:
             seconds = parse_interval(value)
             if seconds < 0:
-                raise ValueError("smooth_period must be non-negative")
+                raise ValueError(f"{info.field_name} must be non-negative")
             return value
 
         def get_smooth_period_seconds(self) -> float:
             return parse_interval(self.smooth_period)
+
+        def get_slew_period_seconds(self) -> float:
+            return parse_interval(self.slew_period)
 
     inputs = PortGroup.inputs(
         input=InputPortSpec((MatrixPayload, ColorPayload)),
@@ -76,7 +99,7 @@ class SmoothNode(BaseNode):
 
     def _apply_settings(self, config: Config) -> None:
         self._tau_seconds = config.get_smooth_period_seconds()
-        self._max_delta = float(config.max_delta)
+        self._slew_seconds = config.get_slew_period_seconds()
         self._bypass_epsilon = float(config.bypass_epsilon)
 
     def update_config(self, config: Config) -> None:
@@ -135,8 +158,12 @@ class SmoothNode(BaseNode):
         if alpha < 1.0:
             delta *= alpha
 
-        if self._max_delta > 0.0:
-            np.clip(delta, -self._max_delta, self._max_delta, out=delta)
+        if self._slew_seconds > 0.0:
+            # The most a value may move in this step: the share of a full-scale
+            # change that dt is of the slew period. Scaling by dt makes the
+            # limit the same however often the node is pulled.
+            limit = dt / self._slew_seconds
+            np.clip(delta, -limit, limit, out=delta)
 
         state += delta
         return state.copy()

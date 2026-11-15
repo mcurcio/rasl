@@ -290,3 +290,98 @@ class TestExecutionPlan:
         assert isinstance(plan.nodes, dict)
         assert isinstance(plan.adjacency, dict)
         assert isinstance(plan.topological_order, tuple)
+
+
+class _Ported:
+    """A node with one output and one input port, of the given specs."""
+
+    def __init__(self, node_id: str, *, out: OutputPortSpec | None = None, inp: InputPortSpec | None = None) -> None:
+        self.id = node_id
+        self.outputs = PortGroup.outputs(out=out or OutputPortSpec(MatrixPayload))
+        self.inputs = PortGroup.inputs(**{"in": inp or InputPortSpec(MatrixPayload)})
+
+    async def start(self, ctx: NodeContext) -> None:
+        pass
+
+    async def handle(self, port: str, frame: Frame, ctx: NodeContext) -> None:
+        pass
+
+    async def stop(self, ctx: NodeContext) -> None:
+        pass
+
+
+class TestConnectValidation:
+    """What GraphBuilder.connect refuses (owner, 2026-11-14: slices out of
+    range and unknown type names are load errors)."""
+
+    @staticmethod
+    def _builder(source: _Ported, target: _Ported) -> GraphBuilder:
+        builder = GraphBuilder()
+        builder.add_node(source)
+        builder.add_node(target)
+        return builder
+
+    @pytest.mark.parametrize(
+        ("source_slice", "target_slice", "port"),
+        [
+            ((600, 900), None, "a.out"),  # wholly past the end
+            ((500, 520), None, "a.out"),  # ends past the end
+            ((512, None), None, "a.out"),  # starts at the end: nothing left
+            (None, (2, 4), "b.in"),
+            (None, (3, None), "b.in"),
+        ],
+    )
+    def test_a_slice_past_the_end_of_a_fixed_port_is_refused(self, source_slice, target_slice, port) -> None:
+        from rasl.config.connect_parser import ResolvedSlice
+
+        builder = self._builder(
+            _Ported("a", out=OutputPortSpec(MatrixPayload, count=512)),
+            _Ported("b", inp=InputPortSpec(MatrixPayload, count=3)),
+        )
+        with pytest.raises(ValueError, match=rf"out of range for port {port}, which has \d+ elements"):
+            builder.connect(
+                "a", "out", "b", "in",
+                ResolvedSlice(*source_slice) if source_slice else None,
+                ResolvedSlice(*target_slice) if target_slice else None,
+            )
+        assert builder.edges == []
+
+    def test_a_slice_past_the_upper_bound_of_a_variable_port_is_refused(self) -> None:
+        from rasl.config.connect_parser import ResolvedSlice
+
+        builder = self._builder(_Ported("a"), _Ported("b", inp=InputPortSpec(MatrixPayload, count=(1, 10))))
+        with pytest.raises(ValueError, match="b.in, which has at most 10 elements"):
+            builder.connect("a", "out", "b", "in", None, ResolvedSlice(8, 12))
+
+    def test_slices_inside_their_ports_connect(self) -> None:
+        from rasl.config.connect_parser import ResolvedSlice
+
+        builder = self._builder(
+            _Ported("a", out=OutputPortSpec(MatrixPayload, count=512)),
+            _Ported("b", inp=InputPortSpec(MatrixPayload, count=3)),
+        )
+        builder.connect("a", "out", "b", "in", ResolvedSlice(509, 512), ResolvedSlice(0, 3))
+        builder.connect("a", "out", "b", "in", ResolvedSlice(511, None), ResolvedSlice(2, None))
+        assert len(builder.edges) == 2
+
+    def test_a_slice_on_an_unbounded_port_cannot_be_checked(self) -> None:
+        from rasl.config.connect_parser import ResolvedSlice
+
+        builder = self._builder(_Ported("a"), _Ported("b"))
+        builder.connect("a", "out", "b", "in", ResolvedSlice(600, 900), ResolvedSlice(0, 300))
+        assert len(builder.edges) == 1
+
+    def test_an_input_naming_an_unregistered_type_is_refused(self) -> None:
+        builder = self._builder(_Ported("a"), _Ported("b", inp=InputPortSpec(("matrix", "colour"))))
+        with pytest.raises(TypeError, match=r"Port b\.in names a payload type that is not registered: 'colour'"):
+            builder.connect("a", "out", "b", "in")
+
+    def test_an_output_naming_an_unregistered_type_is_refused(self) -> None:
+        builder = self._builder(_Ported("a", out=OutputPortSpec("colour")), _Ported("b"))
+        with pytest.raises(TypeError, match=r"Port a\.out names a payload type that is not registered: 'colour'"):
+            builder.connect("a", "out", "b", "in")
+
+    def test_registered_type_names_connect(self) -> None:
+        builder = self._builder(_Ported("a", out=OutputPortSpec("matrix")), _Ported("b", inp=InputPortSpec("matrix")))
+        builder.connect("a", "out", "b", "in")
+        assert len(builder.edges) == 1

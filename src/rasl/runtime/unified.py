@@ -3,10 +3,17 @@
 This module provides the UnifiedScheduler which orchestrates pull-based
 execution driven by sink frame rates, with support for push sources.
 
+The scheduler's own job is small: work out when each rate driver is due, and
+at each of those moments (a tick) pull the due drivers and what feeds them,
+telling every node how long it has been since it last ran.
+
 Key features:
-- Sinks declare rates via @pull_rate decorator
-- Computes exact tick times to hit all rates precisely
-- Push events processed at next tick (wakes scheduler from sleep)
+- Sinks declare rates via @pull_rate decorator; sinks drive the rates
+- Each rate driver is due at t0 + n / hz, all counted from one start time, so
+  drivers due at the same instant share a tick
+- A driver that falls more than one period behind jumps to its next due time
+- A push source's write is kept as that port's latest frame and read at the
+  next tick; it never causes a tick
 - Frame caching prevents redundant computation
 - Cycle handling via previous-tick values for back-edges
 """
@@ -19,7 +26,7 @@ import math
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Set, Tuple
 
 import anyio
 import numpy as np
@@ -39,25 +46,124 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 
-@dataclass(frozen=True, slots=True)
-class TickSlot:
-    """A scheduled moment when sinks should be pulled."""
+def find_rate_drivers(plan: ExecutionPlan) -> Dict[str, float]:
+    """The nodes whose pull() declares a rate with @pull_rate, and that rate in Hz.
 
-    time_offset: float
-    """Seconds from cycle start."""
+    Raises:
+        ValueError: If a declared rate is not a positive, finite number.
+    """
+    drivers: Dict[str, float] = {}
+    for node_id, node in plan.nodes.items():
+        hz = getattr(getattr(node, "pull", None), "_pull_rate_hz", None)
+        if hz is None:
+            continue
+        if callable(hz):
+            hz = hz(node)
+        hz = float(hz)
+        if not math.isfinite(hz) or hz <= 0.0:
+            raise ValueError(f"Node '{node_id}' declares a pull rate of {hz} Hz; it must be positive")
+        drivers[node_id] = hz
+    return drivers
 
-    sinks: frozenset[str]
-    """Sink node IDs to pull at this moment."""
+
+def find_undriven(plan: ExecutionPlan, drivers: Optional[Dict[str, float]] = None) -> List[str]:
+    """The nodes nothing pulls: not a rate driver, and not upstream of one.
+
+    Such a node is loaded and started but its pull() never runs. With no rate
+    driver at all, that is every node.
+
+    Args:
+        plan: The compiled plan.
+        drivers: The plan's rate drivers, if already worked out.
+
+    Returns:
+        Node ids, in the plan's order.
+    """
+    if drivers is None:
+        drivers = find_rate_drivers(plan)
+    upstream: Dict[str, List[str]] = defaultdict(list)
+    for source, edges in plan.adjacency.items():
+        for edge in edges:
+            upstream[edge.target].append(source)
+    driven: Set[str] = set()
+    pending = list(drivers)
+    while pending:
+        node_id = pending.pop()
+        if node_id not in driven:
+            driven.add(node_id)
+            pending.extend(upstream[node_id])
+    return [node_id for node_id in plan.topological_order if node_id not in driven]
 
 
-@dataclass
-class PushedFrame:
-    """A frame injected by a push source."""
+class DueTimes:
+    """When each rate driver is next due.
 
-    node_id: str
-    port: str
-    frame: Frame
-    arrival_time: float
+    A driver with rate ``hz`` is due at ``t0 + n / hz`` for n = 0, 1, 2, ...
+    Every driver counts from the same ``t0``, so drivers whose periods meet
+    (30 Hz and 20 Hz, every 100 ms) are due at the same instants and share a
+    tick. Any positive rate keeps its own period; nothing is rounded to a
+    common cycle.
+    """
+
+    MERGE_SECONDS = 1e-6
+    """Drivers due within this much of the earliest one share its tick."""
+
+    def __init__(self, rates: Dict[str, float], t0: float, now: Optional[float] = None) -> None:
+        """Start counting.
+
+        Args:
+            rates: Rate in Hz of each driver, by node id.
+            t0: The instant every driver counts from.
+            now: None to start each driver at ``t0``. Otherwise each driver
+                starts at its first due time not before ``now``, so a driver
+                that kept its rate across a plan update keeps its timing.
+        """
+        self._rates = dict(rates)
+        self._t0 = t0
+        self._n: Dict[str, int] = {
+            driver: 0 if now is None else self._first_at_or_after(driver, now)
+            for driver in self._rates
+        }
+
+    def _first_at_or_after(self, driver: str, now: float) -> int:
+        return max(0, math.ceil((now - self._t0) * self._rates[driver] - 1e-9))
+
+    def due(self, driver: str) -> float:
+        """The next due time of one driver."""
+        return self._t0 + self._n[driver] / self._rates[driver]
+
+    def next(self) -> Tuple[float, Tuple[str, ...]]:
+        """The next tick: its time, and the drivers due at it."""
+        dues = {driver: self.due(driver) for driver in self._rates}
+        earliest = min(dues.values())
+        return earliest, tuple(
+            driver for driver, due in dues.items() if due - earliest < self.MERGE_SECONDS
+        )
+
+    def advance(self, ran: Iterable[str], now: float) -> Dict[str, int]:
+        """Move on after a tick.
+
+        Each driver in ``ran`` moves to its next due time. Then any driver that
+        is more than one of its periods late jumps to its first due time not
+        before ``now``; the due times it passes over are dropped, not replayed.
+        A driver less than a period late keeps its due time and runs late.
+
+        Args:
+            ran: The drivers pulled in the tick just finished.
+            now: The current time.
+
+        Returns:
+            How many due times each driver dropped, for those that dropped any.
+        """
+        for driver in ran:
+            self._n[driver] += 1
+        dropped: Dict[str, int] = {}
+        for driver, hz in self._rates.items():
+            if now - self.due(driver) > 1.0 / hz:
+                n = self._first_at_or_after(driver, now)
+                dropped[driver] = n - self._n[driver]
+                self._n[driver] = n
+        return dropped
 
 
 @dataclass
@@ -69,6 +175,7 @@ class NodeRuntime:
     bound_outputs: PortGroup | None
     ctx: NodeContext
     last_invoke_time: float = 0.0
+    """The tick time this node last ran at (its start time before its first run)."""
     background: List[anyio.CancelScope] = field(default_factory=list)
     """One scope per background task the node started; cancelled when it is stopped."""
 
@@ -130,6 +237,10 @@ class TimingStats:
     total_ticks: int = 0
     late_ticks: int = 0
     max_latency_ms: float = 0.0
+    dropped_ticks: Dict[str, int] = field(default_factory=dict)
+    """Due times each rate driver skipped because it had fallen behind."""
+    dropped_since_report: Dict[str, int] = field(default_factory=dict)
+    last_drop_log_time: float = 0.0
     
     # GC tracking
     gc_count_at_start: Tuple[int, int, int] = (0, 0, 0)
@@ -146,11 +257,14 @@ class UnifiedScheduler:
     """Unified push/pull scheduler for RASL graphs.
 
     Sinks declare their desired frame rates via @pull_rate decorator.
-    The scheduler computes exact tick times to hit all rates precisely,
-    then sleeps optimally between ticks.
+    The scheduler works out when each is due (see ``DueTimes``), sleeps until
+    the next due time, and pulls the due sinks and what feeds them. A sink
+    that falls more than one period behind skips ahead; missed pulls are not
+    replayed.
 
-    Push sources inject frames via ctx.inject(), which are processed
-    at the next tick boundary.
+    Push sources write frames from their own background tasks. A write is
+    kept as that port's latest frame and read at the next tick; it does not
+    cause a tick.
 
     Example:
         >>> plan = builder.build()
@@ -170,9 +284,8 @@ class UnifiedScheduler:
         # A plan update waiting for the next tick boundary (request_update)
         self._pending_update: Optional[Tuple["PlanUpdate", anyio.Event]] = None
 
-        # Push queue and wake signal
-        self._push_queue: deque[PushedFrame] = deque()
-        self._has_pending_push = False
+        # Set by request_update to end a sleep early (made in run(), inside the loop)
+        self._wake: Optional[anyio.Event] = None
 
         # Frame cache (per-tick): (node_id, port_name) -> Frame
         # Cleared at the start of each tick, so no tick component is needed.
@@ -203,13 +316,6 @@ class UnifiedScheduler:
         self._gc_disabled_during_tick = False
         self._gc_interval_ticks = 100  # Run GC every N ticks
 
-        self._last_tick_was_push_interrupted = False
-        self._last_tick_slot_index: int | None = None
-        self._last_tick_slot_time_offset: float | None = None
-        self._last_tick_target_time: float | None = None
-        self._last_tick_dispatch_time: float | None = None
-        self._last_tick_latency_ms: float | None = None
-
     def _derive_from_plan(self) -> None:
         """Work out the schedule and routing tables from ``self._plan``.
 
@@ -217,11 +323,9 @@ class UnifiedScheduler:
         """
         plan = self._plan
 
-        # Find rate-driving sinks
-        self._rate_drivers = self._find_rate_drivers()
-
-        # Build schedule (if any rate drivers exist)
-        self._schedule = self._build_schedule() if self._rate_drivers else []
+        # The sinks that drive the rates, and the nodes none of them reaches
+        self._rate_drivers = find_rate_drivers(plan)
+        self._undriven = find_undriven(plan, self._rate_drivers)
 
         self._back_edges = self._find_back_edges()
 
@@ -265,6 +369,8 @@ class UnifiedScheduler:
             raise RuntimeError("a plan update is already waiting to be applied")
         done = anyio.Event()
         self._pending_update = (update, done)
+        if self._wake is not None:
+            self._wake.set()
         return done
 
     async def _apply_pending_update(self) -> None:
@@ -331,6 +437,7 @@ class UnifiedScheduler:
             )
         finally:
             self._pending_update = None
+            self._wake = anyio.Event()
             done.set()
 
     def enable_profiling(self, enabled: bool = True) -> None:
@@ -339,64 +446,6 @@ class UnifiedScheduler:
         InputPortProgram.enable_profiling(enabled)
         if enabled:
             logger.info("profiling_enabled")
-
-    def _find_rate_drivers(self) -> Dict[str, float]:
-        """Find all nodes with @pull_rate decorated pull() methods."""
-        drivers: Dict[str, float] = {}
-
-        for node_id, node in self._plan.nodes.items():
-            if not hasattr(node, "pull"):
-                continue
-
-            pull_method = getattr(node, "pull")
-            if not hasattr(pull_method, "_pull_rate_hz"):
-                continue
-
-            hz = pull_method._pull_rate_hz
-            if callable(hz):
-                hz = hz(node)
-
-            drivers[node_id] = float(hz)
-            logger.debug("rate_driver_found", node_id=node_id, hz=hz)
-
-        return drivers
-
-    def _build_schedule(self) -> List[TickSlot]:
-        """Build schedule hitting all sink frequencies exactly."""
-        if not self._rate_drivers:
-            return []
-
-        duration = 1.0  # 1-second cycle
-
-        # Generate all tick times
-        all_ticks: List[Tuple[float, str]] = []
-        for sink_id, hz in self._rate_drivers.items():
-            interval = 1.0 / hz
-            t = 0.0
-            while t < duration - 1e-9:
-                all_ticks.append((t, sink_id))
-                t += interval
-
-        all_ticks.sort(key=lambda x: x[0])
-
-        # Merge ticks at same time
-        slots: List[TickSlot] = []
-        epsilon = 1e-6
-
-        for time_offset, sink_id in all_ticks:
-            if slots and abs(slots[-1].time_offset - time_offset) < epsilon:
-                sinks = set(slots[-1].sinks)
-                sinks.add(sink_id)
-                slots[-1] = TickSlot(slots[-1].time_offset, frozenset(sinks))
-            else:
-                slots.append(TickSlot(time_offset, frozenset({sink_id})))
-
-        logger.info(
-            "schedule_built",
-            num_slots=len(slots),
-            rate_drivers=list(self._rate_drivers.keys()),
-        )
-        return slots
 
     def _find_back_edges(self) -> Set[Tuple[str, str, str, str]]:
         """Find edges that create cycles (back-edges).
@@ -476,32 +525,23 @@ class UnifiedScheduler:
         return self._monitor
 
     def inject(self, node_id: str, port: str, frame: Frame) -> None:
-        """Inject a pushed frame. Processed at next tick.
-        
+        """Keep a pushed frame as a port's latest. It is read at the next tick.
+
         Note: Prefer using output_port.write() instead. This method exists
         for backwards compatibility.
         """
-        self._push_queue.append(
-            PushedFrame(node_id, port, frame, time.monotonic())
-        )
-        self._has_pending_push = True
+        if node_id in self._node_runtimes:
+            self._previous_outputs[(node_id, port)] = frame
 
     def _on_push_write(self, port: OutputPort) -> None:
         """Callback when a push source writes to an output port.
-        
-        Caches the frame in _previous_outputs so downstream pulls can access it,
-        and signals the scheduler to wake up.
+
+        Keeps the frame as the port's latest, for downstream pulls to read at
+        the next tick. Sinks drive the rates: a write never causes a tick.
         """
         frame = port._frame
         if frame is not None:
-            # Cache directly - no need for PushedFrame queue
             self._previous_outputs[(port._node_id, port.name)] = frame
-            self._has_pending_push = True
-            # logger.trace(
-            #     "push_write",
-            #     node_id=port._node_id,
-            #     port=port.name,
-            # )
 
     async def run(self) -> None:
         """Main scheduler loop."""
@@ -511,6 +551,7 @@ class UnifiedScheduler:
         try:
             async with anyio.create_task_group() as tg:
                 self._task_group = tg
+                self._wake = anyio.Event()
 
                 # Initialize all nodes
                 await self._initialize_nodes()
@@ -518,9 +559,9 @@ class UnifiedScheduler:
                 # Each loop returns after a plan update, which may change the mode
                 resume = False
                 while True:
-                    if not self._schedule:
-                        # No rate drivers - only process push events
-                        await self._run_push_only()
+                    self._warn_undriven()
+                    if not self._rate_drivers:
+                        await self._run_idle()
                     else:
                         await self._run_scheduled(resume)
                     resume = True
@@ -661,44 +702,59 @@ class UnifiedScheduler:
         for node_id in reversed(self._plan.topological_order):
             await self._stop_node(node_id)
 
-    async def _run_push_only(self) -> None:
-        """Run loop when no pull sinks exist."""
-        logger.info("running_push_only_mode")
-        while True:
-            if self._pending_update is not None:
-                await self._apply_pending_update()
-                return
-            if self._push_queue:
-                await self._process_push_events()
-                self._has_pending_push = False
-            await anyio.sleep(0.1)  # Idle polling
+    def _warn_undriven(self) -> None:
+        """Say which nodes will never run, if any (see ``find_undriven``)."""
+        if not self._undriven:
+            return
+        if self._rate_drivers:
+            reason = "not upstream of any sink that declares a rate"
+        else:
+            reason = "no sink in the graph declares a rate"
+        logger.warning("nodes_never_pulled", nodes=list(self._undriven), reason=reason)
+
+    async def _run_idle(self) -> None:
+        """Wait for a plan update: with no rate driver there is nothing to pull."""
+        assert self._wake is not None
+        if self._pending_update is None:
+            await self._wake.wait()
+        await self._apply_pending_update()
+
+    async def _sleep_until(self, target_time: float) -> bool:
+        """Sleep until a tick is due, or until a plan update is requested.
+
+        Returns:
+            False if the time had already passed and nothing was awaited.
+        """
+        assert self._wake is not None
+        now = time.monotonic()
+        if now >= target_time:
+            return False
+
+        # Run GC during sleep if we have enough time budget (>25ms remaining).
+        # Use 25ms threshold to ensure GC completes before the next tick even
+        # if it takes 15-20ms.
+        if target_time - now > 0.025:
+            gc.collect(0)  # Only gen0 for speed
+            now = time.monotonic()
+
+        while now < target_time and self._pending_update is None:
+            with anyio.move_on_after(target_time - now):
+                await self._wake.wait()
+            now = time.monotonic()
+        return True
 
     async def _run_scheduled(self, resume: bool = False) -> None:
-        """Run the scheduled tick loop until a plan update replaces the schedule.
+        """Run ticks until a plan update replaces the plan.
 
         Args:
-            resume: False at startup: the first cycle starts at ``_t0``. True after
-                a plan update: the schedule goes on in step with the one-second
-                cycles counted from ``_t0``, at the first slot not yet due, so a
-                sink that kept its rate keeps its timing across the swap.
+            resume: False at startup: every rate driver is first due at ``_t0``.
+                True after a plan update: each driver goes on at its first due
+                time not yet past, still counted from ``_t0``, so a sink that
+                kept its rate keeps its timing across the swap.
         """
-        schedule = self._schedule
-        cycle_start = self._t0
-        slot_index = 0
-        if resume:
-            now = time.monotonic()
-            cycle_start += math.floor(now - self._t0)
-            while slot_index < len(schedule) and cycle_start + schedule[slot_index].time_offset < now:
-                slot_index += 1
-            if slot_index == len(schedule):
-                slot_index = 0
-                cycle_start += 1.0
+        due = DueTimes(self._rate_drivers, self._t0, time.monotonic() if resume else None)
 
-        logger.info(
-            "scheduler_started",
-            num_slots=len(schedule),
-            rates=self._rate_drivers,
-        )
+        logger.info("scheduler_started", rates=self._rate_drivers)
 
         while True:
             # A tick boundary: the one place a new plan is swapped in
@@ -706,104 +762,88 @@ class UnifiedScheduler:
                 await self._apply_pending_update()
                 return
 
-            slot = schedule[slot_index]
-            target_time = cycle_start + slot.time_offset
+            target_time, sinks = due.next()
 
-            # Sleep until target time (or wake early if push pending)
-            now = time.monotonic()
-            gc_ran_this_cycle = False
-            push_interrupted = False
-            while now < target_time:
-                sleep_duration = target_time - now
+            if not await self._sleep_until(target_time):
+                # Running late: still let everything else on the event loop run
+                # (signals, the web server, the config watch, node tasks)
+                await anyio.sleep(0)
+            if self._pending_update is not None:
+                continue
 
-                if self._has_pending_push and sleep_duration > 0.001:
-                    # Wake early for push work, but still yield to event loop
-                    await anyio.sleep(0)
-                    push_interrupted = True
-                    break
-
-                # Run GC during sleep if we have enough time budget (>25ms remaining)
-                # and haven't run it this cycle yet. Use 25ms threshold to ensure
-                # GC completes before the next tick even if it takes 15-20ms.
-                if not gc_ran_this_cycle and sleep_duration > 0.025:
-                    gc.collect(0)  # Only gen0 for speed
-                    gc_ran_this_cycle = True
-
-                # Sleep in small chunks to check for push events and allow cancellation
-                await anyio.sleep(min(sleep_duration, 0.005))
-                now = time.monotonic()
-
-            # Clear frame cache for this tick
+            # Nothing computed in an earlier tick is this tick's
             self._frame_cache.clear()
             self._pulled_this_tick.clear()
 
-            # Process any pending push events
-            if self._push_queue:
-                await self._process_push_events()
-                self._has_pending_push = False
-
-            # Check if this tick has actual work
+            # Track tick latency
             now = time.monotonic()
-            if now >= target_time - 0.0001:  # Within 0.1ms of target
-                # Track tick latency
-                latency_ms = (now - target_time) * 1000
-                self._timing.total_ticks += 1
-                self._timing.latency_samples.append(latency_ms)
-                
-                if latency_ms > self._timing.max_latency_ms:
-                    self._timing.max_latency_ms = latency_ms
-                
-                if latency_ms > self._timing.jitter_threshold_ms:
-                    self._timing.late_ticks += 1
-                    
-                    # Check if GC ran during this stall
-                    gc_counts = gc.get_count()
+            latency_ms = (now - target_time) * 1000
+            self._timing.total_ticks += 1
+            self._timing.latency_samples.append(latency_ms)
+
+            if latency_ms > self._timing.max_latency_ms:
+                self._timing.max_latency_ms = latency_ms
+
+            if latency_ms > self._timing.jitter_threshold_ms:
+                self._timing.late_ticks += 1
+
+                # Check if GC ran during this stall
+                gc_info = None
+                if latency_ms > 20:  # Check GC for stalls >20ms
                     gc_stats = gc.get_stats()
-                    gc_info = None
-                    if latency_ms > 20:  # Check GC for stalls >20ms
-                        gc_info = {
-                            "gen0": gc_stats[0].get("collections", 0),
-                            "gen1": gc_stats[1].get("collections", 0),
-                            "gen2": gc_stats[2].get("collections", 0),
-                            "pending": gc_counts,
-                        }
-                    
-                    logger.warning(
-                        "tick_late",
-                        tick=self._tick,
-                        latency_ms=round(latency_ms, 2),
-                        sinks=list(slot.sinks),
-                        gc_info=gc_info,
-                        prev_tick_duration_ms=round(self._timing.latency_samples[-2], 2) if len(self._timing.latency_samples) > 1 else None,
-                    )
+                    gc_info = {
+                        "gen0": gc_stats[0].get("collections", 0),
+                        "gen1": gc_stats[1].get("collections", 0),
+                        "gen2": gc_stats[2].get("collections", 0),
+                        "pending": gc.get_count(),
+                    }
 
-                # Disable GC during tick execution to prevent jitter
-                if not self._gc_disabled_during_tick:
-                    gc.disable()
-                    self._gc_disabled_during_tick = True
+                logger.warning(
+                    "tick_late",
+                    tick=self._tick,
+                    latency_ms=round(latency_ms, 2),
+                    sinks=list(sinks),
+                    gc_info=gc_info,
+                    prev_tick_latency_ms=round(self._timing.latency_samples[-2], 2) if len(self._timing.latency_samples) > 1 else None,
+                )
 
-                # Execute scheduled pulls
-                self._last_tick_was_push_interrupted = push_interrupted
-                self._last_tick_slot_index = slot_index
-                self._last_tick_slot_time_offset = float(slot.time_offset)
-                self._last_tick_target_time = float(target_time)
-                self._last_tick_dispatch_time = float(now)
-                self._last_tick_latency_ms = float(latency_ms)
-                for sink_id in slot.sinks:
-                    await self._pull_sink(sink_id, target_time)
+            # Disable GC during tick execution to prevent jitter
+            if not self._gc_disabled_during_tick:
+                gc.disable()
+                self._gc_disabled_during_tick = True
 
-                # Periodic timing report
-                if now - self._timing.last_report_time >= self._timing.report_interval:
-                    self._log_timing_report(now)
-                    self._timing.last_report_time = now
+            # The tick is the moment it was due, not the moment it was reached:
+            # nodes see evenly spaced times however the wake-up jitters.
+            tick = TickContext(
+                tick=self._tick,
+                t=target_time - self._t0,
+                dt=0.0,  # per node: set in _pull_node
+                wall_time=target_time,
+            )
+            for sink_id in sinks:
+                await self._pull_sink(sink_id, tick)
+            self._tick += 1
 
-                # Advance to next slot
-                slot_index += 1
-                self._tick += 1
+            now = time.monotonic()
+            dropped = due.advance(sinks, now)
+            if dropped:
+                self._record_dropped(dropped, now)
 
-                if slot_index >= len(schedule):
-                    slot_index = 0
-                    cycle_start += 1.0  # Next cycle
+            # Periodic timing report
+            if now - self._timing.last_report_time >= self._timing.report_interval:
+                self._log_timing_report(now)
+                self._timing.last_report_time = now
+
+    def _record_dropped(self, dropped: Dict[str, int], now: float) -> None:
+        """Count due times that were skipped, and say so at most once a second."""
+        stats = self._timing
+        for sink_id, count in dropped.items():
+            stats.dropped_ticks[sink_id] = stats.dropped_ticks.get(sink_id, 0) + count
+            stats.dropped_since_report[sink_id] = stats.dropped_since_report.get(sink_id, 0) + count
+        if now - stats.last_drop_log_time >= 1.0:
+            logger.warning("ticks_dropped", dropped=dict(stats.dropped_since_report))
+            stats.dropped_since_report.clear()
+            stats.last_drop_log_time = now
 
     def _log_timing_report(self, now: float) -> None:
         """Log periodic timing diagnostics."""
@@ -874,16 +914,17 @@ class UnifiedScheduler:
             late_pct=round(100 * stats.late_ticks / max(stats.total_ticks, 1), 1),
             avg_latency_ms=round(avg_latency, 2),
             max_latency_ms=round(stats.max_latency_ms, 2),
+            dropped_ticks=dict(stats.dropped_ticks) if stats.dropped_ticks else None,
             gc_collections=gc_delta,
             sink_warnings=sink_stats if sink_stats else None,
             node_stats=node_stats if node_stats else None,
             populate_stats=populate_stats,
         )
 
-    async def _pull_sink(self, sink_id: str, target_time: float = 0.0) -> None:
+    async def _pull_sink(self, sink_id: str, tick: TickContext) -> None:
         """Pull a sink and all its upstream dependencies."""
-        runtime = self._node_runtimes[sink_id]
         now = time.monotonic()
+        target_time = tick.wall_time
 
         # Track inter-frame interval for this sink
         last_pull = self._timing.sink_last_pull.get(sink_id)
@@ -894,13 +935,11 @@ class UnifiedScheduler:
                 interval_error_ms = (actual_interval - target_interval) * 1000
                 # Log if frame interval is significantly off (>20% deviation)
                 threshold_ms = target_interval * 200
-                if abs(interval_error_ms) > threshold_ms:  # 200ms = 20% of 1s
+                if abs(interval_error_ms) > threshold_ms:
                     last_target = self._timing.sink_last_target_time.get(sink_id)
                     scheduled_interval_ms: float | None = None
-                    scheduled_error_ms: float | None = None
-                    if last_target is not None and target_time:
+                    if last_target is not None:
                         scheduled_interval_ms = (target_time - last_target) * 1000
-                        scheduled_error_ms = scheduled_interval_ms - (target_interval * 1000)
 
                     common = {
                         "sink": sink_id,
@@ -909,21 +948,9 @@ class UnifiedScheduler:
                         "error_ms": round(interval_error_ms, 2),
                         "threshold_ms": round(threshold_ms, 2),
                         "tick": self._tick,
-                        "slot_index": self._last_tick_slot_index,
-                        "slot_time_offset_ms": round(float(self._last_tick_slot_time_offset or 0.0) * 1000, 3)
-                        if self._last_tick_slot_time_offset is not None
-                        else None,
-                        "target_time_delta_ms": round((now - target_time) * 1000, 3) if target_time else None,
-                        "tick_latency_ms": round(float(self._last_tick_latency_ms or 0.0), 3)
-                        if self._last_tick_latency_ms is not None
-                        else None,
-                        "push_interrupted_sleep": self._last_tick_was_push_interrupted,
-                        "push_queue_len": len(self._push_queue),
-                        "scheduled_interval_ms": round(float(scheduled_interval_ms), 2)
+                        "tick_latency_ms": round((now - target_time) * 1000, 3),
+                        "scheduled_interval_ms": round(scheduled_interval_ms, 2)
                         if scheduled_interval_ms is not None
-                        else None,
-                        "scheduled_error_ms": round(float(scheduled_error_ms), 2)
-                        if scheduled_error_ms is not None
                         else None,
                     }
 
@@ -932,19 +959,7 @@ class UnifiedScheduler:
                     else:
                         logger.info("frame_interval_early", **common)
         self._timing.sink_last_pull[sink_id] = now
-        if target_time:
-            self._timing.sink_last_target_time[sink_id] = float(target_time)
-
-        # Build tick context
-        dt = now - runtime.last_invoke_time
-        runtime.last_invoke_time = now
-
-        tick = TickContext(
-            tick=self._tick,
-            t=now - self._t0,
-            dt=dt,
-            wall_time=now,
-        )
+        self._timing.sink_last_target_time[sink_id] = target_time
 
         start_time = time.perf_counter()
         
@@ -1009,8 +1024,10 @@ class UnifiedScheduler:
         # Execute node's pull
         pull_start = time.perf_counter()
         if hasattr(node, "pull"):
-            # Update dt for this specific node
-            dt = tick.wall_time - runtime.last_invoke_time
+            # This node's own dt: tick time since it last ran. A node shared by
+            # sinks of different rates runs whenever any of them is due, so dt
+            # varies from tick to tick; nodes must not assume a fixed step.
+            dt = max(0.0, tick.wall_time - runtime.last_invoke_time)
             runtime.last_invoke_time = tick.wall_time
 
             node_tick = TickContext(
@@ -1038,28 +1055,3 @@ class UnifiedScheduler:
                 if frame:
                     self._frame_cache[(node_id, output_port.name)] = frame
                     self._previous_outputs[(node_id, output_port.name)] = frame
-
-
-    async def _process_push_events(self) -> None:
-        """Process all pending push events."""
-        while self._push_queue:
-            pushed = self._push_queue.popleft()
-
-            runtime = self._node_runtimes.get(pushed.node_id)
-            if not runtime:
-                continue
-
-            # For push sources, the frame goes to their output
-            # (they don't have inputs - they generate data)
-            for output_port in runtime.bound_outputs:
-                if isinstance(output_port, OutputPort) and output_port.name == pushed.port:
-                    # Cache the pushed frame
-                    self._frame_cache[(pushed.node_id, pushed.port)] = pushed.frame
-                    self._previous_outputs[(pushed.node_id, pushed.port)] = pushed.frame
-                    break
-
-            logger.debug(
-                "push_processed",
-                node_id=pushed.node_id,
-                port=pushed.port,
-            )

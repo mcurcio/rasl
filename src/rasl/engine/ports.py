@@ -145,7 +145,8 @@ class InputPortSpec:
         Returns:
             Tuple of payload classes for the accepted type names.
             For class-based accepts (legacy), returns the classes directly.
-            Unknown type names are silently skipped.
+            Unknown type names are skipped here; ``unknown_type_names`` lists
+            them, and ``GraphBuilder.connect`` refuses a port that has any.
         """
         # Handle class-based accepts (legacy)
         if not isinstance(self.accepts, str):
@@ -164,6 +165,20 @@ class InputPortSpec:
             if payload_cls is not None:
                 types.append(payload_cls)
         return tuple(types)
+
+    def unknown_type_names(self) -> tuple[str, ...]:
+        """The accepted type names that no payload is registered under.
+
+        A port that names a type nothing registered would accept any payload,
+        so the graph refuses to connect it. Class-based specs have none.
+        """
+        if isinstance(self.accepts, str) or (
+            isinstance(self.accepts, tuple) and self.accepts and isinstance(self.accepts[0], str)
+        ):
+            from .registry import get_payload_type
+
+            return tuple(name for name in self.accepted_types if get_payload_type(name) is None)
+        return ()
 
     @property
     def is_variable(self) -> bool:
@@ -263,6 +278,15 @@ class OutputPortSpec:
         if payload_cls is None:
             return ()
         return (payload_cls,)
+
+    def unknown_type_names(self) -> tuple[str, ...]:
+        """The produced type name, if no payload is registered under it."""
+        if isinstance(self.produces, str):
+            from .registry import get_payload_type
+
+            if get_payload_type(self.produces) is None:
+                return (self.produces,)
+        return ()
 
     @property
     def is_variable(self) -> bool:
@@ -526,7 +550,7 @@ class OutputPort:
     Nodes write frames to output ports during pull() execution.
     The scheduler routes written frames to connected downstream nodes.
 
-    For push sources, writing also triggers a scheduler wakeup so the
+    For push sources, the scheduler keeps the written frame as the port's latest so the
     frame can be propagated to downstream nodes.
 
     Attributes:
@@ -549,7 +573,8 @@ class OutputPort:
         The frame will be routed to all connected downstream nodes
         after the current node's processing completes.
 
-        For push sources, this also triggers a scheduler wakeup.
+        For push sources, the frame is kept as the port's latest and read
+        at the next tick; a write never causes a tick.
 
         Args:
             frame: The frame to output.
