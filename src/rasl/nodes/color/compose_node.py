@@ -9,27 +9,18 @@ Pull-based: Reads all input ports, interleaves data, writes output.
 
 from __future__ import annotations
 
-from typing import Sequence, Type
+from typing import TYPE_CHECKING, Sequence, Type
 
 import numpy as np
 from numpy.typing import NDArray
 from pydantic import Field, field_validator
 
-from rasl.engine.nodes import BaseNode
-from rasl.engine.frames import (
-    ColorPayload,
-    Frame,
-    FramePayload,
-    HsbkColorPayload,
-    HslColorPayload,
-    MatrixPayload,
-    RgbColorPayload,
-)
-from rasl.engine.nodes import NodeContext
-from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
-from rasl.engine.registry import get_payload_type, node
-from rasl.engine.tick import TickContext, pull_rate
-from rasl.nodes.models import TransformNodeConfig
+from rasl.graph.node import BaseNode, TickContext, TransformNodeConfig, node
+from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
+from rasl.signal import Frame, FramePayload, MatrixPayload, get_payload_type
+
+if TYPE_CHECKING:
+    from rasl.graph import Edge
 
 
 @node("ComposeNode", "Compose")
@@ -236,24 +227,3 @@ class ComposeNode(BaseNode):
                     payload=payload,
                 )
             )
-
-    async def handle(self, port: str, frame: Frame, ctx: NodeContext) -> None:
-        """Push-style handler using same composition logic as pull()."""
-        if port not in self._port_names:
-            return
-
-        data = np.asarray(frame.payload, dtype=np.float32)
-        count = len(data)
-        if count <= 0:
-            return
-
-        self._resolved_length = count
-
-        buffers: dict[str, NDArray[np.float32] | None] = {name: None for name in self._port_names}
-        buffers[port] = data
-
-        out = self._compose_matrix(count, buffers)
-        payload = self._make_payload(out)
-
-        out_frame = frame.with_payload(payload)
-        await ctx.emit("out", out_frame)

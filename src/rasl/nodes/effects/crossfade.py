@@ -1,3 +1,5 @@
+"""Crossfade transform node: fade between two color inputs under a boolean selector."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -5,22 +7,29 @@ from typing import TYPE_CHECKING
 import numpy as np
 from pydantic import Field
 
-from rasl.engine.frames import BoolPayload, ColorPayload, HslColorPayload
-from rasl.engine.nodes import BaseNode
-from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
-from rasl.engine.registry import node
-from rasl.engine.tick import TickContext
-from rasl.nodes.models import TransformNodeConfig
+from rasl.color import ColorPayload, HslColorPayload
+from rasl.graph.node import BaseNode, TickContext, TransformNodeConfig, node
+from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
+from rasl.signal import BoolPayload
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
-    from rasl.engine.graph import Edge
-    from rasl.engine.frames import Frame
+
+    from rasl.graph import Edge
 
 
 @node("CrossfadeNode", "Crossfade", "crossfade")
 class CrossfadeNode(BaseNode):
+    """Transform node that fades between two color inputs when a selector changes.
+
+    A false ``selector`` shows ``input0`` and a true one ``input1``. When it changes, the mix
+    moves linearly to the other input over ``seconds``. The blend is done in HSL, with hue
+    taking the shorter way round the circle, and the output is always HSL.
+    """
+
     class Config(TransformNodeConfig):
+        """Fade time for CrossfadeNode."""
+
         seconds: float = Field(1.0, ge=0.0)
 
     inputs = PortGroup.inputs(
@@ -36,6 +45,11 @@ class CrossfadeNode(BaseNode):
         self._mix: float | None = None
 
     def validate_connections(self, incoming_edges: "list[Edge]") -> None:
+        """Require ``input0``, ``input1`` and ``selector`` to be connected.
+
+        Raises:
+            ValueError: One of the three ports has no incoming edge.
+        """
         connected_ports = {e.target_port for e in incoming_edges}
         for required in ("input0", "input1", "selector"):
             if required not in connected_ports:
@@ -47,6 +61,17 @@ class CrossfadeNode(BaseNode):
         return ((b - a + 0.5) % 1.0) - 0.5
 
     async def pull(self, tick: TickContext) -> None:
+        """Blend ``input0`` and ``input1`` in HSL and write the result to ``out``.
+
+        The mix moves towards the selector's input by ``tick.dt / seconds`` per pull; it jumps
+        there on the first pull and when ``seconds`` is 0. The output frame is ``input0``'s
+        frame with the blended payload, encoded like the input the selector points at. Writes
+        nothing until all three inputs have a frame.
+
+        Raises:
+            TypeError: An input's payload is not a ColorPayload.
+            ValueError: The two inputs have different element counts.
+        """
         frame0 = self.inputs.input0.read()
         frame1 = self.inputs.input1.read()
         selector_frame = self.inputs.selector.read()

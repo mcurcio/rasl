@@ -27,17 +27,13 @@ from typing import TYPE_CHECKING
 import numpy as np
 from pydantic import Field
 
-from rasl.engine.nodes import BaseNode, NodeContext
-from rasl.engine.frames import ColorPayload, Frame, MatrixPayload, RgbColorPayload
-from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
-from rasl.engine.registry import node
-from rasl.engine.tick import TickContext
-from rasl.nodes.models import TransformNodeConfig
-
-from .convert import convert
+from rasl.color import ColorPayload, LinearRgbColorPayload, RgbColorPayload
+from rasl.graph.node import BaseNode, TickContext, TransformNodeConfig, node
+from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
+from rasl.signal import MatrixPayload
 
 if TYPE_CHECKING:
-    from numpy.typing import NDArray
+    pass
 
 
 @node("ColorCorrectionNode", "ColorCorrection")
@@ -147,32 +143,20 @@ class ColorCorrectionNode(BaseNode):
             return
 
         payload = frame.payload
-        
-        # Get color data
-        if isinstance(payload, ColorPayload):
-            src_model = payload.model
-            data = payload.data.copy()
-        else:
-            # Assume sRGB if we get a plain MatrixFrame
-            src_model = "srgb"
-            data = np.asarray(payload, dtype=np.float32).copy()
 
-        # Validate: must be RGB triplets
-        if len(data) % 3 != 0:
-            self.outputs.out.write(frame)
-            return
-            
-        num_pixels = len(data) // 3
-
-        # Step 1: Convert to linear RGB
-        if src_model == "linear":
-            linear = data
+        # Step 1: Convert to linear RGB, one row per pixel
+        if isinstance(payload, LinearRgbColorPayload):
+            rgb = np.array(payload.data, dtype=np.float32)
+        elif isinstance(payload, ColorPayload):
+            rgb = np.array(payload.to_model(LinearRgbColorPayload).data, dtype=np.float32)
         else:
-            linear = convert(data, src_model, "linear")
-        
-        # Reshape to (num_pixels, 3) for vectorized operations
-        rgb = linear.reshape(num_pixels, 3)
-        
+            # A plain matrix is taken as sRGB; anything but RGB triplets passes through
+            data = np.asarray(payload, dtype=np.float32)
+            if data.ndim != 2 or data.shape[1] != 3:
+                self.outputs.out.write(frame)
+                return
+            rgb = np.array(RgbColorPayload(data).to_model(LinearRgbColorPayload).data, dtype=np.float32)
+
         # Step 2: Apply RGB channel scaling (white balance)
         rgb = rgb * self._rgb_scale + self._rgb_offset
         
@@ -196,9 +180,6 @@ class ColorCorrectionNode(BaseNode):
         if self._gamma != 1.0:
             rgb = np.power(rgb, 1.0 / self._gamma)
         
-        # Flatten back to 1D
-        output_data = rgb.reshape(-1).astype(np.float32)
-
         # Output as sRGB (gamma already applied)
-        output_payload = RgbColorPayload(output_data)
+        output_payload = RgbColorPayload(rgb.astype(np.float32))
         self.outputs.out.write(frame.with_payload(output_payload))

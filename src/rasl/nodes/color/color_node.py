@@ -8,22 +8,22 @@ Pull-based: Reads input, converts color model, writes output.
 
 Example config:
     node Color mixer {}           # Default: oklch output
-    node Color toRgb rgb {}       # Output sRGB
+    node Color toRgb rgb {}       # Output sRGB ('rgb' means sRGB; linear light is 'linear')
     node Color toHsl hsl {}       # Output HSL
 """
 
 from __future__ import annotations
 
-from typing import Literal
+from collections.abc import Sequence
+from typing import Any, Literal
 
 import numpy as np
 
-from rasl.engine.frames import (
+from rasl.color import (
     ColorPayload,
     HsbkColorPayload,
     HslColorPayload,
     LinearRgbColorPayload,
-    MatrixPayload,
     OkhslColorPayload,
     OkhsvColorPayload,
     OklabColorPayload,
@@ -32,11 +32,9 @@ from rasl.engine.frames import (
     RgbColorPayload,
     RgbwColorPayload,
 )
-from rasl.engine.nodes import BaseNode
-from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
-from rasl.engine.registry import node
-from rasl.engine.tick import TickContext
-from rasl.nodes.models import TransformNodeConfig
+from rasl.graph.node import BaseNode, TickContext, TransformNodeConfig, node
+from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
+from rasl.signal import MatrixPayload
 
 # Map model names to payload classes
 FRAME_CLASSES: dict[str, type[ColorPayload]] = {
@@ -47,7 +45,7 @@ FRAME_CLASSES: dict[str, type[ColorPayload]] = {
     "hsbk": HsbkColorPayload,
     "srgb": RgbColorPayload,
     "rgbw": RgbwColorPayload,
-    "rgb": LinearRgbColorPayload,
+    "rgb": RgbColorPayload,
     "hsl": HslColorPayload,
     "linear": LinearRgbColorPayload,
     "rec709": Rec709RgbPrimeColorPayload,
@@ -79,7 +77,7 @@ class ColorNode(BaseNode):
 
     The color model can be specified as a positional argument in the config:
         node Color mixer {}           # Default: oklch output
-        node Color toRgb rgb {}       # Output sRGB
+        node Color toRgb rgb {}       # Output sRGB ('rgb' means sRGB; linear light is 'linear')
         node Color toHsl hsl {}       # Output HSL
 
     Or as a config property:
@@ -98,6 +96,13 @@ class ColorNode(BaseNode):
         """
 
         model: ColorModel  # type: ignore[assignment]
+
+        @classmethod
+        def from_positional(cls, words: Sequence[str], written: Sequence[str]) -> dict[str, Any]:
+            """``node Color <name> <model>``: the one value is the output model."""
+            if len(words) > 1:
+                raise ValueError(f"a Color node takes one value after its name, the color model (got {len(words)})")
+            return {"model": words[0]} if words else {}
 
     # Class-level ports
     inputs = PortGroup.inputs(color=InputPortSpec((MatrixPayload, ColorPayload)))

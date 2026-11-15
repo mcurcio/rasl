@@ -13,9 +13,9 @@ Utilities:
     - DEFAULT_MODEL: Default color model (oklch)
 """
 
-from .color_node import ColorNode
-from .compose_node import ComposeNode
-from .correction_node import ColorCorrectionNode
+from rasl.nodes.color.color_node import ColorNode
+from rasl.nodes.color.compose_node import ComposeNode
+from rasl.nodes.color.correction_node import ColorCorrectionNode
 
 __all__ = [
     "ColorNode",

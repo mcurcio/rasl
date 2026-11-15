@@ -172,23 +172,24 @@ uv run pytest -v
 ### Project Structure
 
 ```text
-rasl/
-├── src/rasl/
-│   ├── __init__.py      # CLI entry point
-│   ├── engine/          # Core DAG types
-│   │   ├── frame.py     # Frame data model
-│   │   ├── node.py      # Node protocol
-│   │   └── graph.py     # Graph builder
-│   ├── nodes/           # Node implementations
-│   │   ├── sacn_source.py
-│   │   ├── sacn_sink.py
-│   │   └── universe_patch.py
-│   ├── runtime/         # Execution scheduler
-│   │   └── scheduler.py
-│   └── config/          # Configuration parser
-│       └── loader.py
-└── tests/               # Unit tests
+src/rasl/
+├── units.py     # Duration and Frequency: typed quantities for node config
+├── signal/      # What flows: Frame, matrix and bool payloads, payload registry
+├── color/       # Color models, conversions (one module per model family), color payloads
+├── graph/       # Topology and the node contract
+│   ├── node/    #   BaseNode, its Config bases, NodeContext, TickContext, node registry
+│   ├── ports/   #   Port specs, port groups, the ports nodes read and write
+│   └── ...      #   Edge, Slice, GraphBuilder, ExecutionPlan, input routing, ordering
+├── runtime/     # Running a plan: Runtime, Scheduler, Executor, NodeHost, diagnostics
+├── nodes/       # Built-in nodes: effects, color, debug, literal
+├── devices/     # One package per protocol: sacn, ddp, lifx, govee
+├── config/      # The config language: document, node and connect directives, build, reload, watch
+└── app/         # The rasl command, the GraphQL server, the dashboard files
+tests/           # Mirrors src/rasl
 ```
+
+Each package imports only from those listed above it (`runtime`, `nodes` and `devices` do not
+import each other, nor do `graph` and `color`). `tests/test_import_layers.py` checks this.
 
 ## License
 

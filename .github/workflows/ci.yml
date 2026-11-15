@@ -1,0 +1,67 @@
+# Checks only: lint and tests for the Python runtime and the JS workspace.
+# Nothing here publishes. Releases are build.yml's job, which is disabled (rasl-4v6).
+name: CI
+
+on:
+    pull_request:
+    push:
+        branches: [alpha, beta, main]
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ci-${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    python:
+        name: Python ${{ matrix.python }}
+        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                # The oldest version pyproject.toml allows, and the newest tested
+                python: ["3.11", "3.13"]
+        steps:
+            - uses: actions/checkout@v4
+            - uses: astral-sh/setup-uv@v6
+              with:
+                  version: "0.11.32"
+                  python-version: ${{ matrix.python }}
+                  enable-cache: true
+            - name: Install
+              run: uv sync --locked
+            - name: Lint (unused and undefined names, import order, docstrings)
+              run: uv run ruff check src tests
+            - name: Import direction
+              run: uv run lint-imports
+            - name: Test
+              run: uv run pytest
+
+    js:
+        name: JS workspace
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: js
+        steps:
+            - uses: actions/checkout@v4
+            - uses: pnpm/action-setup@v4
+              with:
+                  # The pnpm version comes from "packageManager" in js/package.json
+                  package_json_file: js/package.json
+            - uses: actions/setup-node@v4
+              with:
+                  node-version-file: js/.nvmrc
+                  cache: pnpm
+                  cache-dependency-path: js/pnpm-lock.yaml
+            - name: Install
+              run: pnpm install --frozen-lockfile
+            - name: Build
+              run: pnpm build
+            - name: Typecheck
+              run: pnpm typecheck
+            - name: Test
+              run: pnpm test
+            # Not run yet: `pnpm lint` (37 errors) and `pnpm format:check` fail on alpha (rasl-t57)

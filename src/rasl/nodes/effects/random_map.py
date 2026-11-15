@@ -8,14 +8,11 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import Field
 
-from rasl.engine.frames import ColorPayload, MatrixPayload
-from rasl.engine.nodes import BaseNode
-from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
-from rasl.engine.registry import node
-from rasl.engine.tick import TickContext
-from rasl.nodes.models import TransformNodeConfig
-
-from .._payload_utils import clone_payload_like
+from rasl.color import ColorPayload
+from rasl.graph.node import BaseNode, TickContext, TransformNodeConfig, node
+from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
+from rasl.nodes._payload_utils import clone_payload_like
+from rasl.signal import MatrixPayload
 
 
 @node("RandomMapNode", "RandomMap")
@@ -49,6 +46,16 @@ class RandomMapNode(BaseNode):
         self._rng = np.random.default_rng(config.seed)
 
     async def pull(self, tick: TickContext) -> None:
+        """Write the input's rows, picked through a fixed random index mapping, to ``out``.
+
+        The mapping is drawn on the first frame, with replacement: an input row can appear
+        several times or not at all. The output has ``channel_count`` rows (the input's count by
+        default) and is always a plain MatrixPayload. Writes nothing when the input has no
+        frame.
+
+        Raises:
+            ValueError: The payload is empty, or its row count differs from the first frame's.
+        """
         frame = self.inputs.input.read()
         if frame is None:
             return
@@ -67,8 +74,8 @@ class RandomMapNode(BaseNode):
         assert self._mapping is not None  # For type checkers
 
         mapped = data[self._mapping, :]
-        # Always output MatrixPayload for consistent downstream handling
-        new_payload = MatrixPayload(mapped)
+        # The same kind of payload as came in: a color stays that color model
+        new_payload = clone_payload_like(payload, mapped)
         self.outputs.out.write(frame.with_payload(new_payload))
 
     def _validate_input_count(self, input_count: int) -> None:

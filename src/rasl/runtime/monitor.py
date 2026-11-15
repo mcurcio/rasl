@@ -21,17 +21,18 @@ class NodeStats:
     """Statistics for a single node's execution.
 
     Tracks execution timing, success/failure counts, and the most
-    recent error encountered during frame processing.
+    recent error encountered during a pull.
 
     Attributes:
         node_id: Unique identifier of the tracked node.
-        handle_count: Total number of handle() calls.
-        success_count: Number of successful handle() calls.
-        failure_count: Number of failed handle() calls.
+        handle_count: Total number of pull() calls.
+        success_count: Number of successful pull() calls.
+        failure_count: Number of failed pull() calls.
         consecutive_failures: Current streak of consecutive failures.
         total_execution_time_ms: Cumulative execution time in milliseconds.
         last_error: Most recent exception encountered, if any.
-        last_error_time: Monotonic timestamp of last error.
+        last_error_time: When the last error happened, as Unix time (like the
+            metrics snapshot's timestamp).
     """
 
     node_id: str
@@ -45,14 +46,14 @@ class NodeStats:
 
     @property
     def avg_execution_time_ms(self) -> float:
-        """Average execution time per handle() call in milliseconds."""
+        """Average execution time per pull() call in milliseconds."""
         if self.handle_count == 0:
             return 0.0
         return self.total_execution_time_ms / self.handle_count
 
     @property
     def success_rate(self) -> float:
-        """Fraction of successful handle() calls (0.0 to 1.0)."""
+        """Fraction of successful pull() calls (0.0 to 1.0)."""
         if self.handle_count == 0:
             return 1.0
         return self.success_count / self.handle_count
@@ -76,8 +77,8 @@ class NodeStats:
 class NodeMonitor:
     """Tracks execution health and performance for all nodes in a graph.
 
-    NodeMonitor is used by the Runtime to record the outcome of each
-    node's handle() call. It provides aggregated statistics for
+    NodeMonitor is used by the scheduler to record the outcome of each
+    node's pull() call. It provides aggregated statistics for
     debugging, logging, and operational monitoring.
 
     Example:
@@ -99,11 +100,11 @@ class NodeMonitor:
         return self._stats[node_id]
 
     def record_success(self, node_id: str, execution_time_ms: float) -> None:
-        """Record a successful handle() call for a node.
+        """Record a successful pull() call for a node.
 
         Args:
             node_id: ID of the node that completed successfully.
-            execution_time_ms: Time taken for the handle() call in milliseconds.
+            execution_time_ms: Time taken for the pull() call in milliseconds.
         """
         stats = self._get_or_create(node_id)
         stats.handle_count += 1
@@ -114,7 +115,7 @@ class NodeMonitor:
     def record_failure(
         self, node_id: str, error: Exception, execution_time_ms: float = 0.0
     ) -> int:
-        """Record a failed handle() call for a node.
+        """Record a failed pull() call for a node.
 
         Args:
             node_id: ID of the node that failed.
@@ -130,7 +131,7 @@ class NodeMonitor:
         stats.consecutive_failures += 1
         stats.total_execution_time_ms += execution_time_ms
         stats.last_error = error
-        stats.last_error_time = time.monotonic()
+        stats.last_error_time = time.time()
 
         logger.warning(
             "node_handle_failed",

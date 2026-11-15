@@ -21,19 +21,17 @@ Day-of-week accepts 0-7 where 0 and 7 both mean Sunday.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 from pydantic import Field
 
-from rasl.engine.nodes import BaseNode
-from rasl.engine.frames import BoolPayload, Frame
-from rasl.engine.ports import OutputPortSpec, PortGroup
-from rasl.engine.registry import node
-from rasl.engine.tick import TickContext
-from rasl.nodes.models import SourceNodeConfig
+from rasl.graph.node import BaseNode, SourceNodeConfig, TickContext, node
+from rasl.graph.ports import OutputPortSpec, PortGroup
+from rasl.signal import BoolPayload, Frame
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +154,8 @@ class CronNode(BaseNode):
     """
 
     class Config(SourceNodeConfig):
+        """The schedule for CronNode."""
+
         schedule: str | list[str] = Field(
             "*",
             description=(
@@ -163,6 +163,16 @@ class CronNode(BaseNode):
                 "Can be provided as a single string (e.g. '*/10 * * * *') or as multiple args."
             ),
         )
+
+        @classmethod
+        def from_positional(cls, words: Sequence[str], written: Sequence[str]) -> dict[str, Any]:
+            """``node cron <name> <field1> [field2 ... field5]``: the schedule's fields.
+            Missing trailing fields are treated as "*"."""
+            if not words:
+                return {}  # the schedule is given in the block instead
+            if len(words) > 5:
+                raise ValueError(f"cron node supports 1-5 fields, got {len(words)}")
+            return {"schedule": list(words)}
 
     outputs = PortGroup.outputs(out=OutputPortSpec(BoolPayload, count=1))
 
@@ -184,6 +194,11 @@ class CronNode(BaseNode):
         self._buf = np.zeros((1, 1), dtype=np.bool_)
 
     async def pull(self, tick: TickContext) -> None:
+        """Write a 1x1 BoolPayload to ``out``: True when the current minute matches the schedule.
+
+        The schedule is compared with the system's local time (``datetime.now()``), not the
+        tick's; the frame's timestamp is the tick's wall time.
+        """
         now = datetime.now()
 
         minute = now.minute

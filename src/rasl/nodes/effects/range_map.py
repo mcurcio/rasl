@@ -8,14 +8,11 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import Field, field_validator
 
-from rasl.engine.frames import ColorPayload, MatrixPayload
-from rasl.engine.nodes import BaseNode
-from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
-from rasl.engine.registry import node
-from rasl.engine.tick import TickContext
-from rasl.nodes.models import TransformNodeConfig
-
-from .._payload_utils import clone_payload_like
+from rasl.color import ColorPayload
+from rasl.graph.node import BaseNode, TickContext, TransformNodeConfig, node
+from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
+from rasl.nodes._payload_utils import clone_payload_like
+from rasl.signal import MatrixPayload
 
 
 @node("RangeMapNode", "RangeMap")
@@ -40,6 +37,7 @@ class RangeMapNode(BaseNode):
         def validate_ranges(
             cls, value: Sequence[Sequence[float]]
         ) -> List[Tuple[float, float]]:
+            """Require ``[min, max]`` pairs with max above min; convert them to float tuples."""
             normalized: List[Tuple[float, float]] = []
             for idx, pair in enumerate(value):
                 if len(pair) != 2:
@@ -65,6 +63,17 @@ class RangeMapNode(BaseNode):
         self._channel_count = len(config.ranges)
 
     async def pull(self, tick: TickContext) -> None:
+        """Rescale each component from its configured range to 0..1 and write the result to
+        ``out``.
+
+        Component ``c`` becomes ``(x - min[c]) / (max[c] - min[c])``, clamped to the range first
+        when ``clamp`` is set. A payload whose column count differs from the number of ranges is
+        regrouped into that many columns. The output keeps the input's payload type. Writes
+        nothing when the input has no frame.
+
+        Raises:
+            ValueError: The payload's values cannot be regrouped into one column per range.
+        """
         frame = self.inputs.input.read()
         if frame is None:
             return

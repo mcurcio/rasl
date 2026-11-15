@@ -18,24 +18,20 @@ from __future__ import annotations
 
 import ast
 import time
-from typing import TYPE_CHECKING, Any, Literal as TypingLiteral
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any
+from typing import Literal as TypingLiteral
 
 import numpy as np
 from pydantic import Field
 
-from rasl.engine.nodes import BaseNode
-from rasl.engine.frames import (
-    ColorPayload,
-    Frame,
-    FramePayload,
-    MatrixPayload,
-)
-from rasl.engine.ports import OutputPortSpec, PortGroup
-from rasl.engine.registry import node
-from rasl.nodes.models import SourceNodeConfig
+from rasl.color import ColorPayload
+from rasl.graph.node import BaseNode, SourceNodeConfig, node
+from rasl.graph.ports import OutputPortSpec, PortGroup
+from rasl.signal import Frame, FramePayload, MatrixPayload
 
 if TYPE_CHECKING:
-    from rasl.engine.tick import TickContext
+    from rasl.graph.node import TickContext
 
 
 def parse_literal(literal_str: str) -> Any:
@@ -96,7 +92,7 @@ def build_payload(kind: str, subtype: str | None, value: Any) -> FramePayload:
         # Do not reshape here. We pass the literal through as-is.
         #
         # For nested lists like [[h,s,l], ...], np.asarray yields shape (N, 3).
-        # rasl.nodes.color.convert.convert() expects (N, 3) (or flat N*3), so
+        # The color converter expects (N, 3) (or flat N*3), so
         # this layout is important.
         arr = np.asarray(value, dtype=np.float32)
         if arr.ndim == 1:
@@ -107,6 +103,8 @@ def build_payload(kind: str, subtype: str | None, value: Any) -> FramePayload:
     elif kind == "matrix":
         # Matrix payload - pass through as-is
         arr = np.asarray(value, dtype=np.float32)
+        if arr.ndim == 0:
+            arr = arr.reshape(1, 1)  # a single number is one element of one component
         return MatrixPayload(arr)
     
     else:
@@ -136,6 +134,20 @@ class LiteralNode(BaseNode):
         payload_subtype: str | None = Field(None, description="Payload subtype (hsl, oklch, etc.)")
         literal_value: str = Field(..., description="Literal value as string")
     
+
+        @classmethod
+        def from_positional(cls, words: Sequence[str], written: Sequence[str]) -> dict[str, Any]:
+            """``node literal <name> <kind>[:<subtype>] <value>``: the payload type,
+            then the value as written (a list as "[[1, 0, 0], [0.5, 0, 0]]")."""
+            if len(words) < 2:
+                raise ValueError("literal node requires: node literal <name> <kind:subtype> <value>;")
+            kind, _, subtype = words[0].partition(":")
+            return {
+                "payload_kind": kind,
+                "payload_subtype": subtype or None,
+                "literal_value": " ".join(written[1:]),
+            }
+
     outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
     
     def __init__(self, config: Config) -> None:

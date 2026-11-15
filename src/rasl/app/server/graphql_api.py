@@ -1,0 +1,293 @@
+"""GraphQL schema for the web server: the running graph, per-node metrics and server health.
+
+Read-only. Resolvers read the ``AppState`` carried in the request context.
+"""
+
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass
+from typing import Any, AsyncGenerator, Dict, List, Optional
+
+import anyio
+import strawberry
+from strawberry.fastapi import BaseContext
+from strawberry.types import Info
+
+from rasl.graph.node import get_inputs, get_outputs
+from rasl.runtime.monitor import NodeMonitor
+
+
+@dataclass
+class RASLContext(BaseContext):
+    """Per-request context handed to every resolver.
+
+    Attributes:
+        state: The server's ``AppState`` (runtime, plan and start time).
+    """
+    state: Any
+
+
+@strawberry.type
+class Edge:
+    """A connection from one node's output port to another node's input port.
+
+    Slices and repeats on the connection are not exposed.
+
+    Attributes:
+        source: ID of the node that emits frames.
+        source_port: Name of the output port on the source node.
+        target: ID of the node that receives frames.
+        target_port: Name of the input port on the target node.
+    """
+    source: str
+    source_port: str
+    target: str
+    target_port: str
+
+
+@strawberry.type
+class GraphNode:
+    """A node as listed in the graph: its identity and port names.
+
+    Attributes:
+        id: Node ID, unique within the graph.
+        type: Name of the Python class that implements the node.
+        inputs: Names of the node's input ports.
+        outputs: Names of the node's output ports.
+    """
+    id: str
+    type: str
+    inputs: List[str]
+    outputs: List[str]
+
+
+@strawberry.type
+class Graph:
+    """The structure of the plan now running.
+
+    Attributes:
+        nodes: Every node, in topological order.
+        edges: Every connection between nodes.
+        topological_order: Node IDs in execution order: sources first, sinks last.
+    """
+    nodes: List[GraphNode]
+    edges: List[Edge]
+    topological_order: List[str]
+
+
+@strawberry.type
+class NodeMetrics:
+    """Running pull() counters and timings for one node.
+
+    Times cover the node's own pull() only, not its upstream nodes. They are rounded to
+    3 decimal places, ``success_rate`` to 4.
+
+    Attributes:
+        node_id: ID of the node measured.
+        handle_count: Total pull() calls, successful and failed.
+        success_count: pull() calls that returned without raising.
+        failure_count: pull() calls that raised.
+        consecutive_failures: Length of the current run of failures; 0 after any success.
+        total_execution_time_ms: Time spent in pull(), in milliseconds, summed over all calls
+            (failed ones included).
+        avg_execution_time_ms: ``total_execution_time_ms`` divided by ``handle_count``; 0 before
+            the first call.
+        success_rate: ``success_count`` divided by ``handle_count``, from 0.0 to 1.0; 1.0 before
+            the first call.
+        last_error: Message of the most recent exception; null if no call has failed.
+        last_error_time: When ``last_error`` was raised, in seconds on the server's monotonic
+            clock (not Unix time, so not comparable with ``MetricsSnapshot.timestamp``); null if
+            no call has failed.
+    """
+    node_id: str
+    handle_count: int
+    success_count: int
+    failure_count: int
+    consecutive_failures: int
+    total_execution_time_ms: float
+    avg_execution_time_ms: float
+    success_rate: float
+    last_error: Optional[str]
+    last_error_time: Optional[float]
+
+
+@strawberry.type
+class MetricsSnapshot:
+    """The metrics of all measured nodes at one moment.
+
+    Attributes:
+        timestamp: Unix time in seconds when the snapshot was taken.
+        nodes: One entry per node that has been pulled at least once.
+    """
+    timestamp: float
+    nodes: List[NodeMetrics]
+
+
+@strawberry.type
+class Health:
+    """Server liveness.
+
+    Attributes:
+        status: Always "ok": an answer means the server is up.
+        uptime_seconds: Seconds since the server was created.
+    """
+    status: str
+    uptime_seconds: float
+
+
+@strawberry.type
+class Node:
+    """One node in detail: its ports, outgoing edges and metrics.
+
+    Attributes:
+        id: Node ID, unique within the graph.
+        type: Name of the Python class that implements the node.
+        inputs: Names of the node's input ports.
+        outputs: Names of the node's output ports.
+        edges: The edges that leave this node. Edges that arrive at it are not listed.
+        metrics: The node's pull() counters; null until its first pull() is recorded.
+    """
+    id: str
+    type: str
+    inputs: List[str]
+    outputs: List[str]
+    edges: List[Edge]
+    metrics: Optional[NodeMetrics]
+
+
+def _get_node_stats(runtime: Any, node_id: Optional[str] = None) -> Dict[str, Any]:
+    monitor: NodeMonitor = runtime.monitor
+    if node_id is not None:
+        stats = monitor.get_stats(node_id)
+        return stats.to_dict() if stats else {}
+
+    return monitor.to_dict()
+
+
+def _node_metrics_from_dict(d: Dict[str, Any]) -> NodeMetrics:
+    return NodeMetrics(
+        node_id=str(d.get("node_id", "")),
+        handle_count=int(d.get("handle_count", 0)),
+        success_count=int(d.get("success_count", 0)),
+        failure_count=int(d.get("failure_count", 0)),
+        consecutive_failures=int(d.get("consecutive_failures", 0)),
+        total_execution_time_ms=float(d.get("total_execution_time_ms", 0.0)),
+        avg_execution_time_ms=float(d.get("avg_execution_time_ms", 0.0)),
+        success_rate=float(d.get("success_rate", 1.0)),
+        last_error=d.get("last_error"),
+        last_error_time=d.get("last_error_time"),
+    )
+
+
+def _graph_from_plan(plan: Any) -> Graph:
+    desc = plan.describe()
+
+    nodes = [
+        GraphNode(
+            id=n["id"],
+            type=n["type"],
+            inputs=list(n.get("inputs", [])),
+            outputs=list(n.get("outputs", [])),
+        )
+        for n in desc.get("nodes", [])
+    ]
+
+    edges = [
+        Edge(source=s, source_port=sp, target=t, target_port=tp)
+        for (s, sp, t, tp) in desc.get("edges", [])
+    ]
+
+    return Graph(
+        nodes=nodes,
+        edges=edges,
+        topological_order=list(desc.get("topological_order", [])),
+    )
+
+
+@strawberry.type
+class Query:
+    """Root query type: read-only views of the server, the graph and node metrics."""
+    @strawberry.field
+    def health(self, info: Info[RASLContext, None]) -> Health:
+        """Server liveness and uptime. ``status`` is always "ok"."""
+        state = info.context.state
+        return Health(status="ok", uptime_seconds=state.uptime_seconds)
+
+    @strawberry.field
+    def graph(self, info: Info[RASLContext, None]) -> Graph:
+        """The nodes and edges of the plan now running (a config reload replaces it)."""
+        state = info.context.state
+        return _graph_from_plan(state.current_plan)
+
+    @strawberry.field
+    def metrics(self, info: Info[RASLContext, None]) -> MetricsSnapshot:
+        """Metrics for every node pulled at least once, stamped with the current Unix time."""
+        state = info.context.state
+        stats = _get_node_stats(state.runtime)
+        nodes = [_node_metrics_from_dict(v) for _, v in stats.items()]
+        return MetricsSnapshot(timestamp=time.time(), nodes=nodes)
+
+    @strawberry.field
+    def node(self, info: Info[RASLContext, None], node_id: str) -> Optional[Node]:
+        """One node of the running plan, with its outgoing edges and metrics.
+
+        Null if the running plan has no node with the ID ``node_id``.
+        """
+        state = info.context.state
+        plan = state.current_plan
+        if node_id not in plan.nodes:
+            return None
+
+        n = plan.nodes[node_id]
+
+        inputs = get_inputs(n)
+        outputs = get_outputs(n)
+
+        edges_out: List[Edge] = []
+        if node_id in plan.adjacency:
+            for e in plan.adjacency[node_id]:
+                edges_out.append(
+                    Edge(
+                        source=e.source,
+                        source_port=e.source_port,
+                        target=e.target,
+                        target_port=e.target_port,
+                    )
+                )
+
+        metrics_raw = _get_node_stats(state.runtime, node_id)
+        metrics = _node_metrics_from_dict(metrics_raw) if metrics_raw else None
+
+        return Node(
+            id=n.id,
+            type=type(n).__name__,
+            inputs=list(inputs.names),
+            outputs=list(outputs.names),
+            edges=edges_out,
+            metrics=metrics,
+        )
+
+
+@strawberry.type
+class Subscription:
+    """Root subscription type: live node metrics."""
+    @strawberry.subscription
+    async def metrics_stream(
+        self, info: Info[RASLContext, None], interval_ms: int = 1000
+    ) -> AsyncGenerator[MetricsSnapshot, None]:
+        """Emit a metrics snapshot at once, then one every ``interval_ms`` milliseconds.
+
+        An interval under 50 ms is raised to 50 ms. The stream runs until the client
+        unsubscribes.
+        """
+        state = info.context.state
+
+        while True:
+            stats = _get_node_stats(state.runtime)
+            nodes = [_node_metrics_from_dict(v) for _, v in stats.items()]
+            yield MetricsSnapshot(timestamp=time.time(), nodes=nodes)
+            await anyio.sleep(max(interval_ms, 50) / 1000)
+
+
+schema = strawberry.Schema(query=Query, subscription=Subscription)

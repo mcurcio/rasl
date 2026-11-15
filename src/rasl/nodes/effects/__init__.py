@@ -9,13 +9,13 @@ This package contains nodes for generating animated effects:
     - MatrixMultiplyNode: Fixed matrix channel mixing
 """
 
-from .math import MathNode
-from .cron import CronNode
-from .crossfade import CrossfadeNode
-from .matrix_multiply import MatrixMultiplyNode
-from .range_map import RangeMapNode
-from .twinkle import TwinkleEffectNode
-from .waveform import WaveformNode
+from rasl.nodes.effects.cron import CronNode
+from rasl.nodes.effects.crossfade import CrossfadeNode
+from rasl.nodes.effects.math import MathNode
+from rasl.nodes.effects.matrix_multiply import MatrixMultiplyNode
+from rasl.nodes.effects.range_map import RangeMapNode
+from rasl.nodes.effects.twinkle import TwinkleEffectNode
+from rasl.nodes.effects.waveform import WaveformNode
 
 __all__ = [
     "CronNode",

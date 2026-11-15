@@ -12,12 +12,9 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import Field
 
-from rasl.engine.nodes import BaseNode, NodeContext
-from rasl.engine.frames import MatrixPayload, Frame
-from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
-from rasl.engine.registry import node
-from rasl.nodes.models import TransformNodeConfig
-
+from rasl.graph.node import BaseNode, TickContext, TransformNodeConfig, node
+from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
+from rasl.signal import MatrixPayload
 
 Operation = Literal["multiply", "add", "subtract", "min", "max", "screen", "lerp"]
 
@@ -77,37 +74,18 @@ class MathNode(BaseNode):
         self._mix = config.mix
         self._clamp = config.clamp
 
-        # Buffers for inputs
-        self._buffer_a: NDArray[np.float32] | None = None
-        self._buffer_b: NDArray[np.float32] | None = None
+    async def pull(self, tick: TickContext) -> None:
+        """Combine the two inputs element by element and write the result."""
+        frame_a = self.inputs.a.read()
+        frame_b = self.inputs.b.read()
+        a = None if frame_a is None else np.asarray(frame_a.payload, dtype=np.float32)
+        b = None if frame_b is None else np.asarray(frame_b.payload, dtype=np.float32)
 
-    async def start(self, ctx: NodeContext) -> None:
-        pass
-
-    async def handle(self, port: str, frame: Frame, ctx: NodeContext) -> None:
-        data = np.asarray(frame.payload, dtype=np.float32)
-
-        if port == "a":
-            self._buffer_a = data
-        elif port == "b":
-            self._buffer_b = data
-        else:
-            return
-
-        await self._compute_and_emit(frame, ctx)
-
-    async def _compute_and_emit(self, frame: Frame, ctx: NodeContext) -> None:
-        # Get input arrays, using constants if not connected
-        a = self._buffer_a
-        b = self._buffer_b
-
-        if a is None and self._constant_a is not None:
-            # Use constant, but we need a length reference
-            if b is not None:
-                a = np.full(len(b), self._constant_a, dtype=np.float32)
-        if b is None and self._constant_b is not None:
-            if a is not None:
-                b = np.full(len(a), self._constant_b, dtype=np.float32)
+        # A constant stands in for an input that is not there, at the other's shape
+        if a is None and self._constant_a is not None and b is not None:
+            a = np.full_like(b, self._constant_a)
+        if b is None and self._constant_b is not None and a is not None:
+            b = np.full_like(a, self._constant_b)
 
         # Need at least one real input
         if a is None and b is None:
@@ -118,24 +96,37 @@ class MathNode(BaseNode):
             a = b
         if b is None:
             b = a
-
         assert a is not None and b is not None
 
-        # Ensure same length (broadcast shorter to longer)
-        if len(a) != len(b):
-            max_len = max(len(a), len(b))
-            if len(a) < max_len:
-                a = np.resize(a, max_len)
-            if len(b) < max_len:
-                b = np.resize(b, max_len)
-
-        # Perform operation
+        a, b = self._align(a, b)
         result = self._apply_operation(a, b)
 
         if self._clamp:
             result = np.clip(result, 0.0, 1.0)
 
-        await ctx.emit("out", frame.with_payload(MatrixPayload(result)))
+        frame = frame_a if frame_a is not None else frame_b
+        assert frame is not None
+        self.outputs.out.write(frame.with_payload(MatrixPayload(result.astype(np.float32, copy=False))))
+
+    @staticmethod
+    def _align(
+        a: NDArray[np.float32], b: NDArray[np.float32]
+    ) -> tuple[NDArray[np.float32], NDArray[np.float32]]:
+        """Bring two inputs to one shape.
+
+        Equal shapes are used as they are. Shapes numpy can broadcast (one
+        column against several, one row against many) are broadcast. Otherwise
+        the smaller input is repeated to fill the larger one's shape.
+        """
+        if a.shape == b.shape:
+            return a, b
+        try:
+            broadcast_a, broadcast_b = np.broadcast_arrays(a, b)
+            return broadcast_a, broadcast_b
+        except ValueError:
+            if a.size < b.size:
+                return np.resize(a, b.shape), b
+            return a, np.resize(b, a.shape)
 
     def _apply_operation(
         self, a: NDArray[np.float32], b: NDArray[np.float32]
@@ -162,6 +153,3 @@ class MathNode(BaseNode):
         else:
             # Default to multiply
             return a * b
-
-    async def stop(self, ctx: NodeContext) -> None:
-        pass

@@ -3,13 +3,15 @@
 RASL is a Python-based data engine for processing and routing
 DMX/sACN lighting data through a configurable DAG (Directed Acyclic Graph).
 
-Key components:
-    - engine: Core DAG types (Frame, Node, GraphBuilder)
-    - nodes: Concrete node implementations (grouped by function)
-    - packages: Protocol extensions (sACN, DDP)
-    - runtime: Execution scheduler (Runtime)
-    - config: Configuration loading (load_config)
-    - server: Web API and dashboard
+Packages, each importing only from those below it in this list:
+    - app: the rasl command, the web API and dashboard
+    - config: the config language; builds and reloads plans (load_config)
+    - runtime: runs a plan (Runtime)
+    - nodes: built-in nodes; devices: protocol packages (sACN, DDP, LIFX, Govee)
+    - graph: nodes' contract, ports, edges, GraphBuilder, ExecutionPlan
+    - color: color models, conversions and payloads
+    - signal: Frame and payloads
+    - units: Duration and Frequency
 
 Example:
     >>> from rasl.config import load_config

@@ -14,11 +14,9 @@ import anyio
 import numpy as np
 from pydantic import Field
 
-from rasl.engine.nodes import BaseNode, NodeContext
-from rasl.engine.frames import MatrixPayload, Frame
-from rasl.engine.ports import OutputPortSpec, PortGroup
-from rasl.engine.registry import node
-from rasl.nodes.models import SourceNodeConfig
+from rasl.graph.node import BaseNode, NodeContext, SourceNodeConfig, node
+from rasl.graph.ports import OutputPortSpec, PortGroup
+from rasl.signal import Frame, MatrixPayload
 
 
 @node("SineSourceNode", "SineSource")
@@ -59,10 +57,11 @@ class SineSourceNode(BaseNode):
         self._frequency_hz = config.frequency_hz
         self._amplitude = config.amplitude
         self._offset = config.offset
-        self._fps = int(config.fps) if config.fps else 30
+        self._fps = int(config.fps.hz) if config.fps else 30
         self._topic = config.topic or f"sine.{self.id}"
 
     async def start(self, ctx: NodeContext) -> None:
+        """Start the background task that writes a frame to ``dmx`` every ``1 / fps`` seconds."""
         ctx.start_background(self._run_loop, ctx)
 
     async def _run_loop(self, ctx: NodeContext) -> None:
@@ -87,8 +86,6 @@ class SineSourceNode(BaseNode):
             out_port.commit(frame)
             await anyio.sleep(interval)
 
-    async def handle(self, port: str, frame: Frame, ctx: NodeContext) -> None:
-        pass  # Source nodes don't receive frames
-
     async def stop(self, ctx: NodeContext) -> None:
+        """Do nothing: the node context cancels the background task."""
         pass

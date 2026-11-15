@@ -6,7 +6,7 @@ RASL provides comprehensive REST and WebSocket APIs for monitoring, controlling,
 
 ### FastAPI Application Structure
 ```python
-# rasl/server/app.py
+# rasl/app/server/app.py
 def create_web_app(
     engine_provider: Callable[[], Optional[Engine]],
     monitor: NodeMonitor,

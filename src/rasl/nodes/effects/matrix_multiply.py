@@ -8,14 +8,11 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import Field, field_validator
 
-from rasl.engine.frames import ColorPayload, MatrixPayload
-from rasl.engine.nodes import BaseNode
-from rasl.engine.ports import InputPortSpec, OutputPortSpec, PortGroup
-from rasl.engine.registry import node
-from rasl.engine.tick import TickContext
-from rasl.nodes.models import TransformNodeConfig
-
-from .._payload_utils import clone_payload_like
+from rasl.color import ColorPayload
+from rasl.graph.node import BaseNode, TickContext, TransformNodeConfig, node
+from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
+from rasl.nodes._payload_utils import clone_payload_like
+from rasl.signal import MatrixPayload
 
 
 @node("MatrixMultiplyNode", "MatrixMultiply")
@@ -34,6 +31,7 @@ class MatrixMultiplyNode(BaseNode):
         @field_validator("matrix")
         @classmethod
         def validate_matrix(cls, value: Sequence[Sequence[float]]) -> List[Tuple[float, ...]]:
+            """Require a square matrix and convert its rows to tuples of floats."""
             size = len(value)
             if size == 0:
                 raise ValueError("matrix must contain at least one row")
@@ -57,6 +55,15 @@ class MatrixMultiplyNode(BaseNode):
         self._channel_count = self._matrix.shape[0]
 
     async def pull(self, tick: TickContext) -> None:
+        """Multiply each row of the input by the matrix and write the result to ``out``.
+
+        Rows are treated as row vectors (``data @ matrix``): output component ``j`` is the sum
+        over ``i`` of input component ``i`` times ``matrix[i][j]``. The output keeps the input's
+        payload type. Writes nothing when the input has no frame.
+
+        Raises:
+            ValueError: The payload's column count differs from the matrix size.
+        """
         frame = self.inputs.input.read()
         if frame is None:
             return
