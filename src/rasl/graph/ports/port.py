@@ -54,6 +54,7 @@ class InputPort:
 
     @property
     def count(self) -> Optional[int]:
+        """Number of elements the port takes when its spec fixes it, else None (variable)."""
         return self.spec.fixed_count
 
     def accepts_payload_type(self, payload_type: Type) -> bool:
@@ -173,6 +174,7 @@ class OutputPort:
 
     @property
     def count(self) -> Optional[int]:
+        """Number of elements the port produces when its spec fixes it, else None (variable)."""
         return self.spec.fixed_count
 
     def accepts_payload_type(self, payload_type: Type) -> bool:

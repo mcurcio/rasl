@@ -19,6 +19,21 @@ from rasl.signal import Frame, MatrixPayload
 
 @dataclass(slots=True)
 class CopySliceOp:
+    """Copy rows of one source output into rows of an input port's buffer.
+
+    Rows are elements (see ``populate``). Ranges are half-open, and an end of -1 leaves the
+    range open.
+
+    Attributes:
+        source: ID of the node whose output is read.
+        source_port: Name of that node's output port.
+        is_back_edge: True if the edge closes a cycle, so the previous tick's frame is read.
+        src_start: First source row copied.
+        src_end: One past the last source row copied; -1 for the source's last row.
+        dst_start: First destination row written.
+        dst_end: One past the last destination row written; -1 for as many as are copied.
+    """
+
     source: str
     source_port: str
     is_back_edge: bool
@@ -28,6 +43,10 @@ class CopySliceOp:
     dst_end: int
 
     def required_rows(self, src_rows: int) -> int:
+        """Number of destination rows this op needs for a source of ``src_rows`` rows.
+
+        ``dst_end`` when it is set, else ``dst_start`` plus the length of the source slice.
+        """
         if self.dst_end >= 0:
             return self.dst_end
         src_len = (self.src_end - self.src_start) if self.src_end >= 0 else (src_rows - self.src_start)
@@ -65,6 +84,24 @@ class CopySliceOp:
 
 @dataclass(slots=True)
 class RepeatSliceOp:
+    """Tile rows of one source output across rows of an input port's buffer.
+
+    The fields shared with ``CopySliceOp`` mean the same.
+
+    Attributes:
+        source: ID of the node whose output is read.
+        source_port: Name of that node's output port.
+        is_back_edge: True if the edge closes a cycle, so the previous tick's frame is read.
+        src_start: First source row of the slice repeated.
+        src_end: One past the last source row of the slice; -1 for the source's last row.
+        dst_start: First destination row written.
+        dst_end: One past the last destination row written; -1 for as many as are produced.
+        repeat: Number of copies of the slice written back to back. Ignored when
+            ``repeat_until`` is set.
+        repeat_until: Number of destination rows to fill, counted from ``dst_start``; the last
+            copy is cut short to fit. None to write ``repeat`` whole copies.
+    """
+
     source: str
     source_port: str
     is_back_edge: bool
@@ -76,6 +113,11 @@ class RepeatSliceOp:
     repeat_until: int | None
 
     def required_rows(self, src_rows: int) -> int:
+        """Number of destination rows this op needs for a source of ``src_rows`` rows.
+
+        ``dst_end`` when it is set, else ``dst_start + repeat_until``, else ``dst_start`` plus
+        ``repeat`` times the length of the source slice.
+        """
         if self.dst_end >= 0:
             return self.dst_end
         if self.repeat_until is not None:
@@ -145,6 +187,22 @@ _ipp_profile_stats: dict = {}  # {buffer_key: {resolve_ms, asarray_ms, buffer_ms
 
 @dataclass(slots=True)
 class InputPortProgram:
+    """The compiled steps that build one input port's frame each tick.
+
+    Attributes:
+        target: The input port the frame is for.
+        buffer_key: (node ID, port name) of ``target``; names the buffer the frame is built in.
+        fixed_rows: Element count fixed by the port's spec, or None. The built frame has at
+            least this many rows, and more if an op needs more.
+        fixed_cols: Components per element when every payload type the port accepts has the
+            same number, else None (the widest source sets the width).
+        passthrough: (source node ID, output port) when one edge with no slice and no repeat
+            feeds the port: that frame is handed over as it is, and ``ops`` is empty.
+        passthrough_is_back_edge: True if the passthrough edge closes a cycle.
+        ops: The copy and repeat operations, in edge order. Where two write the same rows, the
+            later one wins.
+    """
+
     target: InputPort
     buffer_key: Tuple[str, str]
     fixed_rows: int | None
@@ -155,6 +213,10 @@ class InputPortProgram:
 
     @staticmethod
     def enable_profiling(enabled: bool = True) -> None:
+        """Turn timing of ``populate`` on or off for every program in the process.
+
+        Turning it on, also when it is already on, clears the stats collected so far.
+        """
         global _ipp_profile_enabled, _ipp_profile_stats
         _ipp_profile_enabled = enabled
         if enabled:
@@ -162,6 +224,12 @@ class InputPortProgram:
 
     @staticmethod
     def get_profile_stats() -> dict:
+        """Timings collected while profiling, keyed by ``buffer_key``.
+
+        Each value has ``resolve_ms``, ``asarray_ms``, ``buffer_ms``, ``copy_ms`` and ``total_ms``
+        (sums, in milliseconds) and ``count`` (``populate`` calls that built a frame).
+        Passthrough programs are not timed.
+        """
         return dict(_ipp_profile_stats)
 
     def populate(
@@ -170,6 +238,23 @@ class InputPortProgram:
         resolve: Callable[[str, str, bool, int], Frame | None],
         ensure_buffer: Callable[[Tuple[str, str], int, int], np.ndarray],
     ) -> Frame | None:
+        """Build this tick's frame for the target port.
+
+        A passthrough returns its source's frame unchanged. Otherwise each op's source is
+        written, in op order, into a zero-filled float32 buffer. A source with no frame, a
+        payload with no ``data``, or data of more than two dimensions is skipped.
+
+        Args:
+            tick: Tick number, passed on to ``resolve``.
+            resolve: Returns the frame last written to (node ID, output port), or None; called
+                with (node ID, output port, is_back_edge, tick).
+            ensure_buffer: Returns an array of at least (rows, cols) for a buffer key.
+
+        Returns:
+            A frame whose ``MatrixPayload`` is a view of the buffer, with the topic, timestamp and
+            metadata of the first source that had a frame; None if no source had one. The buffer
+            is reused, so the payload holds only until the next call.
+        """
         if self.passthrough is not None:
             src_node, src_port = self.passthrough
             return resolve(src_node, src_port, self.passthrough_is_back_edge, tick)
@@ -256,6 +341,18 @@ def compile_input_programs(
     incoming_by_node: Dict[str, List[Edge]],
     back_edges: Set[Tuple[str, str, str, str]],
 ) -> Dict[Tuple[str, str], InputPortProgram]:
+    """Compile an ``InputPortProgram`` for every connected input port.
+
+    Args:
+        nodes: Node ID to node.
+        incoming_by_node: Target node ID to the edges that end at that node.
+        back_edges: The edges that close a cycle, as (source, source_port, target,
+            target_port).
+
+    Returns:
+        The programs, keyed by (target node ID, input port name). Edges to a port name the
+        target node does not have are left out.
+    """
     programs: Dict[Tuple[str, str], InputPortProgram] = {}
 
     for target_node_id, edges in incoming_by_node.items():

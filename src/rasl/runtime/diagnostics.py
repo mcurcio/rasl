@@ -26,16 +26,24 @@ class TickTrace:
     total_ms: float = 0.0
     
     def add_node(self, node_id: str, duration_ms: float) -> None:
+        """Record the duration of one node's pull, with the running total for the tick."""
         cumulative = sum(t[1] for t in self.node_timings) + duration_ms
         self.node_timings.append((node_id, round(duration_ms, 3), round(cumulative, 3)))
     
     def add_slice(self, source: str, target: str, duration_ms: float) -> None:
+        """Record how long routing frames from ``source`` to ``target`` took, in milliseconds."""
         self.slice_timings.append((source, target, round(duration_ms, 3)))
     
     def finalize(self, end_time: float) -> None:
+        """Set ``total_ms`` from ``end_time``, in seconds on the same clock as ``start_time``."""
         self.total_ms = (end_time - self.start_time) * 1000
     
     def to_dict(self) -> Dict[str, Any]:
+        """Serialize the trace for logging.
+
+        ``nodes`` is keyed by node ID and ``slices`` by "source->target"; ``slices`` is None when
+        no slice was timed.
+        """
         return {
             "tick": self.tick,
             "sink": self.sink_id,

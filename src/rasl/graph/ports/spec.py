@@ -173,16 +173,19 @@ class InputPortSpec:
 
     @property
     def is_variable(self) -> bool:
+        """True if the element count is not fixed (``count`` is None or a tuple)."""
         fixed, _, _ = _parse_count_spec(self.count)
         return fixed is None
 
     @property
     def fixed_count(self) -> Optional[int]:
+        """The exact element count, or None for a variable-length port."""
         fixed, _, _ = _parse_count_spec(self.count)
         return fixed
 
     @property
     def min_count(self) -> int:
+        """Fewest elements allowed: the fixed count, else the minimum (0 if none was given)."""
         fixed, min_count, _ = _parse_count_spec(self.count)
         if fixed is not None:
             return fixed
@@ -190,6 +193,7 @@ class InputPortSpec:
 
     @property
     def max_count(self) -> Optional[int]:
+        """Most elements allowed: the fixed count, else the maximum; None if unbounded."""
         fixed, _, max_count = _parse_count_spec(self.count)
         if fixed is not None:
             return fixed
@@ -244,6 +248,15 @@ ProducesSpec = Union[str, Type]
 
 @dataclass(frozen=True, slots=True)
 class OutputPortSpec:
+    """Specification for an output port: the one payload type it produces, and its count.
+
+    Attributes:
+        produces: The payload class or registered type name. Exactly one: a tuple raises
+            ValueError.
+        count: Count specification, as for ``InputPortSpec.count``.
+        description: Optional human-readable description of the port.
+    """
+
     produces: ProducesSpec
     count: CountSpec = None
     description: str = ""
@@ -255,11 +268,20 @@ class OutputPortSpec:
 
     @property
     def type_name(self) -> str:
+        """Registered name of the produced payload type.
+
+        The string as given, or for a class its ``domain`` (its ``__name__`` if it has none).
+        """
         if isinstance(self.produces, str):
             return self.produces
         return getattr(self.produces, "domain", self.produces.__name__)
 
     def resolve_payload_types(self) -> tuple[Type, ...]:
+        """Resolve the produced type to its payload class.
+
+        Returns:
+            A one-element tuple, or an empty tuple if the type name is not registered.
+        """
         if not isinstance(self.produces, str):
             return (self.produces,)
 
@@ -281,16 +303,19 @@ class OutputPortSpec:
 
     @property
     def is_variable(self) -> bool:
+        """True if the element count is not fixed (``count`` is None or a tuple)."""
         fixed, _, _ = _parse_count_spec(self.count)
         return fixed is None
 
     @property
     def fixed_count(self) -> Optional[int]:
+        """The exact element count, or None for a variable-length port."""
         fixed, _, _ = _parse_count_spec(self.count)
         return fixed
 
     @property
     def min_count(self) -> int:
+        """Fewest elements allowed: the fixed count, else the minimum (0 if none was given)."""
         fixed, min_count, _ = _parse_count_spec(self.count)
         if fixed is not None:
             return fixed
@@ -298,12 +323,17 @@ class OutputPortSpec:
 
     @property
     def max_count(self) -> Optional[int]:
+        """Most elements allowed: the fixed count, else the maximum; None if unbounded."""
         fixed, _, max_count = _parse_count_spec(self.count)
         if fixed is not None:
             return fixed
         return max_count
 
     def validate_index(self, index: int) -> bool:
+        """Check if a 0-based element index is within the port's count.
+
+        A port with no fixed count and no maximum takes any non-negative index.
+        """
         if index < 0:
             return False
         fixed, _, max_count = _parse_count_spec(self.count)
@@ -314,6 +344,10 @@ class OutputPortSpec:
         return True
 
     def validate_range(self, start: int, end: int) -> bool:
+        """Check if the range [start, end) is valid for this port.
+
+        An empty range is valid for any non-negative ``start``.
+        """
         if start < 0 or end < start:
             return False
         if end == start:
@@ -321,6 +355,12 @@ class OutputPortSpec:
         return self.validate_index(end - 1)
 
     def accepts_payload_type(self, payload_type: Type) -> bool:
+        """Check if a payload of the given type may be written to this port.
+
+        Decided by the produced class's ``is_compatible_with`` when it has one, else by
+        ``issubclass``. Returns True for every type when the produced type name is not
+        registered.
+        """
         resolved_types = self.resolve_payload_types()
         if not resolved_types:
             return True
