@@ -16,14 +16,22 @@ _KELVIN_RANGE = _MAX_KELVIN - _MIN_KELVIN
 
 
 def _normalize_kelvin_channel(kelvin: NDArray | float) -> NDArray | float:
+    """Map kelvin to 0..1 across 1500 K to 9000 K, clipping outside that range."""
     return np.clip((kelvin - _MIN_KELVIN) / _KELVIN_RANGE, 0.0, 1.0)
 
 
 def _denormalize_kelvin_channel(channel: NDArray | float) -> NDArray | float:
+    """Map a 0..1 kelvin channel (clipped) back to kelvin, 1500 K to 9000 K."""
     return np.clip(channel, 0.0, 1.0) * _KELVIN_RANGE + _MIN_KELVIN
 
 
 def _estimate_kelvin_from_srgb(rgb: NDArray) -> NDArray:
+    """Estimate each sRGB pixel's correlated color temperature in kelvin.
+
+    Uses a cubic in the pixel's CIE xy chromaticity. The result is clipped to
+    1500..9000 K, and is 6500 K where the formula has no finite value. Input is
+    (..., 3) in 0..1; output is float32 with one value per pixel.
+    """
     rgb = np.clip(rgb, 1e-5, 1.0).astype(np.float64)
     
     # Ensure rgb is at least 2D for colour library compatibility
@@ -53,6 +61,10 @@ def _estimate_kelvin_from_srgb(rgb: NDArray) -> NDArray:
 
 
 def _kelvin_to_srgb_white(kelvin: NDArray | float) -> NDArray:
+    """Approximate the sRGB color, (..., 3) in 0..1, of white at a temperature in kelvin.
+
+    The temperature is clipped to 1500..9000 K. The input must be a NumPy array or scalar.
+    """
     kelvin = np.clip(kelvin, _MIN_KELVIN, _MAX_KELVIN).astype(np.float64) / 100.0
 
     def clamp(v: NDArray) -> NDArray:
@@ -85,6 +97,10 @@ def _kelvin_to_srgb_white(kelvin: NDArray | float) -> NDArray:
 
 
 def _srgb_to_hsbk(srgb: NDArray) -> NDArray:
+    """Convert sRGB (..., 3) to HSBK (..., 4), all components 0..1.
+
+    H, S and B are the pixel's HSV; K is the temperature estimated from the pixel's own color.
+    """
     hsv = _srgb_to_hsv(srgb)
     kelvin = _estimate_kelvin_from_srgb(srgb)
     normalized_kelvin = _normalize_kelvin_channel(kelvin)
@@ -92,6 +108,11 @@ def _srgb_to_hsbk(srgb: NDArray) -> NDArray:
 
 
 def _hsbk_to_srgb(hsbk: NDArray) -> NDArray:
+    """Convert HSBK (..., 4), components clipped to 0..1, to sRGB (..., 3) in 0..1.
+
+    The HSV color is shifted toward the kelvin white in proportion to 1 - S, so
+    K has full effect on white and none on a fully saturated color.
+    """
     h = np.clip(hsbk[..., 0], 0.0, 1.0)
     s = np.clip(hsbk[..., 1], 0.0, 1.0)
     v = np.clip(hsbk[..., 2], 0.0, 1.0)

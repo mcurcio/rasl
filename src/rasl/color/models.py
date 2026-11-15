@@ -33,6 +33,14 @@ MODEL_COMPONENTS: dict[str, int] = {
 
 
 def normalize_model(model: str) -> str:
+    """Return the canonical name of a color model.
+
+    Lower-cases the name and resolves aliases: 'rgb', 'linear_rgb' and 'linearrgb'
+    become 'linear'; 'rec709', 'rec709_rgb' and 'rec709rgb' become 'rec709_rgb_prime'.
+
+    Raises:
+        ValueError: If the name is not in ``MODELS`` after that.
+    """
     model = model.lower()
     if model == "rgb":
         return "linear"

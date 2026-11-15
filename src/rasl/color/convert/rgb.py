@@ -8,6 +8,7 @@ from numpy.typing import NDArray
 
 
 def _srgb_to_linear(rgb: NDArray) -> NDArray:
+    """Decode gamma-encoded sRGB in 0..1 to linear light (sRGB transfer function), as float32."""
     return np.where(
         rgb <= 0.04045,
         rgb / 12.92,
@@ -16,6 +17,7 @@ def _srgb_to_linear(rgb: NDArray) -> NDArray:
 
 
 def _linear_to_srgb(linear: NDArray) -> NDArray:
+    """Encode linear light as gamma-encoded sRGB, as float32. Unclipped; negatives stay linear."""
     return np.where(
         linear <= 0.0031308,
         12.92 * linear,
@@ -41,6 +43,7 @@ def _encoded_to_rec709_video(encoded: NDArray) -> NDArray:
 
 
 def _rec709_gamma_to_linear(rgb_prime: NDArray) -> NDArray:
+    """Decode full-range Rec.709 R′G′B′ in 0..1 to linear light, as float32."""
     return np.where(
         rgb_prime <= 0.081,
         rgb_prime / 4.5,
@@ -49,6 +52,7 @@ def _rec709_gamma_to_linear(rgb_prime: NDArray) -> NDArray:
 
 
 def _linear_to_rec709_gamma(linear: NDArray) -> NDArray:
+    """Encode linear light, clipped to 0..1, as full-range Rec.709 R′G′B′, as float32."""
     linear = np.clip(linear, 0.0, 1.0)
     return np.where(
         linear <= 0.018,
@@ -58,19 +62,23 @@ def _linear_to_rec709_gamma(linear: NDArray) -> NDArray:
 
 
 def _rec709_rgb_prime_to_linear(rgb: NDArray) -> NDArray:
+    """Convert Rec.709 video levels (0..1 == code 0-255, active range 16-235) to linear light."""
     encoded = _rec709_video_to_encoded(rgb)
     return _rec709_gamma_to_linear(encoded)
 
 
 def _linear_to_rec709_rgb_prime(linear: NDArray) -> NDArray:
+    """Convert linear light, clipped to 0..1, to Rec.709 video levels (0..1 == code 0-255)."""
     encoded = _linear_to_rec709_gamma(linear)
     return _encoded_to_rec709_video(encoded)
 
 
 def _rgbw_to_srgb(data: NDArray) -> NDArray:
+    """Return the first three components (R, G, B) of RGBW pixels; white is dropped."""
     return data[..., :3]
 
 
 def _srgb_to_rgbw(data: NDArray) -> NDArray:
+    """Append a white component of 0 to sRGB pixels: (..., 3) becomes (..., 4)."""
     zeros = np.zeros((*data.shape[:-1], 1), dtype=np.float32)
     return np.concatenate([data, zeros], axis=-1)

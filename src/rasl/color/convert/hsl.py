@@ -8,6 +8,7 @@ from numpy.typing import NDArray
 
 
 def _hsl_to_srgb(hsl: NDArray) -> NDArray:
+    """Convert HSL (..., 3), hue 0..1 (wrapped) and S, L 0..1, to float64 sRGB, unclipped."""
     h = hsl[..., 0]
     s = hsl[..., 1]
     l = hsl[..., 2]
@@ -50,6 +51,7 @@ def _hsl_to_srgb(hsl: NDArray) -> NDArray:
 
 
 def _srgb_to_hsl(rgb: NDArray) -> NDArray:
+    """Convert sRGB (..., 3) in 0..1 to HSL, hue in 0..1. Gray pixels get hue 0, saturation 0."""
     r = rgb[..., 0]
     g = rgb[..., 1]
     b = rgb[..., 2]
@@ -98,6 +100,7 @@ def _srgb_to_hsl(rgb: NDArray) -> NDArray:
 
 
 def _srgb_to_hsv(rgb: NDArray) -> NDArray:
+    """Convert sRGB (..., 3), clipped to 0..1, to float32 HSV, hue in 0..1. Gray gets hue 0."""
     rgb = np.clip(rgb, 0.0, 1.0).astype(np.float64)
     r = rgb[..., 0]
     g = rgb[..., 1]
@@ -132,6 +135,7 @@ def _srgb_to_hsv(rgb: NDArray) -> NDArray:
 
 
 def _hsv_to_srgb(hsv: NDArray) -> NDArray:
+    """Convert HSV (..., 3), every component clipped to 0..1, to float32 sRGB in 0..1."""
     hsv = np.clip(hsv, 0.0, 1.0).astype(np.float64)
     h = hsv[..., 0]
     s = hsv[..., 1]

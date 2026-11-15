@@ -50,22 +50,27 @@ class MatrixPayload(FramePayload):
 
     @property
     def data(self) -> NDArray[np.float32]:
+        """The backing float32 array, shape (count, channels). The array itself, not a copy."""
         return self._data
 
     @property
     def channels(self) -> int:
+        """Number of columns: components per element."""
         return self._data.shape[1]
 
     @property
     def dimensions(self) -> int:
+        """Same as ``channels``."""
         return self.channels
 
     @property
     def count(self) -> int:
+        """Number of rows: elements in the frame."""
         return self._data.shape[0]
 
     @property
     def size(self) -> int:
+        """Total number of values: ``count * channels``."""
         return int(self._data.size)
 
     def __array__(self, dtype: Any | None = None) -> NDArray[np.float32]:
@@ -77,9 +82,22 @@ class MatrixPayload(FramePayload):
         return self._data[item]
 
     def flatten(self) -> NDArray[np.float32]:
+        """Return the data as a 1D float32 array in row order.
+
+        Unlike ``numpy.ndarray.flatten`` this is a view of the payload's data whenever
+        the data is contiguous, not a copy.
+        """
         return np.asarray(self._data, dtype=np.float32).ravel()
 
     def repeat(self, n: int) -> "MatrixPayload":
+        """Return the whole frame tiled ``n`` times, end to end.
+
+        Args:
+            n: Number of copies. 1 or less returns ``self`` unchanged.
+
+        Returns:
+            A plain ``MatrixPayload`` with ``count * n`` rows, whatever the subclass of ``self``.
+        """
         if n <= 1:
             return self
         repeated = np.tile(self._data, (n, 1))
@@ -89,6 +107,10 @@ class MatrixPayload(FramePayload):
         return self.count
 
     def describe(self) -> PayloadDescriptor:
+        """Describe the payload: domain, shape, channels, dimensions, count, size and dtype.
+
+        ``type_name`` is always 'MatrixPayload', also for a subclass that does not override this.
+        """
         return PayloadDescriptor(
             type_name="MatrixPayload",
             domain=self.domain,
@@ -115,6 +137,11 @@ class MatrixPayload(FramePayload):
         count: int,
         components: int,
     ) -> "NDArray[np.float32]":
+        """Return a float32 buffer of ``components`` columns and at least ``count`` rows.
+
+        Delegates to ``FramePayload.ensure_buffer``: ``buffer`` is returned when it
+        already fits, otherwise a new zeroed array.
+        """
         return super().ensure_buffer(
             buffer,
             count=count,
@@ -154,6 +181,13 @@ class MatrixPayload(FramePayload):
 @payload("bool")
 @payload("boolean")
 class BoolPayload(MatrixPayload):
+    """A mask: matrix data where every value is 0.0 or 1.0.
+
+    Input of any dtype is accepted, 1D or 2D; each value becomes 1.0 if it is
+    non-zero and 0.0 otherwise. Shape follows ``MatrixPayload``: (count, channels),
+    with 1D input as one column.
+    """
+
     __slots__ = ()
     domain: ClassVar[str] = "bool"
 

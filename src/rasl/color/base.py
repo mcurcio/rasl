@@ -50,10 +50,15 @@ class ColorPayload(MatrixPayload):
 
     @property
     def model(self) -> str:
+        """The normalised color model name of the data, such as 'srgb' or 'oklch'."""
         return self._model
 
     @property
     def encoding(self) -> str:
+        """The encoding tag given at construction, 'srgb' by default.
+
+        A label only: nothing in this class reads it, and conversion ignores it.
+        """
         return self._encoding
 
     def to_model(self, target: type["ColorPayload"]) -> "ColorPayload":
@@ -92,6 +97,14 @@ class ColorPayload(MatrixPayload):
         return target(converted)
 
     def repeat(self, n: int) -> "ColorPayload":
+        """Return the whole frame tiled ``n`` times, end to end.
+
+        Args:
+            n: Number of copies. 1 or less returns ``self`` unchanged.
+
+        Returns:
+            A payload of the same class, model and encoding with ``count * n`` rows.
+        """
         if n <= 1:
             return self
         repeated = np.tile(self._data, (n, 1))
@@ -161,6 +174,7 @@ class ColorPayload(MatrixPayload):
         )
 
     def describe(self) -> PayloadDescriptor:
+        """Describe the payload: class name, domain, model, encoding, shape, channels and count."""
         return PayloadDescriptor(
             type_name=type(self).__name__,
             domain=self.domain,

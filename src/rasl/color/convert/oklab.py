@@ -8,6 +8,7 @@ from numpy.typing import NDArray
 
 
 def _oklab_to_oklch(oklab: NDArray) -> NDArray:
+    """Convert Oklab (L, a, b) to Oklch (L, C, h), with hue as a 0..1 fraction of a turn."""
     l = oklab[..., 0]
     a = oklab[..., 1]
     b = oklab[..., 2]
@@ -20,6 +21,7 @@ def _oklab_to_oklch(oklab: NDArray) -> NDArray:
 
 
 def _oklch_to_oklab(oklch: NDArray) -> NDArray:
+    """Convert Oklch (L, C, h), hue as a fraction of a turn, to Oklab (L, a, b)."""
     l = oklch[..., 0]
     c = oklch[..., 1]
     h = oklch[..., 2]
@@ -32,6 +34,7 @@ def _oklch_to_oklab(oklch: NDArray) -> NDArray:
 
 
 def _srgb_to_oklab_direct(rgb: NDArray) -> NDArray:
+    """Convert gamma-encoded sRGB (..., 3) in 0..1 to Oklab (L, a, b), not going through XYZ."""
     linear = np.where(
         rgb <= 0.04045,
         rgb / 12.92,
@@ -58,6 +61,7 @@ def _srgb_to_oklab_direct(rgb: NDArray) -> NDArray:
 
 
 def _oklab_to_srgb_direct(oklab: NDArray) -> NDArray:
+    """Convert Oklab (..., 3) to gamma-encoded sRGB clipped to 0..1, not going through XYZ."""
     L = oklab[..., 0]
     a = oklab[..., 1]
     b = oklab[..., 2]
@@ -86,6 +90,7 @@ def _oklab_to_srgb_direct(oklab: NDArray) -> NDArray:
 
 
 def _oklab_to_linear_rgb(oklab: NDArray) -> NDArray:
+    """Convert Oklab (..., 3) to linear-light sRGB, unclipped: out-of-gamut colors leave 0..1."""
     L = oklab[..., 0]
     a = oklab[..., 1]
     b = oklab[..., 2]

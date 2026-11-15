@@ -14,6 +14,7 @@ _K3 = (1.0 + _K1) / (1.0 + _K2)
 
 
 def _toe(x: float | NDArray) -> float | NDArray:
+    """Map Oklab lightness L to the lightness estimate Lr that Okhsl and Okhsv use."""
     x = np.asarray(x, dtype=np.float64)
     return 0.5 * (
         _K3 * x
@@ -23,11 +24,17 @@ def _toe(x: float | NDArray) -> float | NDArray:
 
 
 def _toe_inv(x: float | NDArray) -> float | NDArray:
+    """Inverse of ``_toe``: map the lightness estimate Lr back to Oklab L."""
     x = np.asarray(x, dtype=np.float64)
     return (x * x + _K1 * x) / (_K3 * (x + _K2))
 
 
 def _compute_max_saturation(a: NDArray, b: NDArray) -> NDArray:
+    """Return the largest saturation C/L inside the sRGB gamut for a hue.
+
+    The hue is given as a unit vector (a, b) in the Oklab a-b plane. The result is
+    a polynomial estimate refined by one Halley step.
+    """
     cond_r = (-1.88170328 * a - 0.80936493 * b) > 1
     cond_g = (1.81444104 * a - 1.19445276 * b) > 1
 
@@ -80,6 +87,7 @@ def _compute_max_saturation(a: NDArray, b: NDArray) -> NDArray:
 
 
 def _get_cusp(a: NDArray, b: NDArray) -> tuple[NDArray, NDArray]:
+    """Return (L, C) of the sRGB gamut cusp, the most chromatic point, for the hue (a, b)."""
     s_cusp = _compute_max_saturation(a, b)
 
     ones = np.ones_like(a)
@@ -95,6 +103,7 @@ def _get_cusp(a: NDArray, b: NDArray) -> tuple[NDArray, NDArray]:
 
 
 def _st_mid(a: NDArray, b: NDArray) -> tuple[NDArray, NDArray]:
+    """Return the polynomial fits (S_mid, T_mid) behind Okhsl's mid chroma for the hue (a, b)."""
     s = 0.11516993 + 1.0 / (
         7.44778970
         + 4.15901240 * b
@@ -114,6 +123,12 @@ def _st_mid(a: NDArray, b: NDArray) -> tuple[NDArray, NDArray]:
 
 
 def _get_cs(L: NDArray, a: NDArray, b: NDArray) -> tuple[NDArray, NDArray, NDArray]:
+    """Return the chromas (C_0, C_mid, C_max) that Okhsl saturation is scaled by.
+
+    Args are Oklab lightness L and the hue unit vector (a, b). C_max is computed
+    from the cusp alone, as C_cusp**2 / min(L * S_max, (1 - L) * T_max), not by
+    intersecting the gamut boundary, and is 0 at L <= 0 and L >= 1.
+    """
     l_cusp, c_cusp = _get_cusp(a, b)
 
     s_max = c_cusp / (l_cusp + 1e-10)
@@ -142,6 +157,10 @@ def _get_cs(L: NDArray, a: NDArray, b: NDArray) -> tuple[NDArray, NDArray, NDArr
 
 
 def _srgb_to_okhsl(rgb: NDArray) -> NDArray:
+    """Convert sRGB (..., 3) in 0..1 to float32 Okhsl: hue 0..1, saturation 0..1, lightness.
+
+    Gray pixels get hue 0 and saturation 0.
+    """
     oklab = _srgb_to_oklab_direct(rgb)
     L = oklab[..., 0]
     a = oklab[..., 1]
@@ -184,6 +203,10 @@ def _srgb_to_okhsl(rgb: NDArray) -> NDArray:
 
 
 def _okhsl_to_srgb(hsl: NDArray) -> NDArray:
+    """Convert Okhsl (..., 3), hue 0..1 with S and L 0..1, to float32 sRGB clipped to 0..1.
+
+    Black, white and zero saturation give a gray of the same lightness.
+    """
     hsl = np.asarray(hsl, dtype=np.float64)
     h = hsl[..., 0]
     s = hsl[..., 1]
@@ -228,6 +251,10 @@ def _okhsl_to_srgb(hsl: NDArray) -> NDArray:
 
 
 def _srgb_to_okhsv(rgb: NDArray) -> NDArray:
+    """Convert sRGB (..., 3) in 0..1 to float32 Okhsv: hue 0..1, with S and V clipped to 0..1.
+
+    Gray pixels get hue 0 and saturation 0.
+    """
     oklab = _srgb_to_oklab_direct(rgb)
     L = oklab[..., 0]
     a = oklab[..., 1]
@@ -281,6 +308,7 @@ def _srgb_to_okhsv(rgb: NDArray) -> NDArray:
 
 
 def _okhsv_to_srgb(hsv: NDArray) -> NDArray:
+    """Convert Okhsv (..., 3), hue 0..1 with S and V 0..1, to float32 sRGB clipped to 0..1."""
     hsv = np.asarray(hsv, dtype=np.float64)
     h = hsv[..., 0]
     s = hsv[..., 1]

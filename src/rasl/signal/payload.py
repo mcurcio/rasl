@@ -31,6 +31,7 @@ class FramePayload:
     domain: ClassVar[str] = "payload"
 
     def describe(self) -> PayloadDescriptor:
+        """Describe the payload: its class name and domain, with no attributes."""
         return PayloadDescriptor(
             type_name=type(self).__name__,
             domain=self.domain,

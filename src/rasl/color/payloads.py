@@ -35,6 +35,7 @@ class HsbkColorPayload(ColorPayload):
 
     @property
     def hue(self) -> NDArray[np.float32]:
+        """Hue, 0 to 1 (column 0), one value per element."""
         return self._channel_view(0)
 
     @hue.setter
@@ -43,6 +44,7 @@ class HsbkColorPayload(ColorPayload):
 
     @property
     def saturation(self) -> NDArray[np.float32]:
+        """Saturation, 0 to 1 (column 1), one value per element."""
         return self._channel_view(1)
 
     @saturation.setter
@@ -51,6 +53,7 @@ class HsbkColorPayload(ColorPayload):
 
     @property
     def brightness(self) -> NDArray[np.float32]:
+        """Brightness, 0 to 1 (column 2), one value per element."""
         return self._channel_view(2)
 
     @brightness.setter
@@ -59,6 +62,7 @@ class HsbkColorPayload(ColorPayload):
 
     @property
     def kelvin(self) -> NDArray[np.float32]:
+        """Color temperature (column 3), 0 to 1 across 1500 K to 9000 K, one value per element."""
         return self._channel_view(3)
 
     @kelvin.setter
@@ -67,6 +71,7 @@ class HsbkColorPayload(ColorPayload):
 
     @classmethod
     def is_compatible_with(cls, other: Type[FramePayload]) -> bool:
+        """HsbkColorPayload accepts any MatrixPayload."""
         return issubclass(other, MatrixPayload)
 
 @payload("color:srgb")
@@ -82,6 +87,7 @@ class RgbColorPayload(ColorPayload):
 
     @property
     def red(self) -> NDArray[np.float32]:
+        """Red, 0 to 1 (column 0), one value per element."""
         return self._channel_view(0)
 
     @red.setter
@@ -90,6 +96,7 @@ class RgbColorPayload(ColorPayload):
 
     @property
     def green(self) -> NDArray[np.float32]:
+        """Green, 0 to 1 (column 1), one value per element."""
         return self._channel_view(1)
 
     @green.setter
@@ -98,6 +105,7 @@ class RgbColorPayload(ColorPayload):
 
     @property
     def blue(self) -> NDArray[np.float32]:
+        """Blue, 0 to 1 (column 2), one value per element."""
         return self._channel_view(2)
 
     @blue.setter
@@ -123,6 +131,7 @@ class RgbwColorPayload(ColorPayload):
 
     @property
     def white(self) -> NDArray[np.float32]:
+        """White, 0 to 1 (column 3), one value per element."""
         return self._channel_view(3)
 
     @white.setter
@@ -143,6 +152,7 @@ class HslColorPayload(ColorPayload):
 
     @property
     def hue(self) -> NDArray[np.float32]:
+        """Hue, 0 to 1 (column 0), one value per element."""
         return self._channel_view(0)
 
     @hue.setter
@@ -151,6 +161,7 @@ class HslColorPayload(ColorPayload):
 
     @property
     def saturation(self) -> NDArray[np.float32]:
+        """Saturation, 0 to 1 (column 1), one value per element."""
         return self._channel_view(1)
 
     @saturation.setter
@@ -159,6 +170,7 @@ class HslColorPayload(ColorPayload):
 
     @property
     def lightness(self) -> NDArray[np.float32]:
+        """Lightness, 0 to 1 (column 2), one value per element."""
         return self._channel_view(2)
 
     @lightness.setter
