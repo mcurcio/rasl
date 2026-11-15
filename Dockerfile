@@ -24,7 +24,7 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_PROJECT_ENVIRONMENT=/opt/rasl
 WORKDIR /src
 # Dependencies first, so a source change reuses this layer
-COPY pyproject.toml uv.lock README.md ./
+COPY pyproject.toml uv.lock README.md LICENSE ./
 RUN uv sync --locked --no-dev --no-install-project
 COPY src ./src
 RUN uv sync --locked --no-dev --no-editable
@@ -38,7 +38,8 @@ LABEL org.opencontainers.image.title="rasl" \
       org.opencontainers.image.source="https://github.com/mcurcio/rasl" \
       org.opencontainers.image.url="https://github.com/mcurcio/rasl" \
       org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.revision="${REVISION}"
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.licenses="MIT"
 COPY --from=build /opt/rasl /opt/rasl
 COPY docker/rasl.conf /usr/share/rasl/rasl.conf
 COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/rasl-entrypoint

@@ -3,6 +3,8 @@ name = "rasl"
 version = "0.1.0"
 description = "Real-time Async Streaming for Lighting - A Python data engine for DMX/sACN processing"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Matt Curcio", email = "mcurcio@users.noreply.github.com" }
 ]

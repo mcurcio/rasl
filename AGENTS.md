@@ -22,7 +22,7 @@ uv run ruff check src tests                        # Python: unused or undefined
 
 The Python packages under `src/rasl/` are domains, and import each other in one direction:
 `app` → `config` → `runtime` | `nodes` | `devices` → `graph` | `color` → `signal` → `units`
-(packages joined by `|` do not import each other). `README.md` says what each owns. The order is
+(packages joined by `|` do not import each other). `CONTRIBUTING.md` says what each owns. The order is
 set in `pyproject.toml` under `[tool.importlinter]` and checked by `tests/test_import_layers.py`
 (or `uv run lint-imports`). A new import that goes against it fails the tests: move the code, do
 not add an exception. `tests/` mirrors the packages.
@@ -53,19 +53,24 @@ runs `lerna publish` on push. Leave it disabled until `rasl-4v6` is resolved.
 
 ## Branches and worktrees
 
-The three branches are release channels: the `publish` job in `.github/workflows/build.yml`
-runs `lerna publish` on every push to them once `lint` and `test` pass (currently disabled).
+The three branches are release channels, and changes flow one way: `alpha` → `beta` → `main`
+(owner, 2026-11-15: "alpha is the default branch and produces alpha prereleases. Alpha merges to
+beta which produces beta prereleases. Then beta merges to main, which produces the stable mainline
+releases. The CI release process and semantic releases should respect that.").
 
-| Branch  | Role | Publishes |
-|---------|------|-----------|
-| `alpha` | The working branch. All development happens here. | `-alpha` prereleases |
-| `beta`  | Promotion target after `alpha`. Initial commit only so far. | `-beta` prereleases |
-| `main`  | Stable releases. Holds only the beads files so far. Never base work on it or push code to it. | graduated stable versions |
+| Branch  | Role | Releases |
+|---------|------|----------|
+| `alpha` | The default branch on GitHub. All development happens here. | alpha prereleases (`-alpha.N`) |
+| `beta`  | Takes merges from `alpha`. | beta prereleases (`-beta.N`) |
+| `main`  | Takes merges from `beta`. Never base work on it or push code to it. | stable releases |
 
-- **Fork every branch and worktree from `alpha`**, and target `alpha` with pull requests.
-  Tools that cut worktrees from the repository's default branch (`main`) give you an empty
-  tree: re-point the new branch at `alpha` before starting (`git checkout -B <branch> alpha`
-  on a branch with no commits of its own).
+The release automation is not built yet (`rasl-4v6`): any CI release step and semantic versioning
+must follow this channel model. Today a push to `alpha` publishes only the container image
+(`ghcr.io/mcurcio/rasl:sha-<sha>`), and the old `build.yml` (`lerna publish`) stays disabled.
+
+- **Fork every branch and worktree from `alpha`**, and target `alpha` with pull requests. The
+  owner promotes `alpha` to `beta` and `beta` to `main`; agents never open pull requests against
+  `beta` or `main`.
 - **Every session works in its own worktree; the main checkout stays on `main`** (owner,
   2026-10-21: "the main checkout can sit on main, and new sessions should create worktrees").
   Never work, commit or switch branches in the main checkout.

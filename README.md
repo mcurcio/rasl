@@ -1,35 +1,85 @@
-# RASL - Real-time Async Streaming for Lighting
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
+    <img alt="rasl" src="docs/assets/logo.svg" width="378">
+  </picture>
+</p>
 
-RASL is a Python-based data engine for processing and routing DMX/sACN lighting data through a configurable DAG (Directed Acyclic Graph).
+<p align="center">
+  <b>Real-time Async Streaming for Lighting: describe a graph of effects, color and outputs in a config file, and rasl runs it.</b>
+</p>
+
+<p align="center">
+  <a href="https://github.com/mcurcio/rasl/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/mcurcio/rasl/actions/workflows/ci.yml/badge.svg?branch=alpha"></a>
+  <a href="https://github.com/mcurcio/rasl/actions/workflows/image.yml"><img alt="Container image" src="https://github.com/mcurcio/rasl/actions/workflows/image.yml/badge.svg?branch=alpha"></a>
+</p>
+
+---
+
+rasl is a lighting engine. You write a graph of nodes in a config file: sources that make or receive
+values, transforms that shape them, and sinks that send them to lights over sACN (E1.31), DDP, LIFX or
+Govee. rasl runs the graph at the rate the sinks ask for, serves a web dashboard while it runs, and
+applies your edits to the config without a restart.
+
+**Status.** rasl is early (version 0.1.0) and has no versioned releases. It is not published to PyPI.
+Install it from a checkout with [uv](https://docs.astral.sh/uv/), or run the container image. The Python
+runtime in `src/rasl/` is the product. `js/` (a pnpm workspace, see [js/README.md](js/README.md)) and `v2/`
+(a Rust experiment) are other implementations, not needed to run rasl.
 
 ## Features
 
-- **Graph-based processing**: Model your lighting pipeline as a DAG with source, transform, and sink nodes
-- **sACN/E1.31 support**: Receive and transmit sACN DMX data
-- **Universe patching**: Remap channels from multiple source universes
-- **Async runtime**: Built on anyio for high-performance async processing
-- **Configuration-driven**: Define your graph in [knobly](https://github.com/mcurcio/knobly) config files (nginx-style, with variables, snippets and includes)
+- **Config-driven graphs.** Nodes and their connections live in a [knobly](https://github.com/mcurcio/knobly)
+  file, with variables, snippets and includes. Errors point at the file, line and column.
+- **21 built-in node types.** Waveforms, random fields, cron schedules, constants, color models and
+  color correction, math, smoothing, crossfades and a twinkle effect.
+- **Outputs and inputs.** Send over sACN, DDP, LIFX and the Govee LAN API; receive sACN; print frames to the
+  terminal for testing.
+- **Live reload.** Save the config and only the nodes you changed restart. A broken edit is never applied.
+- **Web dashboard and API.** A graph view at `/`, a GraphQL API at `/graphql`, and `GET /health` for
+  monitors.
+- **Container image.** `ghcr.io/mcurcio/rasl`, with a health check, a seeded starter config and
+  `PUID`/`PGID` support.
+- **Pluggable nodes.** Other packages can add node types through the `rasl.nodes` entry-point group, the
+  same way the built-in nodes register.
 
 ## Installation
 
-```bash
-# Using uv (recommended)
-uv sync
+### From source
 
-# With dev dependencies for testing
-uv sync --dev
+rasl needs Python 3.11 or later and [uv](https://docs.astral.sh/uv/).
+
+```bash
+git clone https://github.com/mcurcio/rasl.git
+cd rasl
+uv sync
+uv run rasl --version      # rasl 0.1.0
 ```
+
+`uv sync` puts the `rasl` command in `.venv/`. Run it with `uv run rasl`, or activate the environment
+(`source .venv/bin/activate`) and run `rasl`.
+
+Loading a config prints two `ColourUsageWarning` warnings from colour-science about SciPy and Matplotlib not
+being installed. They are harmless.
 
 ### Container
 
+The image is built from `alpha` and pushed to `ghcr.io/mcurcio/rasl`, a public package. Each image is tagged
+`sha-<commit>` with the full commit hash that built it. There is no `latest` tag, so name a tag. The
+[package page](https://github.com/mcurcio/rasl/pkgs/container/rasl) lists the tags:
+
 ```bash
-docker run -p 8080:8080 -p 5568:5568/udp -v rasl-config:/config \
-    -e PUID=1000 -e PGID=1000 -e TZ=America/New_York ghcr.io/mcurcio/rasl
+docker run -p 8080:8080 -p 5568:5568/udp -v "$PWD/rasl-config:/config" \
+    -e PUID=1000 -e PGID=1000 -e TZ=America/New_York ghcr.io/mcurcio/rasl:sha-<commit>
 ```
 
-The config is `/config/rasl.conf` in the `/config` volume. If it does not exist when the container
-starts, the image writes a starter config there (an empty graph) and never overwrites it after
-that. The web UI is on port 8080 and sACN arrives on 5568/udp. Edit the file and rasl reloads it.
+The config is `/config/rasl.conf` in the `/config` volume, here the `rasl-config` folder in the current
+directory. If it does not exist when the container starts, the image writes a starter config there (an
+empty graph) and never overwrites it after that. The web UI is on port 8080. Edit the file and rasl
+reloads it.
+
+sACN input arrives on 5568/udp. `SacnSource` receives unicast sACN only, so the sender must send to the
+host's address, not to a multicast group. In a container, multicast also needs `--network host`, because
+Docker's default bridge network does not forward it.
 
 | Variable | Default | What it does |
 |---|---|---|
@@ -44,116 +94,96 @@ as root, it needs Docker's default capabilities (`CHOWN`, `SETUID`, `SETGID`): w
 it cannot switch users and exits.
 
 The image's `HEALTHCHECK` asks `GET /health`. That answers 503 (unhealthy) when the graph has
-rate-driving sinks but has stopped ticking, and 200 when it is `ok` or `degraded` (a node disabled
-for repeated failures, or the last config reload failed and the previous graph still runs). The
-GraphQL `health` field reports the same.
+rate-driving sinks but has stopped ticking, and 200 when it is `ok` or `degraded` (the last config
+reload failed and the previous graph still runs). The GraphQL `health` field reports the same.
 
-Arguments replace the default command and go to `rasl`, e.g. `--validate /config/rasl.conf`.
+The default command is `rasl /config/rasl.conf --api-host 0.0.0.0 --api-port $RASL_PORT`. Arguments
+replace it and go to `rasl`, e.g. `--validate /config/rasl.conf`.
 
-## Quick Start
+## Quick start
 
-1. Create a configuration file (e.g., `config.conf`):
+This graph needs no lights. A waveform sweeps the hue, a color node turns it into RGB, and a console
+sink prints one frame a second. All 150 pixels show the same color, which goes once round the hue
+circle every 10 seconds.
+
+Save it as `rainbow.conf`:
 
 ```nginx
-rasl {
-    node sacnSource {
-        type SacnSourceNode;
+graph {
+    node Waveform hue {
+        shape sawtooth;
+        frequency_hz 0.1;
+        output_channels 150;
+    }
+
+    node Compose hsl {
+        ports { hue; saturation; lightness; }
+        output_type color:okhsl;
+        connect hue hue;
+        fill saturation 1;
+        fill lightness 0.5;
+    }
+
+    node Color rgb rgb { connect hsl; }
+
+    node ConsoleSink console {
+        fps 1;
+        connect rgb;
+    }
+}
+```
+
+Check it, then run it with the dashboard:
+
+```bash
+uv run rasl --validate rainbow.conf
+# Config valid: 4 nodes, order: ('hue', 'hsl', 'rgb', 'console')
+
+uv run rasl rainbow.conf --api-port 8080
+# Dashboard: http://127.0.0.1:8080/
+```
+
+Open http://127.0.0.1:8080/ to see the graph. Press Ctrl+C to stop.
+
+To drive real lights, swap the sink. This graph listens for sACN universes 1 and 2 and sends universe 1 on
+to a controller as universe 0. `SacnSource` receives unicast sACN only: set the sender to unicast to the
+address of the machine running rasl, not to multicast (the E1.31 default).
+
+```nginx
+graph {
+    node SacnSource input {
         universes 1 2;
     }
 
-    node patch {
-        type UniversePatchTransform;
-        output universe0;
-        segment {
-            source_universe 1;
-            source_channel 1;
-            length 150;
-            target_channel 1;
-        }
-    }
-
-    node sink {
-        type SacnSinkNode;
-        input universe0;
+    node SacnSink output {
         target_host "10.0.60.30";
         target_universe 0;
+        connect input.universe_1;
     }
-
-    edge { from sacnSource:dmx; to patch:dmx; }
-    edge { from patch:universe0; to sink:universe0; }
 }
 ```
 
-1. Validate the configuration:
-
-```bash
-rasl --validate config.conf
-```
-
-1. Run the engine:
-
-```bash
-rasl config.conf
-```
-
-## Node Types
-
-### SacnSourceNode
-
-Receives sACN/E1.31 DMX data from the network.
-
-```nginx
-node source {
-    type SacnSourceNode;
-    universes 1 2 3;          # Universes to listen for
-    bind_address "0.0.0.0";   # Optional: interface to bind
-    bind_port 5568;           # Optional: UDP port
-    metadata "colorSpace=rgb"; # Optional: metadata
-}
-```
-
-### UniversePatchTransform
-
-Remaps DMX channels from source universes to an output buffer.
-
-```nginx
-node patch {
-    type UniversePatchTransform;
-    output universe0;         # Output port name
-    defaults {                # Optional defaults for segments
-        source_universe 1;
-        source_channel 1;
-        length 150;
-    }
-    segment { target_channel 1; }
-    segment { target_channel 151; }
-}
-```
-
-### SacnSinkNode
-
-Transmits DMX data via sACN/E1.31 to controllers.
-
-```nginx
-node sink {
-    type SacnSinkNode;
-    input universe0;          # Input port name
-    target_host "10.0.60.30"; # Controller IP address
-    target_universe 0;        # Target universe number
-    min_interval_ms 25;       # Rate limiting (default: 25ms)
-    source_name "RASL";       # sACN source name
-    priority 100;             # sACN priority (0-200)
-}
-```
-
-## Configuration language
+## Configuration
 
 Config files are written in [knobly](https://github.com/mcurcio/knobly): directives ended by `;`, blocks in
-`{ }`, `#` comments. Its [language reference](https://mcurcio.github.io/knobly/language/) has the whole syntax.
-What rasl configs use most:
+`{ }`, `#` comments. Its [language reference](https://mcurcio.github.io/knobly/language/) has the whole
+syntax. rasl reads these directives:
+
+- **`graph { ... }`** holds the nodes. It is required. Other top-level blocks are ignored, except `ui`.
+- **`node <Type> <id> { ... }`** declares a node. Each directive in its block sets one field of the node's
+  settings: a repeated directive becomes a list, a bare directive means `true`, and a nested block becomes a
+  map. An unknown field is an error. `node <id> { type <Type>; ... }` also works.
+- **`connect <source> [<port>];`**, inside the node that receives, wires an input. The source is a node,
+  optionally with an output port and a slice: `hue`, `input.universe_1`, `pixels[0~150]`,
+  `input.channels[0~150]`. The port is the receiving node's input port; leave it out when the node has only
+  one input.
+- **`ui { host "127.0.0.1"; port 8080; }`**, at the top level, starts the web server without `--api-port`.
+
+A larger example, with a variable, a snippet and a slice:
 
 ```nginx
-@set $pixels 2284;                    # a variable
+@set $pixels 150;
+@set $leds_host "10.0.60.30";
 
 @snippet twinkle $source {            # a reusable block
     mode brightness;
@@ -161,16 +191,118 @@ What rasl configs use most:
 }
 
 graph {
+    node Waveform hue { shape sawtooth; frequency_hz 0.1; output_channels 450; }
+    node Compose hsl {
+        ports { hue; saturation; lightness; }
+        output_type color:okhsl;
+        connect hue hue;
+        fill saturation 1;
+        fill lightness 0.5;
+    }
+    node Color rgb rgb { connect hsl; }
     node TwinkleEffect sparkle { @use twinkle rgb; }
     node DdpSink leds {
+        target $leds_host;
         max_count $pixels;
-        connect sparkle[0~150] pixels;  # a slice: bounds separated by ~
+        connect sparkle[0~450];       # a slice: bounds separated by ~
     }
-    @include "more_sinks.conf";       # another file's directives, spliced in here
+    # @include "more_sinks.conf";     # another file's directives, spliced in here
 }
 ```
 
-A problem in a config is reported with its file, line and column and a caret under the text.
+Settings typed as a frequency or a duration take units: a frequency is a number, `20hz` or `30fps`; a
+duration needs a unit, such as `50ms`, `2s` or `1.5min`. Settings whose name ends in `_ms` or `_s`, and
+`Crossfade`'s `seconds`, take a plain number in that unit.
+
+**Only nodes that feed a sink run.** The sinks set the tick rate. A node that no sink pulls from never runs,
+and `--validate` warns about it.
+
+A problem in a config is reported with its file, line and column, the source line and a caret:
+
+```text
+Error loading config: bad.conf:2:5: rasl/connect: Node 'rgb': Unknown source node 'hsl'
+    node Color rgb rgb { connect hsl; }
+    ^^^^
+```
+
+## Node types
+
+Each type except `cron` also answers to its class name (`Waveform` and `WaveformNode` are the same). Every
+node takes `metadata`. [docs/nodes.md](docs/nodes.md) lists every type's settings, with their types and
+defaults, and has a working example for each sink.
+
+| Type | What it does | Inputs | Outputs |
+|---|---|---|---|
+| **Sources** | | | |
+| `Waveform` | Sine, triangle, sawtooth, square or attack-decay wave per channel | `phase`, `speed` | `out` |
+| `SineSource` | Sine wave on every channel, for testing | | `dmx` |
+| `SeededRandom` | Fixed random values per channel, drawn once from a seed | | `out` |
+| `literal` | A constant, e.g. `node literal red color:srgb [[1,0,0]];` | | `out` |
+| `cron` | 1 while the local time matches a cron schedule, else 0, e.g. `node cron night 0 22;` | | `out` |
+| `SacnSource` | Receives sACN universes | | `universe_<N>` per universe, `channels` (all merged) |
+| **Transforms** | | | |
+| `Compose` | Interleaves named inputs into one payload, such as a color | the names in `ports { }` | `out` |
+| `Color` | Converts to a color model, e.g. `node Color rgb rgb { ... }` | `color` | `color` |
+| `ColorCorrection` | Gamma, saturation, brightness and per-channel scale and offset | `input` | `out` |
+| `Math` | Element-wise multiply, add, subtract, min, max, screen or lerp | `a`, `b` | `out` |
+| `MatrixMultiply` | Applies a fixed matrix to each channel vector | `input` | `out` |
+| `RangeMap` | Maps each channel to its own range | `input` | `out` |
+| `RandomMap` | Maps input channels to output channels at random, optionally seeded | `input` | `out` |
+| `Smooth` | Smoothing and slew limiting over time | `input`, `reset` | `output` |
+| `TwinkleEffect` | Per-pixel twinkle over a color input | `input` | `out` |
+| `Crossfade` | Fades between two colors when a selector changes | `input0`, `input1`, `selector` | `out` |
+| **Sinks** | | | |
+| `ConsoleSink` | Prints frames to the log | `dmx` | |
+| `SacnSink` | Sends one sACN universe | `input` | |
+| `DdpSink` | Sends pixels over DDP | `input` | |
+| `LifxSink` | Sets LIFX bulbs | `color` | |
+| `GoveeLight` | Sets a Govee light over its LAN API | `light` | |
+
+`uv run rasl --describe <file>` prints the nodes, their ports and the edges of a config as JSON.
+
+## Command line
+
+```text
+rasl [-h] [-v] [--validate] [--describe] [--api-port PORT] [--api-host HOST] [--no-watch] [--profile] [config]
+```
+
+| Option | What it does |
+|---|---|
+| `config` | The config file to run. |
+| `--validate` | Load the config, print the node count and run order, and exit. |
+| `--describe` | Print the graph as JSON and exit. Log lines come first on stdout. |
+| `--api-port PORT` | Start the web server on this port. Overrides the `ui` block. |
+| `--api-host HOST` | The address the web server binds when `--api-port` is given. Default `127.0.0.1`. Without `--api-port`, the `ui` block's `host` is used. |
+| `--no-watch` | Do not reload the config when it changes. |
+| `--profile` | Turn on runtime profiling. |
+| `-v`, `--version` | Print the version. |
+
+Without `--api-port` or a `ui` block, no web server runs.
+
+## Web UI and API
+
+When the web server runs, it serves:
+
+- **`/`**: the dashboard: the graph, and for the selected node its details, metrics and connections. It loads
+  two scripts in the browser, cytoscape from cdn.jsdelivr.net and graphql-ws from unpkg.com, so the browser
+  needs internet access.
+- **`/graphql`**: a GraphQL API. Open it in a browser for the GraphiQL editor. Queries are `health`, `graph`,
+  `metrics` and `node(nodeId)`; the subscription `metricsStream(intervalMs)` runs over the
+  graphql-transport-ws protocol. There are no mutations.
+- **`GET /health`**: JSON with `status`, uptime, tick count, time since the last tick, disabled nodes and the
+  result of the last reload. `status` is one of:
+
+  | Status | Meaning | HTTP |
+  |---|---|---|
+  | `ok` | The graph is running. | 200 |
+  | `degraded` | It is running, but the last config reload failed and the previous graph still runs. (A node disabled after repeated failures also counts, but the `rasl` command does not disable failing nodes today.) | 200 |
+  | `stalled` | It has rate-driving sinks, but no tick has finished for 10 ticks at the slowest sink's rate (at least 5 seconds). | 503 |
+
+The server also answers FastAPI's default pages: `/docs` (Swagger UI, which loads its assets from a CDN),
+`/redoc` and `/openapi.json`.
+
+The server has no authentication. It binds `127.0.0.1` unless `--api-host` (with `--api-port`) or the `ui`
+block's `host` says otherwise (the container passes `0.0.0.0`).
 
 ## Live reload
 
@@ -187,40 +319,22 @@ follows within about a second, at the next tick; nothing restarts but what chang
 | the `ui` block | nothing until rasl is restarted (a warning says so) |
 
 A config with a problem is never applied, in whole or in part. The problem is printed with its file, line and
-column, and the graph keeps running as it was until the files are valid again.
+column, the graph keeps running as it was, and `/health` reports `degraded` until the files are valid again.
 
 Run with `--no-watch` to turn this off.
 
-## Development
+## Documentation
 
-### Running Tests
+- [docs/](docs/README.md): the documentation index.
+- [knobly language reference](https://mcurcio.github.io/knobly/language/): the config file syntax.
+- [CONTRIBUTING.md](CONTRIBUTING.md): the repository layout, building, testing and writing a node.
+- [js/README.md](js/README.md): the JavaScript workspace.
 
-```bash
-uv run pytest -v
-```
+## Contributing
 
-### Project Structure
-
-```text
-src/rasl/
-├── units.py     # Duration and Frequency: typed quantities for node config
-├── signal/      # What flows: Frame, matrix and bool payloads, payload registry
-├── color/       # Color models, conversions (one module per model family), color payloads
-├── graph/       # Topology and the node contract
-│   ├── node/    #   BaseNode, its Config bases, NodeContext, TickContext, node registry
-│   ├── ports/   #   Port specs, port groups, the ports nodes read and write
-│   └── ...      #   Edge, Slice, GraphBuilder, ExecutionPlan, input routing, ordering
-├── runtime/     # Running a plan: Runtime, Scheduler, Executor, NodeHost, diagnostics
-├── nodes/       # Built-in nodes: effects, color, debug, literal
-├── devices/     # One package per protocol: sacn, ddp, lifx, govee
-├── config/      # The config language: document, node and connect directives, build, reload, watch
-└── app/         # The rasl command, the GraphQL server, the dashboard files
-tests/           # Mirrors src/rasl
-```
-
-Each package imports only from those listed above it (`runtime`, `nodes` and `devices` do not
-import each other, nor do `graph` and `color`). `tests/test_import_layers.py` checks this.
+Bug reports and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) explains how to set up a
+checkout, run the checks and open a pull request.
 
 ## License
 
-See [LICENSE](../LICENSE) for details.
+rasl is released under the [MIT License](LICENSE).
