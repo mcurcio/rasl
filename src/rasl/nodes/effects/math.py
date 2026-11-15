@@ -36,7 +36,11 @@ class MathNode(BaseNode):
         - lerp: a + (b - a) * mix  (linear interpolation)
 
     Example config:
-        rasl {
+        graph {
+            node literal base_color matrix [[1.0, 0.5, 0.2]];
+            node literal brightness matrix [[0.5, 0.5, 0.5]];
+            node literal input matrix [[0.2, 0.2, 0.2]];
+
             node Math apply_brightness {
                 operation multiply;
                 connect base_color a;

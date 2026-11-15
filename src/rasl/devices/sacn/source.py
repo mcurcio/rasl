@@ -45,7 +45,7 @@ class SacnSourceNode(BaseNode):
     the channel data normalized to float32 [0.0, 1.0].
 
     Example config:
-        rasl {
+        graph {
             node SacnSource sacnSource {
                 universes 1 2;
                 bind_address "0.0.0.0";

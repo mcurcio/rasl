@@ -37,10 +37,11 @@ class SmoothNode(BaseNode):
 
     Example config:
         graph {
+            node Waveform source { output_channels 8; }
             node Smooth soft {
                 smooth_period 200ms;
                 slew_period 2s;
-                connect source;
+                connect source input;
             }
         }
     """

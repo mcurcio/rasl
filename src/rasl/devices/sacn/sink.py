@@ -32,7 +32,7 @@ class SacnSinkNode(BaseNode):
     one packet every ``min_interval_ms`` (40 a second when that is 0).
 
     Example config:
-        rasl {
+        graph {
             node SacnSink sacnSink0 {
                 input_port universe0;
                 target_host "10.0.60.30";

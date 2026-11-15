@@ -232,20 +232,14 @@ def _node_config(
     raw_config["id"] = node_id
 
     # Values on the node's own line, after its type and name, are the node type's to read
-    positional = getattr(config_class, "from_positional", None)
+    # (BaseNodeConfig.from_positional refuses any, for a type that takes none)
     words = arg_texts(directive)[2:]
-    if positional is not None:
-        try:
-            raw_config.update(positional(words, [value.text for value in directive.values[2:]]))
-        except ValueError as e:
-            raise config_error(directive, str(e), code="rasl/node-syntax", tree=tree) from None
-    elif words:
-        raise config_error(
-            directive,
-            f"Node type '{node_type}' takes no values after its name",
-            code="rasl/node-syntax",
-            tree=tree,
+    try:
+        raw_config.update(
+            config_class.from_positional(words, [value.text for value in directive.values[2:]])
         )
+    except ValueError as e:
+        raise config_error(directive, str(e), code="rasl/node-syntax", tree=tree) from None
 
     # Metadata is read from the directives themselves, which keep each line's place
     metadata = _metadata(directive, tree)

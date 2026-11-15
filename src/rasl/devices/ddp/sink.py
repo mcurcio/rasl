@@ -40,7 +40,17 @@ class DdpSinkNode(BaseNode):
     allowing flexible connection syntax in config files.
 
     Example config:
-        rasl {
+        graph {
+            node Waveform hue { output_channels 151; }
+            node Compose hsl {
+                ports { hue; saturation; lightness; }
+                output_type color:okhsl;
+                connect hue hue;
+                fill saturation 1;
+                fill lightness 0.5;
+            }
+            node Color toRgb rgb { connect hsl; }
+
             node DdpSink leds {
                 target "10.0.60.30";
                 fps 20hz;      # or "20", "50ms"

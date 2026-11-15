@@ -120,7 +120,7 @@ class LiteralNode(BaseNode):
     construction and returned unchanged on every pull.
     
     Example config:
-        rasl {
+        graph {
             node literal static_hsl color:hsl [[1, 0, 0], [0.5, 0, 0]];
             node literal gains matrix [[1.0, 0.9, 0.8]];
         }

@@ -28,7 +28,7 @@ class SineSourceNode(BaseNode):
     it on the "dmx" output port at a fixed frame rate.
 
     Example config:
-        rasl {
+        graph {
             node SineSource sine {
                 output_channels 512;
                 frequency_hz 1.0;

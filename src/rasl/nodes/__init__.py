@@ -28,12 +28,12 @@ Transform and Sink bases) are in rasl.graph.node.
 
 Example configuration::
 
-    rasl {
+    graph {
         node SacnSource sacnSource {
             universes 1 2;
         }
-        node Color toOklch {}  # Default: oklch output
-        node Color toRgb rgb {}  # Explicit rgb output
+        node Color toOklch oklch { connect sacnSource; }  # convert to OKLCH
+        node Color toRgb rgb { connect toOklch; }         # and back to RGB
         node SacnSink sacnSink0 {
             input_port universe0;
             target_host "10.0.60.30";

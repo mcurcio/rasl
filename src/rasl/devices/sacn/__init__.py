@@ -9,7 +9,7 @@ Components:
     - shims: Compatibility patches for the sacn library
 
 Example config:
-    rasl {
+    graph {
         node SacnSource dmx_in {
             universes 1 2 3;
             bind_address "0.0.0.0";

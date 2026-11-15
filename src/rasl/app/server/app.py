@@ -84,17 +84,10 @@ def create_app(
     )
     app.include_router(graphql_app, prefix="/graphql")
 
-    ui_dir_candidates = [
-        # Preferred: packaged UI under src/rasl/ui
-        Path(__file__).resolve().parents[1] / "ui",
-        # Backward-compatible: repo-root ui/ (during migration)
-        Path(__file__).resolve().parents[3] / "ui",
-    ]
-
-    for ui_dir in ui_dir_candidates:
-        if ui_dir.exists() and ui_dir.is_dir():
-            app.mount("/", StaticFiles(directory=str(ui_dir), html=True), name="ui")
-            break
+    # The dashboard ships inside the package, in rasl/app/ui
+    ui_dir = Path(__file__).resolve().parents[1] / "ui"
+    if ui_dir.is_dir():
+        app.mount("/", StaticFiles(directory=str(ui_dir), html=True), name="ui")
 
     return app
 

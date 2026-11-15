@@ -11,7 +11,6 @@ Pull-based execution model:
     - Sinks use @pull_rate(hz) decorator to drive the scheduler
 
 Example:
-    >>> from rasl.config.document import Directive
     >>> from rasl.graph.node import NodeContext
     >>> from rasl.signal import MatrixPayload
     >>> from rasl.graph.ports import PortGroup
@@ -79,6 +78,11 @@ class BaseNode(ABC):
         outputs: Bound output ports (set by scheduler at runtime).
 
     Example:
+        >>> from pydantic import Field
+        >>> from rasl.graph.node import BaseNode, TickContext, TransformNodeConfig, node
+        >>> from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
+        >>> from rasl.signal import MatrixPayload
+        >>>
         >>> @node("MyTransform")
         ... class MyTransform(BaseNode):
         ...     class Config(TransformNodeConfig):
@@ -95,7 +99,7 @@ class BaseNode(ABC):
         ...         frame = self.inputs.data.read()
         ...         if frame:
         ...             result = frame.payload.data * self._gain
-        ...             self.outputs.result.write(frame.with_payload(ArrayPayload(result)))
+        ...             self.outputs.result.write(frame.with_payload(MatrixPayload(result)))
     """
 
     # Subclasses define this as a nested class
