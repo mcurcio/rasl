@@ -75,13 +75,11 @@ def build_plan(
 
     # First pass: build all nodes
     for directive in children(graph_directive(tree), "node"):
-        node_type, node_id, extra_args = node_spec(directive, tree)
+        node_type, node_id = node_spec(directive, tree)
         if node_id in keep:
             node = keep[node_id]
         else:
-            node_class, config = _node_config(
-                node_type, node_id, directive, tree, extra_args=extra_args
-            )
+            node_class, config = _node_config(node_type, node_id, directive, tree)
             if node_id in update:
                 node = update[node_id]
                 configs[node_id] = config

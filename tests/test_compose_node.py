@@ -183,14 +183,14 @@ class TestExtractBlockDictAccumulation:
         assert result["fill"] == ["saturation", 1]
 
     def test_nested_ports_block(self) -> None:
-        """Nested ports block is extracted as list of names."""
+        """A block of bare names reads like any block; ComposeNode's Config takes the names."""
         directive = _directive("node { ports { hue; saturation; lightness; } }")
 
         result = _extract_config_dict(directive)
 
         assert "ports" in result
-        # New loader extracts ports as list of names
-        assert result["ports"] == ["hue", "saturation", "lightness"]
+        assert list(result["ports"]) == ["hue", "saturation", "lightness"]
+        assert ComposeNode.Config(id="c", ports=result["ports"], fill={"hue": 0}).ports == ["hue", "saturation", "lightness"]
 
 
 class TestComposeNodeIntegration:

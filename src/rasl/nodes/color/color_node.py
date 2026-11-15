@@ -14,7 +14,8 @@ Example config:
 
 from __future__ import annotations
 
-from typing import Literal
+from collections.abc import Sequence
+from typing import Any, Literal
 
 import numpy as np
 
@@ -95,6 +96,13 @@ class ColorNode(BaseNode):
         """
 
         model: ColorModel  # type: ignore[assignment]
+
+        @classmethod
+        def from_positional(cls, words: Sequence[str], written: Sequence[str]) -> dict[str, Any]:
+            """``node Color <name> <model>``: the one value is the output model."""
+            if len(words) > 1:
+                raise ValueError(f"a Color node takes one value after its name, the color model (got {len(words)})")
+            return {"model": words[0]} if words else {}
 
     # Class-level ports
     inputs = PortGroup.inputs(color=InputPortSpec((MatrixPayload, ColorPayload)))

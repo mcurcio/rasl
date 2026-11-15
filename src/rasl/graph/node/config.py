@@ -14,7 +14,8 @@ Config models only contain user-configurable parameters.
 
 from __future__ import annotations
 
-from typing import Literal
+from collections.abc import Sequence
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -22,6 +23,7 @@ from rasl.units import Frequency
 
 
 class BaseNodeConfig(BaseModel):
+
     """Base configuration shared by all nodes.
 
     Attributes:
@@ -36,6 +38,30 @@ class BaseNodeConfig(BaseModel):
 
     id: str = Field(..., description="Unique node identifier")
     metadata: dict[str, str] = Field(default_factory=dict)
+
+    @classmethod
+    def from_positional(cls, words: Sequence[str], written: Sequence[str]) -> dict[str, Any]:
+        """Settings given on the node's own line, after its type and name.
+
+        ``node Color warm oklch { ... }`` has one such value, ``oklch``. A node
+        type that takes values there overrides this in its Config and returns
+        them as settings, by field name; they are validated with the rest.
+
+        Args:
+            words: Each value as a plain word (quotes removed).
+            written: Each value as the config wrote it (a list keeps its
+                brackets, a string its quotes).
+
+        Returns:
+            Settings to add to the node's config.
+
+        Raises:
+            ValueError: If the values are not what this node type takes. The
+                message is shown at the node's line in the config.
+        """
+        if words:
+            raise ValueError("this node type takes no values after its name")
+        return {}
 
 
 class SourceNodeConfig(BaseNodeConfig):

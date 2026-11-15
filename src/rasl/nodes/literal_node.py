@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import ast
 import time
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 from typing import Literal as TypingLiteral
 
@@ -131,6 +132,20 @@ class LiteralNode(BaseNode):
         payload_subtype: str | None = Field(None, description="Payload subtype (hsl, oklch, etc.)")
         literal_value: str = Field(..., description="Literal value as string")
     
+
+        @classmethod
+        def from_positional(cls, words: Sequence[str], written: Sequence[str]) -> dict[str, Any]:
+            """``node literal <name> <kind>[:<subtype>] <value>``: the payload type,
+            then the value as written (a list as "[[1, 0, 0], [0.5, 0, 0]]")."""
+            if len(words) < 2:
+                raise ValueError("literal node requires: node literal <name> <kind:subtype> <value>;")
+            kind, _, subtype = words[0].partition(":")
+            return {
+                "payload_kind": kind,
+                "payload_subtype": subtype or None,
+                "literal_value": " ".join(written[1:]),
+            }
+
     outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
     
     def __init__(self, config: Config) -> None:

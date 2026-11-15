@@ -93,15 +93,7 @@ def _extract_config_dict(
                     child_dict.setdefault("id", arg_values[0])
                 else:
                     child_dict.setdefault("_args", arg_values)
-            if keyword == "segment":
-                result.setdefault("segments", []).append(child_dict)
-            elif keyword == "defaults":
-                result["defaults"] = child_dict
-            elif keyword == "ports":
-                # Special handling for ports block - extract as list of names
-                result["ports"] = [d.name for d in child.block]
-            else:
-                _accumulate_block(keyword, child_dict, child)
+            _accumulate_block(keyword, child_dict, child)
         elif len(values) == 0:
             # Flag directive
             result[keyword] = True
@@ -137,7 +129,6 @@ def _node_config(
     node_id: str,
     directive: Directive,
     tree: Rendered,
-    extra_args: dict[str, Any] | None = None,
 ) -> tuple[Any, Any]:
     """A node's class and its validated config, from its directive.
 
@@ -146,7 +137,6 @@ def _node_config(
         node_id: Unique node identifier.
         directive: Directive containing node config.
         tree: The rendered config the directive belongs to.
-        extra_args: Additional config from positional args.
 
     Returns:
         (node class, validated Config instance).
@@ -175,9 +165,21 @@ def _node_config(
     raw_config = _extract_config_dict(directive, exclude={"connect", "edge"}, placed=placed)
     raw_config["id"] = node_id
 
-    # Merge extra args
-    if extra_args:
-        raw_config.update(extra_args)
+    # Values on the node's own line, after its type and name, are the node type's to read
+    positional = getattr(config_class, "from_positional", None)
+    words = arg_texts(directive)[2:]
+    if positional is not None:
+        try:
+            raw_config.update(positional(words, [value.text for value in directive.values[2:]]))
+        except ValueError as e:
+            raise config_error(directive, str(e), code="rasl/node-syntax", tree=tree) from None
+    elif words:
+        raise config_error(
+            directive,
+            f"Node type '{node_type}' takes no values after its name",
+            code="rasl/node-syntax",
+            tree=tree,
+        )
 
     # Handle metadata
     if "metadata" in raw_config:
@@ -225,11 +227,15 @@ def node_id_of(directive: Directive) -> str | None:
     return args[0] if len(args) == 1 else args[1]
 
 
-def node_spec(directive: Directive, tree: Rendered) -> tuple[str, str, dict[str, Any]]:
-    """A ``node`` directive's type name, id and the config its positional values give.
+def node_spec(directive: Directive, tree: Rendered) -> tuple[str, str]:
+    """A ``node`` directive's type name and id.
+
+    Two forms: ``node <Type> <id> [values...] { ... }`` and
+    ``node <id> { type <Type>; ... }``. Values after the id belong to the node
+    type (``BaseNodeConfig.from_positional``).
 
     Raises:
-        ConfigError: If the directive is not one of the node forms.
+        ConfigError: If the directive is neither form.
     """
 
     def node_error(at: Directive, message: str) -> ConfigError:
@@ -239,71 +245,10 @@ def node_spec(directive: Directive, tree: Rendered) -> tuple[str, str, dict[str,
     if not args:
         raise node_error(directive, "Node directive requires a name")
 
-    # Parse node syntax variants
-    node_type = args[0]
-    
-    # Special handling for literal nodes:
-    # node literal <name> <kind>:<subtype> <literal_value...>;
-    if node_type in ("literal", "Literal", "LiteralNode"):
-        if len(args) < 4:
-            raise node_error(
-                directive,
-                "literal node requires: node literal <name> <kind:subtype> <value>;",
-            )
-        node_id = args[1]
-        type_spec = args[2]
-        # The literal value string is the canonical text of the remaining values
-        # (a list as "[[1, 0, 0], [0.5, 0, 0]]", a string in double quotes)
-        literal_value = " ".join(value.text for value in directive.values[3:])
-        
-        # Parse type_spec (e.g., "color:hsl" -> kind="color", subtype="hsl")
-        if ":" in type_spec:
-            payload_kind, payload_subtype = type_spec.split(":", 1)
-        else:
-            payload_kind = type_spec
-            payload_subtype = None
-        
-        extra_args = {
-            "payload_kind": payload_kind,
-            "payload_subtype": payload_subtype,
-            "literal_value": literal_value,
-        }
-    elif len(args) == 1:
+    if len(args) == 1:
         node_id = args[0]
         type_args = [arg_texts(d) for d in children(directive, "type")[:1]]
         if not type_args or not type_args[0]:
             raise node_error(directive, f"Node '{node_id}' requires 'type' directive")
-        node_type = type_args[0][0]
-        extra_args = {}
-    elif len(args) == 2:
-        node_id = args[1]
-        extra_args = {}
-    elif node_type in ("cron",):
-        # node cron <name> <field1> [field2 ... field5];
-        # Missing trailing fields are treated as "*" by the node.
-        if len(args) < 3:
-            raise node_error(
-                directive,
-                "cron node requires: node cron <name> <field1> [field2 ... field5];",
-            )
-        if len(args) > 7:
-            raise node_error(
-                directive, f"cron node supports 1-5 fields, got {len(args) - 2}"
-            )
-        node_id = args[1]
-        extra_args = {"schedule": list(args[2:])}
-    elif len(args) == 3:
-        node_id = args[1]
-        if node_type in ("Color", "ColorNode"):
-            extra_args = {"model": args[2]}
-        else:
-            raise node_error(
-                directive,
-                f"Node type '{node_type}' does not accept a third positional argument",
-            )
-    else:
-        raise node_error(
-            directive, f"Node directive takes 1-3 arguments, got {len(args)}"
-        )
-
-    return node_type, node_id, extra_args
+        return type_args[0][0], node_id
+    return args[0], args[1]

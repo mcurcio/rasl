@@ -239,3 +239,27 @@ class TestDefaultPorts:
         edge = plan.adjacency["sine"][0]
         assert edge.target == "console"
         assert edge.target_port == "dmx"  # ConsoleSink has single input
+
+
+class TestValuesAfterTheNodeName:
+    """Values on a node's own line belong to the node type (Config.from_positional)."""
+
+    def test_a_node_type_that_takes_none_refuses_them(self):
+        with pytest.raises(ConfigError, match="this node type takes no values after its name") as caught:
+            parse_config("graph {\n    node Smooth soft extra { }\n}\n")
+        assert caught.value.line == 2
+
+    def test_color_takes_its_model(self):
+        plan = parse_config("graph {\n    node Color c oklch { }\n}\n")
+        assert plan.nodes["c"]._model == "oklch"
+
+    def test_color_refuses_a_second_value(self):
+        with pytest.raises(ConfigError, match="a Color node takes one value after its name"):
+            parse_config("graph {\n    node Color c oklch extra { }\n}\n")
+
+    def test_cron_takes_one_to_five_fields(self):
+        parse_config("graph {\n    node cron every * * * * *;\n}\n")
+        with pytest.raises(ConfigError, match="cron node supports 1-5 fields, got 6"):
+            parse_config("graph {\n    node cron every * * * * * *;\n}\n")
+        with pytest.raises(ConfigError, match="cron node requires"):
+            parse_config("graph {\n    node cron every;\n}\n")

@@ -21,9 +21,10 @@ Day-of-week accepts 0-7 where 0 and 7 both mean Sunday.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 from pydantic import Field
@@ -160,6 +161,16 @@ class CronNode(BaseNode):
                 "Can be provided as a single string (e.g. '*/10 * * * *') or as multiple args."
             ),
         )
+
+        @classmethod
+        def from_positional(cls, words: Sequence[str], written: Sequence[str]) -> dict[str, Any]:
+            """``node cron <name> <field1> [field2 ... field5]``: the schedule's fields.
+            Missing trailing fields are treated as "*"."""
+            if not words:
+                raise ValueError("cron node requires: node cron <name> <field1> [field2 ... field5];")
+            if len(words) > 5:
+                raise ValueError(f"cron node supports 1-5 fields, got {len(words)}")
+            return {"schedule": list(words)}
 
     outputs = PortGroup.outputs(out=OutputPortSpec(BoolPayload, count=1))
 
