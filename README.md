@@ -23,12 +23,31 @@ uv sync --dev
 ### Container
 
 ```bash
-docker run -p 8080:8080 -p 5568:5568/udp -v rasl-config:/config ghcr.io/mcurcio/rasl
+docker run -p 8080:8080 -p 5568:5568/udp -v rasl-config:/config \
+    -e PUID=1000 -e PGID=1000 -e TZ=America/New_York ghcr.io/mcurcio/rasl
 ```
 
 The config is `/config/rasl.conf` in the `/config` volume. If it does not exist when the container
 starts, the image writes a starter config there (an empty graph) and never overwrites it after
 that. The web UI is on port 8080 and sACN arrives on 5568/udp. Edit the file and rasl reloads it.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `PUID`, `PGID` | `1000` | The user and group rasl runs as. The container starts as root, gives `/config` and everything in it to them, and drops to them before rasl starts. |
+| `UMASK` | `022` | The umask for files rasl and the seed create (`002` makes them group-writable). |
+| `TZ` | UTC | The time zone, e.g. `America/New_York`. |
+| `RASL_PORT` | `8080` | The web UI and API port of the default command and the health check. |
+
+Started as another user instead (`docker run --user`, Kubernetes `runAsUser`), it runs as that user,
+ignores `PUID`/`PGID` and changes no owners; the volume must then be writable by that user. Started
+as root, it needs Docker's default capabilities (`CHOWN`, `SETUID`, `SETGID`): with `--cap-drop ALL`
+it cannot switch users and exits.
+
+The image's `HEALTHCHECK` asks `GET /health`. That answers 503 (unhealthy) when the graph has
+rate-driving sinks but has stopped ticking, and 200 when it is `ok` or `degraded` (a node disabled
+for repeated failures, or the last config reload failed and the previous graph still runs). The
+GraphQL `health` field reports the same.
+
 Arguments replace the default command and go to `rasl`, e.g. `--validate /config/rasl.conf`.
 
 ## Quick Start

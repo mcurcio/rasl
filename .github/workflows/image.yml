@@ -74,44 +74,60 @@ jobs:
                   platforms: ${{ env.PLATFORMS }}
                   load: true
                   tags: rasl:smoke
+                  build-args: |
+                      VERSION=${{ steps.meta.outputs.version }}
+                      REVISION=${{ github.sha }}
                   provenance: false
                   sbom: false
 
             - name: Smoke test
-              # As a non-root user: (1) run virtual.conf (no network devices) and check the UI
-              # and the API answer; (2) start on an empty volume with the default command and
-              # check the entrypoint seeds an empty graph and serves the UI; (3) restart on
-              # that volume after an edit and check the seed does not overwrite it
+              # (1) virtual.conf (no network devices) with explicit arguments: the UI and the
+              # API answer, and rasl runs as the default PUID:PGID, not root. (2) An empty
+              # named volume with PUID/PGID/UMASK set: the entrypoint seeds an empty graph
+              # owned by them, the health check passes, and a restart keeps an edit.
+              # (3) Started as another user with a read-only root and no capabilities (as
+              # Kubernetes runs it): it runs as that user and still seeds a writable volume.
               run: |
                   set -eu
                   wait_ui() {
                       for _ in $(seq 1 30); do
-                          if curl -fsS -o /dev/null "http://127.0.0.1:$1/"; then return 0; fi
+                          if curl -fsS -o /dev/null "http://127.0.0.1:$1/health"; then return 0; fi
                           sleep 1
                       done
                       return 1
                   }
-                  uid=$(docker run --rm --entrypoint id rasl:smoke -u)
-                  test "$uid" != 0
+                  uid_of() { docker exec "$1" sh -c 'awk "/^Uid:/ {print \$2}" /proc/1/status'; }
 
                   docker run -d --name smoke -p 8080:8080 -v "$PWD/virtual.conf:/config/rasl.conf:ro" \
                       rasl:smoke /config/rasl.conf --api-host 0.0.0.0 --api-port 8080
                   wait_ui 8080 || { docker logs smoke; exit 1; }
-                  curl -fsS -H 'content-type: application/json' -d '{"query":"{__typename}"}' \
-                      http://127.0.0.1:8080/graphql | grep -q '"Query"'
+                  curl -fsS -H 'content-type: application/json' -d '{"query":"{health{status}}"}' \
+                      http://127.0.0.1:8080/graphql | grep -q '"status": "ok"'
+                  test "$(uid_of smoke)" = 1000
                   docker rm -f smoke
 
                   docker volume create seed
-                  docker run -d --name seed --read-only --cap-drop ALL -p 8081:8080 -v seed:/config rasl:smoke
+                  docker run -d --name seed -p 8081:8080 -e PUID=1234 -e PGID=2345 -e UMASK=002 \
+                      -v seed:/config rasl:smoke
                   wait_ui 8081 || { docker logs seed; exit 1; }
                   docker logs seed 2>&1 | grep -q 'seeded /config/rasl.conf'
+                  test "$(uid_of seed)" = 1234
+                  test "$(docker exec seed stat -c '%u:%g %a' /config/rasl.conf)" = "1234:2345 664"
                   docker exec seed grep -q '^graph {' /config/rasl.conf
+                  docker exec seed rasl-healthcheck
                   docker exec seed sh -c 'printf "# edited\ngraph {\n}\n" > /config/rasl.conf'
                   docker restart seed
                   wait_ui 8081 || { docker logs seed; exit 1; }
                   test "$(docker exec seed head -1 /config/rasl.conf)" = "# edited"
                   docker rm -f seed
                   docker volume rm seed
+
+                  docker run -d --name asuser -p 8082:8080 --user 65534:65534 --read-only --cap-drop ALL \
+                      --mount type=tmpfs,destination=/config,tmpfs-mode=1777 rasl:smoke
+                  wait_ui 8082 || { docker logs asuser; exit 1; }
+                  test "$(uid_of asuser)" = 65534
+                  docker exec asuser grep -q '^graph {' /config/rasl.conf
+                  docker rm -f asuser
 
             - name: Push
               id: build
@@ -121,6 +137,9 @@ jobs:
                   context: .
                   platforms: ${{ env.PLATFORMS }}
                   push: true
+                  build-args: |
+                      VERSION=${{ steps.meta.outputs.version }}
+                      REVISION=${{ github.sha }}
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
                   provenance: false

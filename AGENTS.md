@@ -39,9 +39,11 @@ pushes to `alpha`, `beta` and `main`: the Python checks above plus `uv run lint-
 `pnpm lint` and `pnpm format:check` are not in CI because they fail today (`rasl-t57`).
 
 `.github/workflows/image.yml` builds the Python runtime's container image (`Dockerfile`; its
-entrypoint, `docker/entrypoint.sh`, seeds `/config/rasl.conf` with `docker/rasl.conf`, an empty
-graph, when the file is missing) and smoke-tests it on pull requests; on a push to `alpha` it
-pushes `ghcr.io/mcurcio/rasl:sha-<sha>`.
+entrypoint, `docker/entrypoint.sh`, drops from root to `PUID`:`PGID`, applies `UMASK`, and seeds
+`/config/rasl.conf` with `docker/rasl.conf`, an empty graph, when the file is missing; its
+`HEALTHCHECK` runs `docker/healthcheck.py` against `GET /health`) and smoke-tests it on pull
+requests; on a push to `alpha` it pushes `ghcr.io/mcurcio/rasl:sha-<sha>`. The container's
+variables are listed in `README.md` (Installation, Container).
 That image is the only thing any workflow publishes. mcurcio/iac (`workloads/rasl`) deploys it
 by tag and digest.
 
