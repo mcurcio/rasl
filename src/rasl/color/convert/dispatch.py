@@ -33,6 +33,19 @@ from rasl.color.models import _resolve_components, normalize_model
 colour.utilities.filter_warnings(colour_usage_warnings=False)
 
 
+def _clip_to_model(result: NDArray, model: str) -> NDArray:
+    """Keep a converted result inside its model's range.
+
+    Every model's components run from 0 to 1 except Oklab's a and b, which are
+    signed (green to red, blue to yellow): only its lightness is clipped.
+    """
+    if model == "oklab":
+        clipped = np.array(result, dtype=np.float32)
+        clipped[..., 0] = np.clip(clipped[..., 0], 0.0, 1.0)
+        return clipped
+    return np.clip(result, 0.0, 1.0)
+
+
 def convert(
     data: NDArray[np.float32],
     from_model: str,
@@ -108,13 +121,13 @@ def convert(
 
     result = _try_direct_convert(pixels, from_model, to_model)
     if result is not None:
-        result = np.clip(result, 0.0, 1.0)
+        result = _clip_to_model(result, to_model)
         return result.reshape(count, target_components).astype(np.float32)
 
     xyz = _to_xyz(pixels, from_model)
     result = _from_xyz(xyz, to_model)
 
-    result = np.clip(result, 0.0, 1.0)
+    result = _clip_to_model(result, to_model)
     return result.reshape(count, target_components).astype(np.float32)
 
 

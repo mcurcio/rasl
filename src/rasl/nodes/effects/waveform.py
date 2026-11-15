@@ -148,27 +148,31 @@ class WaveformNode(BaseNode):
         """Compute waveform using scheduler's authoritative time."""
         t = tick.t
 
-        # Base phase for all channels
-        base_phase = (self._frequency_hz * t) % 1.0
+        # Cycles completed so far, before any per-channel speed
+        cycles = self._frequency_hz * t
 
-        # Read optional modulation inputs
+        # Read optional modulation inputs: one value per channel, whatever
+        # shape the payload has (a column of N rows is the usual one)
         phase_offsets: NDArray[np.float32] | None = None
         speed_multipliers: NDArray[np.float32] | None = None
 
         if phase_frame := self.inputs.phase.read():
-            phase_offsets = np.asarray(phase_frame.payload, dtype=np.float32)
+            phase_offsets = np.asarray(phase_frame.payload, dtype=np.float32).reshape(-1)
 
         if speed_frame := self.inputs.speed.read():
-            speed_multipliers = np.asarray(speed_frame.payload, dtype=np.float32)
+            speed_multipliers = np.asarray(speed_frame.payload, dtype=np.float32).reshape(-1)
 
-        # Apply per-channel speed multipliers if available
+        # Apply per-channel speed multipliers if available. The speed scales
+        # the cycles, and only then is the phase wrapped: wrapping first would
+        # make every channel jump whenever the base cycle restarts. In float64,
+        # so the phase stays smooth after long uptime.
         if speed_multipliers is not None:
             speeds = speed_multipliers[: self._channels]
             if len(speeds) < self._channels:
                 speeds = np.resize(speeds, self._channels)
-            phase = (base_phase * speeds) % 1.0
+            phase = ((cycles * speeds.astype(np.float64)) % 1.0).astype(np.float32)
         else:
-            phase = np.full(self._channels, base_phase, dtype=np.float32)
+            phase = np.full(self._channels, cycles % 1.0, dtype=np.float32)
 
         # Apply per-channel phase offsets if available
         if phase_offsets is not None:

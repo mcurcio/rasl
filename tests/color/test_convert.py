@@ -403,3 +403,25 @@ class TestColorPayloadToModel:
         assert hsbk.data.shape == (1, 4)
         assert np.all(hsbk.data >= 0.0)
         assert np.all(hsbk.data <= 1.0)
+
+
+class TestOklabIsSigned:
+    """Oklab's a and b run below zero; a conversion must not clip them."""
+
+    @pytest.mark.parametrize(
+        "rgb",
+        [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [0.2, 0.6, 0.9], [1.0, 1.0, 0.0], [0.5, 0.5, 0.5]],
+    )
+    def test_srgb_round_trips_through_oklab(self, rgb) -> None:
+        pixels = np.array([rgb], dtype=np.float32)
+        lab = convert(pixels, "srgb", "oklab")
+        np.testing.assert_allclose(convert(lab, "oklab", "srgb"), pixels, atol=2e-3)
+
+    def test_blue_and_green_have_negative_components(self) -> None:
+        blue = convert(np.array([[0.0, 0.0, 1.0]], dtype=np.float32), "srgb", "oklab")[0]
+        green = convert(np.array([[0.0, 1.0, 0.0]], dtype=np.float32), "srgb", "oklab")[0]
+        assert blue[2] < -0.25 and green[1] < -0.2
+
+    def test_lightness_is_still_clipped(self) -> None:
+        lab = convert(np.array([[1.0, 1.0, 1.0]], dtype=np.float32), "srgb", "oklab")[0]
+        assert 0.0 <= lab[0] <= 1.0
