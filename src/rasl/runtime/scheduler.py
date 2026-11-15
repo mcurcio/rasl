@@ -35,6 +35,10 @@ class Scheduler:
     Attributes:
         t0: The instant every rate driver counts from (monotonic clock).
         tick_count: Ticks run since ``start()``.
+        run_started_at: When the current ``run()`` began (monotonic seconds), or 0.0
+            before the first one: since then, a tick has been due.
+        last_tick_at: When the last tick finished (monotonic seconds), or None if none
+            has since ``start()``.
     """
 
     def __init__(self, timing: TimingStats) -> None:
@@ -45,6 +49,8 @@ class Scheduler:
         self._timing = timing
         self.t0: float = 0.0
         self.tick_count: int = 0
+        self.run_started_at: float = 0.0
+        self.last_tick_at: Optional[float] = None
         # Set by wake() to end a sleep early (made in start(), inside the loop)
         self._wake: Optional[anyio.Event] = None
         # GC optimization: automatic GC is off while ticks run
@@ -54,6 +60,8 @@ class Scheduler:
         """Start counting time. Call from inside the event loop."""
         self.t0 = time.monotonic()
         self.tick_count = 0
+        self.run_started_at = 0.0
+        self.last_tick_at = None
         self._wake = anyio.Event()
 
     def stop(self) -> None:
@@ -120,7 +128,8 @@ class Scheduler:
                 first due time not yet past, still counted from ``t0``, so a
                 sink that kept its rate keeps its timing.
         """
-        due = DueTimes(rates, self.t0, time.monotonic() if resume else None)
+        self.run_started_at = time.monotonic()
+        due = DueTimes(rates, self.t0, self.run_started_at if resume else None)
 
         logger.info("scheduler_started", rates=rates)
 
@@ -189,6 +198,7 @@ class Scheduler:
             self.tick_count += 1
 
             now = time.monotonic()
+            self.last_tick_at = now
             dropped = due.advance(sinks, now)
             if dropped:
                 self._timing.record_dropped(dropped, now)

@@ -2,33 +2,58 @@
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import structlog
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from strawberry.fastapi import GraphQLRouter
 
 from rasl.app.server.graphql_api import RASLContext, schema
+from rasl.app.server.health import HealthStatus
 from rasl.app.server.state import AppState
 
 if TYPE_CHECKING:
+    from rasl.config import ConfigSession
     from rasl.graph import ExecutionPlan
     from rasl.runtime import Runtime
 
 logger = structlog.get_logger()
 
 
-def create_app(runtime: "Runtime", plan: "ExecutionPlan") -> FastAPI:
+def health_response(state: AppState) -> JSONResponse:
+    """The ``GET /health`` response: the health report as JSON.
+
+    Returns:
+        Status 503 when the report is ``stalled``, so a container health check marks
+        the container unhealthy; 200 for ``ok`` and ``degraded``.
+    """
+    report = state.health()
+    body = dataclasses.asdict(report)
+    body["status"] = report.status.value
+    body["disabled_nodes"] = list(report.disabled_nodes)
+    code = 503 if report.status is HealthStatus.STALLED else 200
+    return JSONResponse(body, status_code=code)
+
+
+def create_app(
+    runtime: "Runtime",
+    plan: "ExecutionPlan",
+    session: "ConfigSession | None" = None,
+) -> FastAPI:
     """Create the RASL FastAPI application.
     
     Args:
         runtime: The running runtime, for metrics access.
         plan: The ExecutionPlan for graph structure.
+        session: The config session when the config is watched, so health can report
+            the last reload; None when it is not.
     
     Returns:
-        Configured FastAPI application.
+        Configured FastAPI application, serving ``GET /health``, ``/graphql`` and the UI.
     """
     app = FastAPI(
         title="RASL",
@@ -37,7 +62,12 @@ def create_app(runtime: "Runtime", plan: "ExecutionPlan") -> FastAPI:
     )
     
     # Store state in app.state (no globals!)
-    app.state.rasl = AppState(runtime=runtime, plan=plan)
+    app.state.rasl = AppState(runtime=runtime, plan=plan, session=session)
+
+    @app.get("/health")
+    async def health() -> JSONResponse:
+        """Server health; 503 when the graph has stalled (see ``health_response``)."""
+        return health_response(app.state.rasl)
 
     async def get_context() -> RASLContext:
         return RASLContext(state=app.state.rasl)

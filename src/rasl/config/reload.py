@@ -35,6 +35,7 @@ Example:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +66,23 @@ def _node_key(directive: Directive) -> str | None:
     return node_id_of(directive) if _is_graph_node(directive) else None
 
 
+@dataclass(frozen=True)
+class ReloadOutcome:
+    """How the last attempt to reload the config ended.
+
+    Attributes:
+        ok: True if the config was reloaded and what changed now runs (or nothing a
+            program reads had changed); False if the reload failed and the graph
+            kept running as it was.
+        at: When the attempt ended, in Unix seconds.
+        error: Why it failed, as a message; None when ``ok``.
+    """
+
+    ok: bool
+    at: float
+    error: str | None = None
+
+
 class ConfigSession:
     """A config file as last loaded, and the plan built from it.
 
@@ -72,6 +90,8 @@ class ConfigSession:
         path: The root config file.
         tree: The render of it that is running (knobly's rendered tree).
         plan: The plan built from that render.
+        last_reload: How the last reload attempt ended, set by whatever reloads the
+            session (``watch_config``); None until one is attempted.
     """
 
     def __init__(self, path: str | Path) -> None:
@@ -85,6 +105,7 @@ class ConfigSession:
         self.tree: Rendered = load_document(self.path)
         self.plan: ExecutionPlan = build_plan(self.tree)[0]
         self._attempted: tuple[str, ...] = ()
+        self.last_reload: ReloadOutcome | None = None
 
     @property
     def documents(self) -> tuple[str, ...]:

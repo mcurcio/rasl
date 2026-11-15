@@ -188,6 +188,16 @@ class TestTicks:
         assert sink.ticks[0].dt == 0.0
         assert np.allclose([tick.dt for tick in sink.ticks[1:]], 1 / 50, atol=1e-9)
 
+    async def test_the_scheduler_records_when_it_ran_and_last_ticked(self) -> None:
+        runtime = Runtime(_plan([Sink("out", 50)]))
+        assert runtime.scheduler.run_started_at == 0.0 and runtime.scheduler.last_tick_at is None
+        before = time.monotonic()
+        await _run(runtime, 0.2)
+        scheduler = runtime.scheduler
+        assert before <= scheduler.run_started_at <= time.monotonic()
+        assert scheduler.last_tick_at is not None
+        assert scheduler.run_started_at <= scheduler.last_tick_at <= time.monotonic()
+
     async def test_a_rate_below_one_hz_is_not_pulled_every_second(self) -> None:
         slow, fast = Sink("slow", 2.5), Sink("fast", 20)
         await _run(Runtime(_plan([slow, fast])), 0.9)

@@ -490,12 +490,17 @@ class TestWatch:
             os.utime(config, ns=(stamp, stamp))
 
         async def body() -> None:
+            assert session.last_reload is None  # nothing attempted yet
             save("fps 50;", "fps 25;")
             await until(lambda: runtime.rate_drivers == {"out": 25.0})
             await until(lambda: session.plan is runtime.plan)  # committed once applied
+            await until(lambda: session.last_reload is not None)
+            assert session.last_reload.ok and session.last_reload.error is None
 
             save("fps 25;", "fps 25")  # broken: the graph must keep running as it was
             await until(lambda: "Config reload failed" in capsys.readouterr().err)
+            assert session.last_reload is not None and not session.last_reload.ok
+            assert session.last_reload.error
             plan = runtime.plan
             ticks = runtime.scheduler.tick_count
             await until(lambda: runtime.scheduler.tick_count > ticks)
@@ -503,6 +508,7 @@ class TestWatch:
 
             save("fps 25 ", "fps 10; ")  # fixed: the next save applies
             await until(lambda: runtime.rate_drivers == {"out": 10.0})
+            await until(lambda: session.last_reload is not None and session.last_reload.ok)
 
             save("port 8080;", "port 9090;")  # outside any node: recorded, nothing swapped
             plan = runtime.plan

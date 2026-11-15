@@ -20,7 +20,7 @@ Example:
 from rasl.config.build import build_plan, load_config, parse_config
 from rasl.config.connect import ConnectionDescriptor, PortRef, parse_connect_directive, parse_port_ref
 from rasl.config.document import ConfigError, Directive, load_document, parse_document
-from rasl.config.reload import ConfigSession
+from rasl.config.reload import ConfigSession, ReloadOutcome
 from rasl.config.watch import watch_config
 
 __all__ = [
@@ -29,6 +29,7 @@ __all__ = [
     "ConnectionDescriptor",
     "Directive",
     "PortRef",
+    "ReloadOutcome",
     "build_plan",
     "load_config",
     "load_document",
