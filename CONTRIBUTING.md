@@ -179,7 +179,7 @@ class InvertNode(BaseNode):
 
 Once it is registered, a config can use it by either name:
 
-```knobly
+```nginx
 graph {
     node Waveform wave { output_channels 4; frequency_hz 0.1; }
     node Invert inv { amount 1; connect wave; }
@@ -230,17 +230,26 @@ the default user 1000 and not as root, that an empty volume is seeded with a sta
 The container's settings (`PUID`, `PGID`, `UMASK`, `TZ`, `RASL_PORT`) are described in
 [README.md](README.md#container).
 
-## Branches
+## Branches and releases
 
-| Branch | Role |
-|---|---|
-| `alpha` | The working branch. All development happens here |
-| `beta` | Reserved for promotion after `alpha`. Not in use yet |
-| `main` | Reserved for stable releases. Not in use yet: never base work on it |
+The three long-lived branches are release channels. Changes flow in one direction:
+`alpha` → `beta` → `main`.
 
-Fork your branch from `alpha`, and open your pull request against `alpha`. The owner reviews and merges it.
+| Branch | Role | Releases |
+|---|---|---|
+| `alpha` | The default branch. All development happens here | Alpha prereleases |
+| `beta` | Takes merges from `alpha` when it is ready to stabilise | Beta prereleases |
+| `main` | Takes merges from `beta` | Stable releases |
 
-There are no versioned releases yet. The release workflow (`.github/workflows/build.yml`) is disabled.
+Fork your branch from `alpha`, and open your pull request against `alpha`. The owner reviews and merges it, and
+promotes `alpha` to `beta` and `beta` to `main`. Never base work on `beta` or `main`, and never open a pull
+request against them.
+
+Versions will follow [Semantic Versioning](https://semver.org/), computed from the Conventional Commits below:
+each channel releases what has reached it, `alpha` and `beta` as prereleases (`-alpha.N`, `-beta.N`) and `main`
+as stable versions. The release automation is not in place yet: there are no versioned releases so far, and
+the old release workflow (`.github/workflows/build.yml`) is disabled. Today, a merge to `alpha` publishes only
+the container image `ghcr.io/mcurcio/rasl:sha-<commit>`.
 
 ## Commits and pull requests
 
@@ -257,8 +266,7 @@ There are no versioned releases yet. The release workflow (`.github/workflows/bu
 
 The design documents in `plans/`, `design.md`, `js/plans/` and `js/packages/config/plans/` record earlier
 decisions. They stay in the repository as source material, but they are not kept up to date: planned work is
-tracked as issues. Several pages in `docs/` describe an early design that was never built; each one says so at
-the top, and [docs/README.md](docs/README.md) lists them.
+tracked as issues.
 
 ## License
 
