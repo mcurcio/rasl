@@ -94,9 +94,8 @@ as root, it needs Docker's default capabilities (`CHOWN`, `SETUID`, `SETGID`): w
 it cannot switch users and exits.
 
 The image's `HEALTHCHECK` asks `GET /health`. That answers 503 (unhealthy) when the graph has
-rate-driving sinks but has stopped ticking, and 200 when it is `ok` or `degraded` (a node disabled
-for repeated failures, or the last config reload failed and the previous graph still runs). The
-GraphQL `health` field reports the same.
+rate-driving sinks but has stopped ticking, and 200 when it is `ok` or `degraded` (the last config
+reload failed and the previous graph still runs). The GraphQL `health` field reports the same.
 
 The default command is `rasl /config/rasl.conf --api-host 0.0.0.0 --api-port $RASL_PORT`. Arguments
 replace it and go to `rasl`, e.g. `--validate /config/rasl.conf`.
@@ -296,7 +295,7 @@ When the web server runs, it serves:
   | Status | Meaning | HTTP |
   |---|---|---|
   | `ok` | The graph is running. | 200 |
-  | `degraded` | It is running, but a node was disabled after repeated failures, or the last reload failed and the previous graph still runs. | 200 |
+  | `degraded` | It is running, but the last config reload failed and the previous graph still runs. (A node disabled after repeated failures also counts, but the `rasl` command does not disable failing nodes today.) | 200 |
   | `stalled` | It has rate-driving sinks, but no tick has finished for 10 ticks at the slowest sink's rate (at least 5 seconds). | 503 |
 
 The server also answers FastAPI's default pages: `/docs` (Swagger UI, which loads its assets from a CDN),

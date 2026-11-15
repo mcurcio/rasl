@@ -128,82 +128,10 @@ The built-in nodes are good examples: see `src/rasl/nodes/effects/smooth.py`.
 
 ## Writing a node
 
-A node is a class that subclasses `BaseNode` and registers itself with the `@node` decorator. It declares:
-
-- a nested `Config` class, a pydantic model based on `SourceNodeConfig`, `TransformNodeConfig` or
-  `SinkNodeConfig`. Each field is one directive in the node's block in a config file. Unknown directives are
-  refused;
-- its ports, as `PortGroup.inputs(...)` and `PortGroup.outputs(...)` class attributes;
-- an `async def pull(self, tick)` that reads its inputs and writes its outputs. `start(ctx)` and `stop(ctx)` are
-  optional, for opening and closing connections.
-
-A sink that should drive the schedule marks its `pull` with `@pull_rate(hz)`, where `hz` is a number or a
-function of the node. Only such sinks make ticks happen: a node that is not upstream of one never runs.
-
-A minimal transform:
-
-```python
-"""Example nodes for a rasl plugin package."""
-
-from pydantic import Field
-
-from rasl.graph.node import BaseNode, TickContext, TransformNodeConfig, node
-from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
-from rasl.signal import MatrixPayload
-
-
-@node("InvertNode", "Invert")
-class InvertNode(BaseNode):
-    """Write ``amount - x`` for every value of the input matrix."""
-
-    class Config(TransformNodeConfig):
-        """Configuration for InvertNode."""
-
-        amount: float = Field(1.0, description="The value each input is subtracted from")
-
-    inputs = PortGroup.inputs(input=InputPortSpec(MatrixPayload))
-    outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
-
-    def __init__(self, config: Config) -> None:
-        super().__init__(config)
-        self._amount = config.amount
-
-    async def pull(self, tick: TickContext) -> None:
-        """Write the inverted input to ``out``; write nothing when there is no input."""
-        frame = self.inputs.input.read()
-        if frame is None:
-            return
-        data = self._amount - frame.payload.data
-        self.outputs.out.write(frame.with_payload(MatrixPayload(data)))
-```
-
-Once it is registered, a config can use it by either name:
-
-```nginx
-graph {
-    node Waveform wave { output_channels 4; frequency_hz 0.1; }
-    node Invert inv { amount 1; connect wave; }
-    node ConsoleSink console { fps 2; connect inv; }
-}
-```
-
-rasl finds nodes through the `rasl.nodes` entry-point group. Each entry names a module that registers its nodes
-when it is imported. The built-in nodes use it too (`pyproject.toml`):
-
-```toml
-[project.entry-points."rasl.nodes"]
-builtin = "rasl.nodes"
-devices = "rasl.devices"
-```
-
-- **A built-in node** goes in `src/rasl/nodes/` (or a protocol package in `src/rasl/devices/`). Import its module
-  in that package's `__init__.py` so it registers, and add tests under `tests/nodes/` or `tests/devices/`.
-- **A node in your own package** needs only an entry of its own in that package's `pyproject.toml`, for example
-  `my_nodes = "my_package.nodes"`. Once the package is installed in the same environment as rasl, its nodes are
-  available.
-
-A node that can take new settings while running, without a restart, implements `update_config(config)`; a
-config reload then calls it instead of restarting the node. `SmoothNode` does this to keep its state.
+[docs/writing-nodes.md](docs/writing-nodes.md) explains how to write a node type: the class it extends, its
+settings and ports, what it does on each tick, its lifecycle, and how a package registers it. A node added to
+this repository goes in the package that owns its domain (see [The Python packages](#the-python-packages)),
+follows the docstring rule above, and gets tests under the matching folder in `tests/`.
 
 ## The container image
 
