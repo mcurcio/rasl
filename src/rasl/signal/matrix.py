@@ -6,7 +6,7 @@ and BoolPayload for boolean data.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Type
+from typing import Any, ClassVar
 
 import numpy as np
 from numpy.typing import NDArray
@@ -124,10 +124,6 @@ class MatrixPayload(FramePayload):
             },
         )
 
-    @classmethod
-    def is_compatible_with(cls, other: Type[FramePayload]) -> bool:
-        """MatrixPayload accepts any MatrixPayload subclass."""
-        return issubclass(other, MatrixPayload)
 
     @classmethod
     def ensure_buffer(

@@ -16,6 +16,19 @@ from rasl.graph.slices import Slice
 from rasl.signal import FramePayload
 
 
+class PortTypeError(TypeError):
+    """A connection whose payload types do not match, found when the graph is built.
+
+    Attributes:
+        node: The id of the node the connection feeds, where the error belongs.
+    """
+
+    def __init__(self, node: str, message: str) -> None:
+        """Record the target node and the message."""
+        super().__init__(message)
+        self.node = node
+
+
 class CycleWarning(UserWarning):
     """Warning emitted when cycles are detected in the graph.
 
@@ -166,9 +179,14 @@ class GraphBuilder:
         self._check_slice_in_range(src_label, source_slice, src_port_spec)
         self._check_slice_in_range(tgt_label, target_slice, tgt_port_spec)
 
-        # Type compatibility check
+        # Type compatibility check. A pass-through output's type depends on what feeds
+        # it, which may not be connected yet: build() checks those edges.
         src_type = self._get_primary_type(src_port_spec)
-        if src_type is not None and not tgt_port_spec.accepts_payload_type(src_type):
+        if (
+            src_port_spec.same_as is None
+            and src_type is not None
+            and not tgt_port_spec.accepts_payload_type(src_type)
+        ):
             raise TypeError(
                 f"Type mismatch: {source}.{source_port} emits {src_type.__name__}, "
                 f"but {target}.{target_port} does not accept it"
@@ -264,6 +282,66 @@ class GraphBuilder:
             return resolved[0]
         return None
 
+    def _output_type(
+        self,
+        node_id: str,
+        port: str,
+        incoming_by_node: Dict[str, List[Edge]],
+        resolved: Dict[tuple[str, str], Optional[Type[FramePayload]]],
+        resolving: set[tuple[str, str]],
+    ) -> Optional[Type[FramePayload]]:
+        """The payload type an output carries, following pass-through outputs upstream.
+
+        A pass-through output (``OutputPortSpec.same_as``) carries the type of what
+        feeds the named input. With nothing feeding it, with sources of different
+        types, or inside a cycle, it carries its declared type.
+        """
+        key = (node_id, port)
+        if key in resolved:
+            return resolved[key]
+        spec = get_outputs(self._nodes[node_id]).get(port)
+        if spec is None:
+            return None
+        declared = self._get_primary_type(spec.spec)
+        if spec.spec.same_as is None or key in resolving:
+            return declared
+        resolving.add(key)
+        feeding = {
+            self._output_type(e.source, e.source_port, incoming_by_node, resolved, resolving)
+            for e in incoming_by_node[node_id]
+            if e.target_port == spec.spec.same_as
+        }
+        resolving.discard(key)
+        result = feeding.pop() if len(feeding) == 1 and None not in feeding else declared
+        resolved[key] = result
+        return result
+
+    def _check_pass_through_types(self, incoming_by_node: Dict[str, List[Edge]]) -> None:
+        """Type-check the edges from pass-through outputs, now that every edge is known.
+
+        Raises:
+            PortTypeError: If an input does not accept the type a pass-through output
+                carries to it.
+        """
+        resolved: Dict[tuple[str, str], Optional[Type[FramePayload]]] = {}
+        for edge in self._edges:
+            src_spec = get_outputs(self._nodes[edge.source]).get(edge.source_port)
+            if src_spec is None or src_spec.spec.same_as is None:
+                continue
+            src_type = self._output_type(
+                edge.source, edge.source_port, incoming_by_node, resolved, set()
+            )
+            tgt_spec = get_inputs(self._nodes[edge.target]).get(edge.target_port)
+            if src_type is None or tgt_spec is None:
+                continue
+            if not tgt_spec.spec.accepts_payload_type(src_type):
+                raise PortTypeError(
+                    edge.target,
+                    f"Type mismatch: {edge.source}.{edge.source_port} passes on "
+                    f"{src_type.__name__} from its '{src_spec.spec.same_as}' input, but "
+                    f"{edge.target}.{edge.target_port} does not accept it",
+                )
+
     def build(self, allow_cycles: bool = True) -> ExecutionPlan:
         """Validate the graph and compile it into an ExecutionPlan.
 
@@ -281,6 +359,8 @@ class GraphBuilder:
         Raises:
             ValueError: If allow_cycles is False and the graph contains a cycle,
                 or if any node's connection requirements are not satisfied.
+            PortTypeError: If a pass-through output carries a type its target does
+                not accept.
         """
         adjacency: Dict[str, List[Edge]] = {node_id: [] for node_id in self._nodes}
         for edge in self._edges:
@@ -306,6 +386,8 @@ class GraphBuilder:
         incoming_by_node: Dict[str, List[Edge]] = {node_id: [] for node_id in self._nodes}
         for edge in self._edges:
             incoming_by_node[edge.target].append(edge)
+
+        self._check_pass_through_types(incoming_by_node)
 
         for node_id, node in self._nodes.items():
             if hasattr(node, "validate_connections"):

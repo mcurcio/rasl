@@ -29,6 +29,9 @@ class BaseNodeConfig(BaseModel):
     Attributes:
         id: Unique node identifier within the graph.
         metadata: Optional key-value metadata attached to frames.
+        max_consecutive_errors: Disable this node after this many failed pulls in a
+            row; 0 means never. None (the default) uses the config's
+            ``runtime { max_consecutive_errors N; }``, itself 10 by default.
     """
 
     model_config = ConfigDict(
@@ -38,6 +41,7 @@ class BaseNodeConfig(BaseModel):
 
     id: str = Field(..., description="Unique node identifier")
     metadata: dict[str, str] = Field(default_factory=dict)
+    max_consecutive_errors: int | None = Field(None, ge=0)
 
     @classmethod
     def from_positional(cls, words: Sequence[str], written: Sequence[str]) -> dict[str, Any]:

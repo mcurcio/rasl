@@ -120,7 +120,7 @@ class LiteralNode(BaseNode):
     construction and returned unchanged on every pull.
     
     Example config:
-        rasl {
+        graph {
             node literal static_hsl color:hsl [[1, 0, 0], [0.5, 0, 0]];
             node literal gains matrix [[1.0, 0.9, 0.8]];
         }
@@ -172,6 +172,9 @@ class LiteralNode(BaseNode):
                 f"Cannot create {config.payload_kind} payload in node '{config.id}': {e}"
             ) from e
         
+        # The output carries the literal's own type, so connections are checked against it
+        self.outputs = PortGroup.outputs(out=OutputPortSpec(type(self._payload)))
+
         self._topic = f"literal.{self.id}"
     
     async def pull(self, tick: "TickContext") -> None:

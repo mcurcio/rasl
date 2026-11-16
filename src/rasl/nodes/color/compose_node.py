@@ -109,6 +109,9 @@ class ComposeNode(BaseNode):
         self._output_channels = config.output_channels
         self._payload_cls = self._resolve_payload_cls(self._output_type)
 
+        # The output carries the configured type, so connections are checked against it
+        self.outputs = PortGroup.outputs(out=OutputPortSpec(self._payload_cls))
+
         # Override class-level inputs with instance-specific ports
         self.inputs = PortGroup.inputs(
             **{name: InputPortSpec(MatrixPayload, count=None) for name in self._port_names}

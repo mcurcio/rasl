@@ -27,7 +27,7 @@ Report a security problem privately, not in an issue: see [SECURITY.md](SECURITY
 | `v2/` | A Rust experiment |
 | `docs/` | Reference documentation ([docs/README.md](docs/README.md) says which pages are current) |
 | `plans/`, `design.md`, `js/plans/`, `js/packages/config/plans/` | Design history, kept as source material. Planned work is tracked in issues, not by editing these files |
-| `virtual.conf`, `hyperhdr.conf`, `family_room.conf` | Sample configs from real setups. `virtual.conf` is the one the image smoke test uses. `family_room.conf` does not validate today |
+| `virtual.conf`, `hyperhdr.conf`, `family_room.conf` | Sample configs from real setups. `virtual.conf` is the one the image smoke test uses. A test keeps all three loading |
 | `tools/logo.py` | Draws the logo in `docs/assets/`. Change the script and rerun it; do not edit the SVGs |
 | `.beads/` | The issue tracker the maintainers' agents use (`bd`); `issues.jsonl` is its shared copy |
 

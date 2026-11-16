@@ -8,7 +8,7 @@ Components:
     - DdpSinkNode: Sink node for graph integration
 
 Example config:
-    rasl {
+    graph {
         node DdpSink leds {
             target "192.168.1.100";
             fps 30hz;

@@ -22,8 +22,9 @@ from rasl.config.document import (
     parse_document,
 )
 from rasl.config.node_directive import _node_config, node_spec
-from rasl.graph import ExecutionPlan, GraphBuilder
+from rasl.graph import ExecutionPlan, GraphBuilder, PortTypeError
 from rasl.graph.node import ensure_nodes_loaded
+from rasl.runtime import pull_rate_of
 
 
 def graph_directive(tree: Rendered) -> Directive:
@@ -108,7 +109,26 @@ def build_plan(
                 tree=tree,
             ) from e
 
-    return builder.build(), configs
+    try:
+        plan = builder.build()
+    except PortTypeError as e:
+        # A pass-through output's type is known only once every edge is: placed on the
+        # node it feeds, like the connect errors above
+        raise config_error(
+            node_directives[e.node],
+            f"Node '{e.node}': {e}",
+            code="rasl/connect",
+            tree=tree,
+        ) from e
+    # A node's rate comes from its settings: check it here, on the node's line
+    for node_id, node in plan.nodes.items():
+        try:
+            pull_rate_of(node_id, node)
+        except ValueError as e:
+            raise config_error(
+                node_directives[node_id], str(e), code="rasl/rate", tree=tree
+            ) from e
+    return plan, configs
 
 
 def parse_config(config_text: str) -> ExecutionPlan:

@@ -54,7 +54,9 @@ class ColorCorrectionNode(BaseNode):
     encoding, which produces the output suitable for LED drivers.
 
     Example config:
-        rasl {
+        graph {
+            node literal color_source color:srgb [[1, 0.8, 0.6]];
+
             # Warm white LED profile
             node ColorCorrection warm_leds {
                 gamma 2.2;

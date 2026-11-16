@@ -9,6 +9,28 @@ from typing import Dict, Iterable, List, Optional, Set, Tuple
 from rasl.graph import ExecutionPlan
 
 
+def pull_rate_of(node_id: str, node: object) -> Optional[float]:
+    """The rate in Hz a node's pull() declares with @pull_rate, or None if it declares none.
+
+    Raises:
+        ValueError: If the declared rate is not a positive, finite number.
+    """
+    hz = getattr(getattr(node, "pull", None), "_pull_rate_hz", None)
+    if hz is None:
+        return None
+    if callable(hz):
+        hz = hz(node)
+    try:
+        hz = float(hz)
+    except (TypeError, ValueError):
+        raise ValueError(f"Node '{node_id}' declares a pull rate of {hz!r}; it must be a number") from None
+    if not math.isfinite(hz) or hz <= 0.0:
+        raise ValueError(
+            f"Node '{node_id}' declares a pull rate of {hz} Hz; it must be positive and finite"
+        )
+    return hz
+
+
 def find_rate_drivers(plan: ExecutionPlan) -> Dict[str, float]:
     """The nodes whose pull() declares a rate with @pull_rate, and that rate in Hz.
 
@@ -17,15 +39,9 @@ def find_rate_drivers(plan: ExecutionPlan) -> Dict[str, float]:
     """
     drivers: Dict[str, float] = {}
     for node_id, node in plan.nodes.items():
-        hz = getattr(getattr(node, "pull", None), "_pull_rate_hz", None)
-        if hz is None:
-            continue
-        if callable(hz):
-            hz = hz(node)
-        hz = float(hz)
-        if not math.isfinite(hz) or hz <= 0.0:
-            raise ValueError(f"Node '{node_id}' declares a pull rate of {hz} Hz; it must be positive")
-        drivers[node_id] = hz
+        hz = pull_rate_of(node_id, node)
+        if hz is not None:
+            drivers[node_id] = hz
     return drivers
 
 

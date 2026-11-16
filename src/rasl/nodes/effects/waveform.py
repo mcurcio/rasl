@@ -99,7 +99,7 @@ class WaveformNode(BaseNode):
         - square: On/off with duty cycle
 
     Example config:
-        rasl {
+        graph {
             # Basic waveform
             node Waveform pulse {
                 shape attack_decay;
@@ -107,7 +107,9 @@ class WaveformNode(BaseNode):
                 output_channels 150;
             }
 
-            # With phase modulation from random source
+            # With phase modulation from random sources
+            node SeededRandom phases { output_type phase; output_channels 150; }
+            node SeededRandom speeds { output_type speed; output_channels 150; seed 7; }
             node Waveform twinkle {
                 shape attack_decay;
                 frequency_hz 0.3;

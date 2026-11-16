@@ -6,9 +6,11 @@ directive in the node's block is one field of it, by name.
 
 from __future__ import annotations
 
+import types
+import typing
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from rasl.config.document import (
     ConfigError,
@@ -108,20 +110,84 @@ def _extract_config_dict(
     return result
 
 
-def _parse_metadata(raw: dict[str, Any]) -> dict[str, str]:
-    """Parse metadata from raw config dict."""
-    metadata_value = raw.pop("metadata", None)
-    if metadata_value is None:
-        return {}
+def _metadata(directive: Directive, tree: Rendered) -> dict[str, str] | None:
+    """A node's ``metadata``, from its string and block forms, or None if it has none.
 
+    ``metadata "room=den" "zone=2";`` gives each ``key=value`` value (a value with no
+    ``=`` is ignored). ``metadata { room den; zone 2; }`` gives each line's one value.
+    Several ``metadata`` directives, of either form, merge.
+
+    Raises:
+        ConfigError: On the line at fault, for a block line with no value or several,
+            a nested block, a value on a block's own line, or a key given twice.
+    """
+    found = children(directive, "metadata")
+    if not found:
+        return None
     metadata: dict[str, str] = {}
-    items = [metadata_value] if isinstance(metadata_value, str) else metadata_value
-    for item in items:
-        item_str = str(item)
-        if "=" in item_str:
-            key, value = item_str.split("=", 1)
-            metadata[key] = value
+
+    def put(key: str, value: str, at: Directive) -> None:
+        if key in metadata:
+            raise config_error(
+                at, f"metadata key '{key}' is given twice", code="rasl/metadata", tree=tree
+            )
+        metadata[key] = value
+
+    for item in found:
+        if item.block is None:
+            for text in arg_texts(item):
+                if "=" in text:
+                    key, value = text.split("=", 1)
+                    put(key, value, item)
+            continue
+        if item.values:
+            raise config_error(
+                item,
+                "a metadata block takes no values on its own line; put each entry inside it",
+                code="rasl/metadata",
+                tree=tree,
+            )
+        for entry in children(item):
+            values = arg_texts(entry)
+            if entry.block is not None or len(values) != 1:
+                raise config_error(
+                    entry,
+                    f"metadata entry '{entry.name}' takes exactly one value, like `{entry.name} value;`",
+                    code="rasl/metadata",
+                    tree=tree,
+                )
+            put(entry.name, values[0], entry)
     return metadata
+
+
+def _is_list_of_blocks(annotation: Any) -> bool:
+    """Whether a field's type is a list of blocks (models or maps), also inside ``X | None``.
+
+    Lists of plain values (``list[str]``) are left to the field's own validators: a
+    block such as Compose's ``ports { h; s; l; }`` is their whole value, not one item.
+    """
+    origin = typing.get_origin(annotation)
+    if origin in (typing.Union, types.UnionType):
+        return any(_is_list_of_blocks(arg) for arg in typing.get_args(annotation))
+    if origin is not list:
+        return False
+    item = (typing.get_args(annotation) or (Any,))[0]
+    item_origin = typing.get_origin(item) or item
+    return item_origin is dict or (isinstance(item, type) and issubclass(item, BaseModel))
+
+
+def _wrap_single_blocks(config_class: Any, raw_config: dict[str, Any]) -> None:
+    """Make a lone nested block a one-item list where the field takes a list.
+
+    Repeated blocks (``universe { ... } universe { ... }``) already arrive as a
+    list; a single one arrives as a map. A list-of-blocks field gets a list either way.
+    """
+    for name, field in getattr(config_class, "model_fields", {}).items():
+        if not _is_list_of_blocks(field.annotation):
+            continue
+        for key in (field.alias, name):
+            if key and isinstance(raw_config.get(key), dict):
+                raw_config[key] = [raw_config[key]]
 
 
 def _node_config(
@@ -166,27 +232,24 @@ def _node_config(
     raw_config["id"] = node_id
 
     # Values on the node's own line, after its type and name, are the node type's to read
-    positional = getattr(config_class, "from_positional", None)
+    # (BaseNodeConfig.from_positional refuses any, for a type that takes none)
     words = arg_texts(directive)[2:]
-    if positional is not None:
-        try:
-            raw_config.update(positional(words, [value.text for value in directive.values[2:]]))
-        except ValueError as e:
-            raise config_error(directive, str(e), code="rasl/node-syntax", tree=tree) from None
-    elif words:
-        raise config_error(
-            directive,
-            f"Node type '{node_type}' takes no values after its name",
-            code="rasl/node-syntax",
-            tree=tree,
+    try:
+        raw_config.update(
+            config_class.from_positional(words, [value.text for value in directive.values[2:]])
         )
+    except ValueError as e:
+        raise config_error(directive, str(e), code="rasl/node-syntax", tree=tree) from None
 
-    # Handle metadata
-    if "metadata" in raw_config:
-        raw_config["metadata"] = _parse_metadata(raw_config)
+    # Metadata is read from the directives themselves, which keep each line's place
+    metadata = _metadata(directive, tree)
+    if metadata is not None:
+        raw_config["metadata"] = metadata
 
     # Remove type directive if present
     raw_config.pop("type", None)
+
+    _wrap_single_blocks(config_class, raw_config)
 
     # Validate with Pydantic
     try:

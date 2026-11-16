@@ -324,6 +324,20 @@ class TestFailures:
         assert len(out.ticks) >= 10  # the sink runs again once the node is out of the way
         assert all(value is None for value in out.seen)  # it never wrote a frame
 
+    async def test_a_nodes_own_limit_overrides_the_runtimes(self) -> None:
+        bad, out = Faulty("bad"), Sink("out", 100)
+        bad.max_consecutive_errors = 2
+        runtime = Runtime(_plan([bad, out], [("bad", "out")]), max_consecutive_errors=5)
+        await _run(runtime, 0.2)
+        assert len(bad.ticks) == 2 and runtime.executor.disabled == {"bad"}
+
+    async def test_a_nodes_own_limit_of_zero_never_disables_it(self) -> None:
+        bad, out = Faulty("bad"), Sink("out", 100)
+        bad.max_consecutive_errors = 0
+        runtime = Runtime(_plan([bad, out], [("bad", "out")]), max_consecutive_errors=3)
+        await _run(runtime, 0.2)
+        assert len(bad.ticks) >= 10 and runtime.executor.disabled == set()
+
     async def test_a_success_resets_the_count(self) -> None:
         bad, out = Faulty("bad"), Sink("out", 100)
         runtime = Runtime(_plan([bad, out], [("bad", "out")]), max_consecutive_errors=3)
@@ -392,3 +406,19 @@ class TestNodesOwnTheirPorts:
         assert any(value is not None for value in a.seen)
         assert all(value is None for value in b.seen)
         assert not b.inputs.get("in").connected and a.inputs.get("in").connected
+
+
+class TestMonitorOnUpdates:
+    def test_forget_drops_and_end_streak_keeps_the_counts(self) -> None:
+        from rasl.runtime.monitor import NodeMonitor
+
+        monitor = NodeMonitor()
+        for node_id in ("a", "b"):
+            monitor.record_success(node_id, 1.0)
+            monitor.record_failure(node_id, RuntimeError("x"), 1.0)
+            monitor.record_failure(node_id, RuntimeError("x"), 1.0)
+        monitor.forget({"a"})
+        monitor.end_streak({"b"})
+        assert monitor.get_stats("a") is None
+        b = monitor.get_stats("b")
+        assert b is not None and b.consecutive_failures == 0 and b.failure_count == 2

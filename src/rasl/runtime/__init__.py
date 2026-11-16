@@ -23,7 +23,7 @@ from rasl.runtime.monitor import NodeMonitor, NodeStats
 from rasl.runtime.plan_update import PlanUpdate
 from rasl.runtime.runtime import Runtime
 from rasl.runtime.scheduler import Scheduler
-from rasl.runtime.timing import DueTimes, find_rate_drivers, find_undriven
+from rasl.runtime.timing import DueTimes, find_rate_drivers, find_undriven, pull_rate_of
 
 __all__ = [
     "DueTimes",
@@ -39,4 +39,5 @@ __all__ = [
     "TimingStats",
     "find_rate_drivers",
     "find_undriven",
+    "pull_rate_of",
 ]

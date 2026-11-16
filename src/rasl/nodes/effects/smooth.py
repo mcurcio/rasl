@@ -37,10 +37,11 @@ class SmoothNode(BaseNode):
 
     Example config:
         graph {
+            node Waveform source { output_channels 8; }
             node Smooth soft {
                 smooth_period 200ms;
                 slew_period 2s;
-                connect source;
+                connect source input;
             }
         }
     """
@@ -72,7 +73,7 @@ class SmoothNode(BaseNode):
             description="Optional boolean/mask to clear accumulator",
         ),
     )
-    outputs = PortGroup.outputs(output=OutputPortSpec(MatrixPayload))
+    outputs = PortGroup.outputs(output=OutputPortSpec(MatrixPayload, same_as="input"))
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)
@@ -91,7 +92,7 @@ class SmoothNode(BaseNode):
         A config reload calls this in place of a restart, so the output goes on
         from where it was instead of jumping back to the input.
         """
-        self._set_metadata(config)
+        self._apply_base_config(config)
         self._apply_settings(config)
 
     async def pull(self, tick: TickContext) -> None:

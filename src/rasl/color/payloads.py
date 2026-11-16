@@ -6,13 +6,13 @@ This module defines the color model-specific subclasses of ColorPayload
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Type
+from typing import Any, ClassVar
 
 import numpy as np
 from numpy.typing import NDArray
 
 from rasl.color.base import ColorPayload
-from rasl.signal import FramePayload, MatrixPayload, payload
+from rasl.signal import payload
 
 
 @payload("color:hsbk")
@@ -69,10 +69,6 @@ class HsbkColorPayload(ColorPayload):
     def kelvin(self, value: Any) -> None:
         self._set_channel(3, value)
 
-    @classmethod
-    def is_compatible_with(cls, other: Type[FramePayload]) -> bool:
-        """HsbkColorPayload accepts any MatrixPayload."""
-        return issubclass(other, MatrixPayload)
 
 @payload("color:rgb")
 @payload("color:srgb")
@@ -113,10 +109,6 @@ class RgbColorPayload(ColorPayload):
     def blue(self, value: Any) -> None:
         self._set_channel(2, value)
 
-    @classmethod
-    def is_compatible_with(cls, other: Type[FramePayload]) -> bool:
-        """RgbColorPayload accepts any MatrixPayload."""
-        return issubclass(other, MatrixPayload)
 
 
 @payload("color:rgbw")
@@ -178,10 +170,6 @@ class HslColorPayload(ColorPayload):
     def lightness(self, value: Any) -> None:
         self._set_channel(2, value)
 
-    @classmethod
-    def is_compatible_with(cls, other: Type[FramePayload]) -> bool:
-        """HslColorPayload accepts any MatrixPayload."""
-        return issubclass(other, MatrixPayload)
 
 
 @payload("color:oklch")
@@ -202,10 +190,6 @@ class OklchColorPayload(ColorPayload):
     def __init__(self, data: NDArray[np.float32], encoding: str = "srgb") -> None:
         super().__init__(data, model="oklch", encoding=encoding)
 
-    @classmethod
-    def is_compatible_with(cls, other: Type[FramePayload]) -> bool:
-        """OklchColorPayload accepts any MatrixPayload."""
-        return issubclass(other, MatrixPayload)
 
 
 @payload("color:oklab")
@@ -225,10 +209,6 @@ class OklabColorPayload(ColorPayload):
     def __init__(self, data: NDArray[np.float32], encoding: str = "srgb") -> None:
         super().__init__(data, model="oklab", encoding=encoding)
 
-    @classmethod
-    def is_compatible_with(cls, other: Type[FramePayload]) -> bool:
-        """OklabColorPayload accepts any MatrixPayload."""
-        return issubclass(other, MatrixPayload)
 
 
 @payload("color:okhsl")
@@ -249,10 +229,6 @@ class OkhslColorPayload(ColorPayload):
     def __init__(self, data: NDArray[np.float32], encoding: str = "srgb") -> None:
         super().__init__(data, model="okhsl", encoding=encoding)
 
-    @classmethod
-    def is_compatible_with(cls, other: Type[FramePayload]) -> bool:
-        """OkhslColorPayload accepts any MatrixPayload."""
-        return issubclass(other, MatrixPayload)
 
 
 @payload("color:okhsv")
@@ -273,10 +249,6 @@ class OkhsvColorPayload(ColorPayload):
     def __init__(self, data: NDArray[np.float32], encoding: str = "srgb") -> None:
         super().__init__(data, model="okhsv", encoding=encoding)
 
-    @classmethod
-    def is_compatible_with(cls, other: Type[FramePayload]) -> bool:
-        """OkhsvColorPayload accepts any MatrixPayload."""
-        return issubclass(other, MatrixPayload)
 
 
 @payload("color:linear")
@@ -299,10 +271,6 @@ class LinearRgbColorPayload(ColorPayload):
     def __init__(self, data: NDArray[np.float32], encoding: str = "linear") -> None:
         super().__init__(data, model="linear", encoding=encoding)
 
-    @classmethod
-    def is_compatible_with(cls, other: Type[FramePayload]) -> bool:
-        """LinearRgbColorPayload accepts any MatrixPayload."""
-        return issubclass(other, MatrixPayload)
 
 
 @payload("color:rec709_rgb_prime")
@@ -322,7 +290,3 @@ class Rec709RgbPrimeColorPayload(ColorPayload):
     def __init__(self, data: NDArray[np.float32], encoding: str = "rec709_rgb_prime") -> None:
         super().__init__(data, model="rec709_rgb_prime", encoding=encoding)
 
-    @classmethod
-    def is_compatible_with(cls, other: Type[FramePayload]) -> bool:
-        """Rec709RgbPrimeColorPayload accepts any MatrixPayload."""
-        return issubclass(other, MatrixPayload)

@@ -209,11 +209,44 @@ class TestConnectErrorsArePlaced:
             parse_config(config)
         assert caught.value.line == 3
 
+    def test_an_unknown_source_port_is_a_config_error_naming_the_ports(self):
+        config = """
+        graph {
+            node Waveform hue {
+                output_channels 4;
+            }
+            node ConsoleSink sink {
+                fps 1;
+                connect hue.nope;
+            }
+        }
+        """
+        with pytest.raises(
+            ConfigError, match="Node 'sink': Node 'hue' has no output port 'nope'. Available: "
+        ) as caught:
+            parse_config(config)
+        assert caught.value.line == 6
+
     def test_a_missing_default_port_says_which_node(self):
         config = """
         graph {
+            node Waveform wave {
+                output_channels 3;
+            }
+            node Smooth calm {
+                connect wave;
+            }
+        }
+        """
+        with pytest.raises(ConfigError, match="Node 'calm': No default port") as caught:
+            parse_config(config)
+        assert caught.value.line == 6
+
+    def test_a_sacn_source_defaults_to_its_merged_channels(self):
+        config = """
+        graph {
             node SacnSource input {
-                universes 1;
+                universes 1 2;
             }
             node ConsoleSink sink {
                 fps 1;
@@ -221,6 +254,5 @@ class TestConnectErrorsArePlaced:
             }
         }
         """
-        with pytest.raises(ConfigError, match="Node 'sink': No default port") as caught:
-            parse_config(config)
-        assert caught.value.line == 6
+        edge = parse_config(config).adjacency["input"][0]
+        assert edge.source_port == "channels"

@@ -57,7 +57,8 @@ class Executor:
             monitor: Where each pull's success or failure is recorded.
             timing: Where pull durations are recorded.
             max_consecutive_errors: Disable a node whose pull raises this many
-                times in a row. None never disables a node.
+                times in a row, unless the node sets its own limit
+                (``max_consecutive_errors`` on the node). None or 0 never disables.
         """
         self._nodes = nodes
         self._monitor = monitor
@@ -236,8 +237,9 @@ class Executor:
             # The traceback once per run of failures: rendering one costs far
             # more than a tick, and the monitor logs a line for each failure
             logger.error("pull_failed", node_id=node_id, error=str(error), exc_info=error)
-        limit = self._max_consecutive_errors
-        if limit is not None and consecutive >= limit:
+        own = getattr(self._nodes[node_id].node, "max_consecutive_errors", None)
+        limit = own if own is not None else self._max_consecutive_errors
+        if limit and consecutive >= limit:
             self.disabled.add(node_id)
             logger.error(
                 "node_disabled_due_to_errors",

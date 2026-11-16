@@ -42,7 +42,8 @@ Value types used below:
 
 | Setting | Type | Default | Meaning |
 |---|---|---|---|
-| `metadata` | map of strings | empty | Key-value metadata attached to the node's frames. |
+| `metadata` | map of strings | empty | Key-value metadata attached to the node's frames: `metadata { room den; zone 2; }`, or `metadata "room=den" "zone=2";`. Both forms may be used together; a key given twice is an error. |
+| `max_consecutive_errors` | int, 0 or more | the `runtime` block's (10) | Disable this node after this many failed pulls in a row; 0 means never. |
 
 Source nodes (`Waveform`, `SineSource`, `SeededRandom`, `literal`, `cron`, `SacnSource`) also accept `fps`
 (a frequency from 0.1 to 1000 Hz, unset by default). Only `SineSource` uses it; the other sources run at
@@ -143,7 +144,7 @@ node cron evening { schedule "0 22-23 * * *"; }
 ### SacnSource
 
 Receives sACN universes. It has one output per universe, `universe_<N>`, and `channels` with all of them
-merged.
+merged. `channels` is the default: `connect input;` takes it, and `connect input.universe_1;` takes one universe.
 
 SacnSource receives unicast sACN only: it does not join multicast groups. Configure the sender to unicast
 to rasl's address. In a container, see the note under [Container](../README.md#container).
@@ -155,8 +156,7 @@ to rasl's address. In a container, see the note under [Container](../README.md#c
 | `bind_address` | string | `0.0.0.0` | Network interface to listen on. |
 | `bind_port` | int | `5568` | UDP port to listen on. |
 
-It needs at least one universe, from `universes` or `universe` blocks. A single `universe` block on its
-own is rejected today (`Input should be a valid list`); give two or more, or use `universes`.
+It needs at least one universe, from `universes` or one or more `universe` blocks.
 
 ```nginx
 node SacnSource input {

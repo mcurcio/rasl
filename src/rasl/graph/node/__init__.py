@@ -14,6 +14,7 @@ from rasl.graph.node.config import BaseNodeConfig, SinkNodeConfig, SourceNodeCon
 from rasl.graph.node.context import InjectCallable, NodeContext, StartTaskCallable
 from rasl.graph.node.protocol import Node, get_inputs, get_outputs
 from rasl.graph.node.registry import (
+    NodeRegistryError,
     ensure_nodes_loaded,
     export_node_schemas,
     get_node_class,
@@ -30,6 +31,7 @@ __all__ = [
     "InjectCallable",
     "Node",
     "NodeContext",
+    "NodeRegistryError",
     "SinkNodeConfig",
     "SourceNodeConfig",
     "StartTaskCallable",

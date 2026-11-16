@@ -11,7 +11,6 @@ Pull-based execution model:
     - Sinks use @pull_rate(hz) decorator to drive the scheduler
 
 Example:
-    >>> from rasl.config.document import Directive
     >>> from rasl.graph.node import NodeContext
     >>> from rasl.signal import MatrixPayload
     >>> from rasl.graph.ports import PortGroup
@@ -70,7 +69,7 @@ class BaseNode(ABC):
     - A node that defines `update_config(self, config: Config) -> None` is kept
       running and handed its new, validated config there, between ticks. Define
       it when the node holds state worth keeping (SmoothNode does) and every
-      setting can change without a restart; call `self._set_metadata(config)` in it.
+      setting can change without a restart; call `self._apply_base_config(config)` in it.
 
     Attributes:
         id: Unique node identifier within the graph.
@@ -79,6 +78,11 @@ class BaseNode(ABC):
         outputs: Bound output ports (set by scheduler at runtime).
 
     Example:
+        >>> from pydantic import Field
+        >>> from rasl.graph.node import BaseNode, TickContext, TransformNodeConfig, node
+        >>> from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
+        >>> from rasl.signal import MatrixPayload
+        >>>
         >>> @node("MyTransform")
         ... class MyTransform(BaseNode):
         ...     class Config(TransformNodeConfig):
@@ -95,7 +99,7 @@ class BaseNode(ABC):
         ...         frame = self.inputs.data.read()
         ...         if frame:
         ...             result = frame.payload.data * self._gain
-        ...             self.outputs.result.write(frame.with_payload(ArrayPayload(result)))
+        ...             self.outputs.result.write(frame.with_payload(MatrixPayload(result)))
     """
 
     # Subclasses define this as a nested class
@@ -115,17 +119,19 @@ class BaseNode(ABC):
             config: Validated configuration instance.
         """
         self.id = config.id
-        self._set_metadata(config)
+        self._apply_base_config(config)
         # The class declares the ports; this node gets its own port objects
         for attribute in ("inputs", "outputs"):
             declared = getattr(type(self), attribute, None)
             if isinstance(declared, PortGroup):
                 setattr(self, attribute, declared.clone())
 
-    def _set_metadata(self, config: "BaseNodeConfig") -> None:
-        """Take the metadata of a config (at construction, and in ``update_config``)."""
+    def _apply_base_config(self, config: "BaseNodeConfig") -> None:
+        """Take the settings every node has (at construction, and in ``update_config``):
+        its frame metadata and its own error limit, ``max_consecutive_errors``."""
         md = dict(config.metadata)
         self._metadata = EMPTY_METADATA if not md else MappingProxyType(md)
+        self.max_consecutive_errors: int | None = config.max_consecutive_errors
 
     async def start(self, ctx: "NodeContext") -> None:
         """Initialize the node when scheduler starts.

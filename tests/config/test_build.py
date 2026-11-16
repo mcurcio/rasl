@@ -4,6 +4,9 @@ import pytest
 
 from rasl.config.build import parse_config
 from rasl.config.document import ConfigError
+from rasl.graph.node import BaseNode, SinkNodeConfig, TickContext, get_outputs, node, pull_rate
+from rasl.graph.ports import InputPortSpec, PortGroup
+from rasl.signal import MatrixPayload
 
 
 @pytest.fixture(autouse=True)
@@ -264,3 +267,80 @@ class TestValuesAfterTheNodeName:
         # With no fields on the line, the schedule comes from the block
         plan = parse_config("graph {\n    node cron every { schedule \"*/5 * * * *\"; }\n}\n")
         assert "every" in plan.nodes
+
+
+class TestRepeatedBlocks:
+    def test_one_block_fills_a_list_field_like_several_do(self):
+        one = parse_config(
+            "graph {\n    node SacnSource s { universe { id 1; channels 10; } }\n}\n"
+        )
+        two = parse_config(
+            "graph {\n    node SacnSource s { universe { id 1; channels 10; } universe { id 2; } }\n}\n"
+        )
+        # One output port per universe, beside the merged channels
+        assert set(get_outputs(one.nodes["s"]).names) == {"universe_1", "channels"}
+        assert set(get_outputs(two.nodes["s"]).names) == {"universe_1", "universe_2", "channels"}
+
+
+class _RateConfig(SinkNodeConfig):
+    """A sink whose rate is a setting, as a plugin's might be."""
+
+    hz: float = 1.0
+
+
+@node("TestSettableRateSink")
+class _SettableRateSink(BaseNode):
+    """Pulled at its ``hz`` setting, which nothing stops from being 0."""
+
+    Config = _RateConfig
+    inputs = PortGroup.inputs(input=InputPortSpec(MatrixPayload))
+
+    def __init__(self, config: _RateConfig) -> None:
+        super().__init__(config)
+        self._hz = config.hz
+
+    @pull_rate(lambda self: self._hz)
+    async def pull(self, tick: TickContext) -> None:
+        """Do nothing."""
+
+
+class TestPullRates:
+    @pytest.mark.parametrize("hz", ["0", "-1", "inf"])
+    def test_a_bad_rate_from_settings_is_a_located_config_error(self, hz: str) -> None:
+        with pytest.raises(ConfigError, match="rasl/rate: Node 'sink' declares a pull rate") as caught:
+            parse_config(f"graph {{\n    node TestSettableRateSink sink {{ hz {hz}; }}\n}}\n")
+        assert caught.value.line == 2
+
+    def test_a_good_rate_loads(self) -> None:
+        parse_config("graph {\n    node TestSettableRateSink sink { hz 30; }\n}\n")
+
+
+class TestMetadata:
+    @staticmethod
+    def _md(body: str) -> dict:
+        plan = parse_config(f"graph {{\n    node ConsoleSink c {{ fps 1; {body} }}\n}}\n")
+        return dict(plan.nodes["c"]._metadata)
+
+    def test_the_block_form(self) -> None:
+        assert self._md('metadata { room den; zone "2"; }') == {"room": "den", "zone": "2"}
+
+    def test_the_string_form_still_works(self) -> None:
+        assert self._md('metadata "room=den" "zone=2";') == {"room": "den", "zone": "2"}
+
+    def test_both_forms_merge(self) -> None:
+        assert self._md('metadata "room=den"; metadata { zone 2; }') == {"room": "den", "zone": "2"}
+
+    @pytest.mark.parametrize(
+        ("body", "message"),
+        [
+            ('metadata "room=den"; metadata { room hall; }', "metadata key 'room' is given twice"),
+            ("metadata { room den hall; }", "metadata entry 'room' takes exactly one value"),
+            ("metadata { room; }", "metadata entry 'room' takes exactly one value"),
+            ("metadata { room { name den; } }", "metadata entry 'room' takes exactly one value"),
+            ("metadata x { room den; }", "a metadata block takes no values on its own line"),
+        ],
+    )
+    def test_a_bad_entry_is_a_located_error(self, body: str, message: str) -> None:
+        with pytest.raises(ConfigError, match=message) as caught:
+            self._md(body)
+        assert caught.value.line == 2

@@ -59,7 +59,6 @@ a proxy that checks who is signing in. [SECURITY.md](../SECURITY.md) says more.
 | `GET /` | The dashboard. |
 | `GET /health` | The health report as JSON. |
 | `/graphql` | GraphQL: `POST` or `GET` for queries, WebSocket for the subscription, and the GraphiQL editor in a browser. |
-| `GET /docs`, `GET /redoc`, `GET /openapi.json` | FastAPI's generated API pages. They list `/health` and `/graphql`, without the GraphQL schema. |
 
 ## The dashboard: `GET /`
 
@@ -93,7 +92,7 @@ content-type: application/json
 | `tick_count` | integer | Ticks run since the runtime started. |
 | `last_tick_age_seconds` | number or null | Seconds since the last tick finished; null before the first tick. |
 | `stall_after_seconds` | number or null | How long without a tick counts as a stall for the graph now running; null when the graph has no rate-driving sink, since it cannot stall. |
-| `disabled_nodes` | array of strings | Ids of nodes disabled for failing again and again, sorted. The `rasl` command does not disable failing nodes today, so it runs with this always empty. |
+| `disabled_nodes` | array of strings | Ids of nodes disabled after `max_consecutive_errors` failed pulls in a row (10 by default; see the README's `runtime` block), sorted. A config reload that changes a node re-enables it. |
 | `last_reload_ok` | boolean or null | Whether the last config reload succeeded; null if none has been tried, or the config is not watched (`--no-watch`). |
 | `last_reload_error` | string or null | Why the last reload failed, with file, line, column and the source line; null unless it failed. |
 | `last_reload_at` | number or null | When the last reload attempt ended, in Unix seconds; null if none has been tried. |
@@ -217,9 +216,10 @@ repeats on the connection are not shown.
 | `timestamp` | `Float!` | Unix time in seconds when the snapshot was taken. |
 | `nodes` | `[NodeMetrics!]!` | One entry per node pulled at least once. |
 
-`NodeMetrics`: counters for one node's `pull()`, since rasl started. Times cover the node's own `pull()`, not the
-nodes upstream of it. A config reload does not reset them: a node restarted under the same id goes on counting,
-and a node the reload removed stays in `metrics` with its last counts.
+`NodeMetrics`: counters for one node's `pull()`. Times cover the node's own `pull()`, not the nodes upstream of
+it. On a config reload, a node the reload removes leaves `metrics`, a node it restarts counts from zero again,
+and a node it updates in place (its settings changed without a restart) keeps its counts; only its run of
+consecutive failures starts over.
 
 | Field | Type | Meaning |
 |---|---|---|

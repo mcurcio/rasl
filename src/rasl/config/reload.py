@@ -42,6 +42,7 @@ from typing import Any
 from rasl.config.build import build_plan, graph_directive
 from rasl.config.document import ConfigError, Directive, Rendered, children, load_document
 from rasl.config.node_directive import node_id_of, node_spec
+from rasl.config.settings import RuntimeSettings, UiSettings, runtime_settings, ui_settings
 from rasl.graph import ExecutionPlan
 from rasl.graph.node import get_node_class
 from rasl.runtime.plan_update import PlanUpdate
@@ -92,6 +93,8 @@ class ConfigSession:
         plan: The plan built from that render.
         last_reload: How the last reload attempt ended, set by whatever reloads the
             session (``watch_config``); None until one is attempted.
+        ui: The ``ui`` block's settings, as loaded (a change takes a restart).
+        runtime: The ``runtime`` block's settings, as loaded (a change takes a restart).
     """
 
     def __init__(self, path: str | Path) -> None:
@@ -103,6 +106,8 @@ class ConfigSession:
         """
         self.path = Path(path)
         self.tree: Rendered = load_document(self.path)
+        self.ui: UiSettings = ui_settings(self.tree)
+        self.runtime: RuntimeSettings = runtime_settings(self.tree)
         self.plan: ExecutionPlan = build_plan(self.tree)[0]
         self._attempted: tuple[str, ...] = ()
         self.last_reload: ReloadOutcome | None = None
@@ -150,6 +155,10 @@ class ConfigSession:
             self._attempted = error.documents
             raise
         self._attempted = tuple(tree.graph.documents)
+        # A bad settings block fails the reload, so the edit is reported now; the
+        # settings themselves apply at the next restart
+        ui_settings(tree)
+        runtime_settings(tree)
         changes = self.tree.diff(tree, key=_node_key)
         if not changes:
             self.tree = tree  # the same directives, at their new places in the files

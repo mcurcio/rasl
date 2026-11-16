@@ -57,8 +57,8 @@ class ThresholdNode(BaseNode):
 their class name and a short name.
 
 - The decorator raises `TypeError` if the class has no nested `Config`.
-- Names are global to the process. Registering a name that is already taken replaces the earlier class without
-  a warning, so do not reuse a built-in name.
+- Names are global to the process. Registering a name that another class already has raises
+  `NodeRegistryError`, naming both classes, and rasl does not start; pick names no built-in uses.
 - The web API and `rasl --describe` report a node's Python class name (`ThresholdNode`), not the name the config
   used.
 
@@ -72,8 +72,8 @@ A node's settings are a pydantic model nested in the class as `Config`. Base it 
 | `TransformNodeConfig` | Nodes with inputs and outputs | nothing |
 | `SinkNodeConfig` | Nodes with no outputs | nothing |
 
-All three extend `BaseNodeConfig`, which gives every node `id` (set from the config's node name) and `metadata`
-(a `dict[str, str]`). Models are frozen and refuse unknown fields (`extra="forbid"`), so a misspelt directive is
+All three extend `BaseNodeConfig`, which gives every node `id` (set from the config's node name), `metadata`
+(a `dict[str, str]`) and `max_consecutive_errors` (an `int` or None). Models are frozen and refuse unknown fields (`extra="forbid"`), so a misspelt directive is
 an error that names its line in the config file.
 
 Each field is one directive in the node's block. [nodes.md: How settings are written](nodes.md#how-settings-are-written)
@@ -112,14 +112,24 @@ leaves out `outputs`.
 `InputPortSpec(accepts, count=None, description="")`:
 
 - `accepts` is a payload class, a registered payload name such as `"matrix"` or `"color:rgb"`, or a tuple of
-  either (all classes or all names). A connection is refused at load time when the source port's payload type
-  is not accepted. Each payload type decides what it accepts, and every type in rasl today (the matrix, bool
-  and color types) accepts any matrix payload. So a port that names `RgbColorPayload` can still be fed a plain
-  matrix or an HSL color: check the shape or the color model in `pull` when it matters.
+  either (all classes or all names). A connection is refused at load time, with the file and line, when the
+  source port's payload type is not accepted. A port accepts its own type and its subclasses:
+  - `MatrixPayload` accepts every matrix, so colors and bools too.
+  - `ColorPayload` accepts any color model but not a plain matrix. A node that needs one model converts with
+    `payload.to_model(...)` in `pull`, as the built-in sinks do.
+  - A specific model such as `RgbColorPayload` accepts only that model.
+  - `BoolPayload` accepts only bools.
 - `count` is the number of elements: an `int` (fixed), `(min,)`, `(min, max)`, or `None` (any).
 
-`OutputPortSpec(produces, count=None, description="")` takes exactly one payload class or name; a tuple raises
-`ValueError`.
+`OutputPortSpec(produces, count=None, description="", same_as=None)` takes exactly one payload class or name; a
+tuple raises `ValueError`. Declare what the port really emits: a node whose output type depends on its settings
+(like `Compose`'s `output_type`) sets `self.outputs` in `__init__` with the resolved class.
+
+`same_as="input"` marks a pass-through output: one that passes on whatever payload type arrives at the named
+input, as a filter that keeps colors colors does (`Smooth`, `RangeMap`). When the graph is built, the output is
+typed as whatever feeds that input, followed through chains of such nodes, so `Color → Smooth → LifxSink` loads
+and `Waveform → Smooth → LifxSink` is refused. With nothing feeding the input, or sources of different types,
+the output has its `produces` type.
 
 A name that no payload is registered under makes the connection fail with a list of the registered names.
 `count` is checked when a config connects a slice to the port (a slice past the end is refused), and a fixed
@@ -181,7 +191,8 @@ async def pull(self, tick: TickContext) -> None:
   repeats or several connections gets a new `MatrixPayload` built in a buffer that is reused next tick, so copy
   the data if you keep it, and do not rely on its color model.
 - Exceptions from `pull` are logged against the node. That sink's pull ends for the tick, and the node is pulled
-  again next tick. The `rasl` command does not disable a node that keeps failing.
+  again next tick. After `max_consecutive_errors` failures in a row (the config's `runtime` block, 10 by default,
+  or the node's own setting) the node is disabled until a config reload changes it.
 
 `TickContext` is a frozen dataclass:
 
@@ -233,7 +244,7 @@ When the config changes while rasl runs ([README: Live reload](../README.md#live
 changed is stopped and replaced by a new object built from the new config. A node that defines
 `update_config(self, config)` is kept instead: the runtime calls the method between ticks with the new, validated
 config. Define it when the node holds state worth keeping and every setting can change without a restart. Call
-`self._set_metadata(config)` in it, since metadata is a setting too. An exception from it is logged, and the node
+`self._apply_base_config(config)` in it, since metadata is a setting too. An exception from it is logged, and the node
 goes on running. A node whose `connect` lines changed but whose settings did not is left running.
 
 ## Payloads
@@ -280,8 +291,8 @@ builtin = "rasl.nodes"
 devices = "rasl.devices"
 ```
 
-A module that fails to import produces a Python warning (`Failed to load node plugin <name>: ...`), and its types
-are then unknown to the config.
+A module that fails to import stops rasl with `NodeRegistryError` (`Node plugin '<name>' (...) failed to load:
+...`), naming the entry point and the cause.
 
 ### In your own package
 
@@ -380,7 +391,7 @@ class ThresholdNode(BaseNode):
 
     def update_config(self, config: Config) -> None:
         """Take new settings on a config reload without a restart."""
-        self._set_metadata(config)
+        self._apply_base_config(config)
         self._apply(config)
 
     async def pull(self, tick: TickContext) -> None:

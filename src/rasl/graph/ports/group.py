@@ -99,6 +99,7 @@ class PortGroup:
         """
         object.__setattr__(self, "_port_names", tuple(ports.keys()))
         object.__setattr__(self, "_is_input", _is_input)
+        object.__setattr__(self, "_default", None)
         
         # Create port objects directly as attributes
         for name, spec in ports.items():
@@ -115,10 +116,28 @@ class PortGroup:
         made from the class gets a clone, so no two nodes share a port's
         frame or buffers.
         """
-        return PortGroup(
+        group = PortGroup(
             _is_input=self._is_input,
             **{name: getattr(self, name).spec for name in self._port_names},
         )
+        object.__setattr__(group, "_default", self._default)
+        return group
+
+    def with_default(self, name: str) -> "PortGroup":
+        """A copy of this group whose default port is ``name``.
+
+        The default port is the one a config's ``connect`` uses when it names no port
+        (``connect source;``). Without this, a group has a default only when it has a
+        single port.
+
+        Raises:
+            ValueError: If the group has no port called ``name``.
+        """
+        if name not in self._port_names:
+            raise ValueError(f"No port '{name}' to make the default; ports: {self._port_names}")
+        group = self.clone()
+        object.__setattr__(group, "_default", name)
+        return group
 
     def __iter__(self) -> Iterator["InputPort | OutputPort"]:
         """Iterate over port objects."""
@@ -140,14 +159,16 @@ class PortGroup:
     def get_default(self) -> tuple[str, "InputPort | OutputPort"]:
         """Return (name, port) for the default port.
 
-        A port is default if and only if it's the sole port in the group.
+        The port named by ``with_default``, or else the sole port of a one-port group.
 
         Returns:
             Tuple of (port_name, port_object).
 
         Raises:
-            ValueError: If the group has zero or more than one port.
+            ValueError: If no default was set and the group has zero or several ports.
         """
+        if self._default is not None:
+            return (self._default, getattr(self, self._default))
         if len(self._port_names) == 1:
             name = self._port_names[0]
             return (name, getattr(self, name))

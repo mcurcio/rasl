@@ -32,14 +32,12 @@ These are how rasl works today, not vulnerabilities:
 - The web server has no authentication. Anyone who can reach its port can read the graph (node names, types, ports and
   connections), its metrics and the last config error through the dashboard, `/graphql` and `/health`. The API is read-only: it has no mutations, and the graph changes
   only when its config files change.
-- The server also answers FastAPI's default pages, `/docs`, `/redoc` and `/openapi.json`, without
-  authentication. They describe the HTTP routes.
 - Outside the container, the web server listens on `127.0.0.1` unless `--api-host` (with `--api-port`) or the
   `ui` block's `host` says otherwise. The container's
   default command passes `--api-host 0.0.0.0`, so it listens on every interface of the container.
 - sACN input (`SacnSource`) listens on UDP port 5568 on `0.0.0.0` by default and accepts data from any sender, as
   the protocol does.
 - The dashboard loads two scripts in the browser from third-party CDNs: cytoscape from `cdn.jsdelivr.net` and
-  graphql-ws from `unpkg.com`. The `/docs` page loads Swagger UI's assets from a CDN too.
+  graphql-ws from `unpkg.com`.
 
 Keep rasl on a trusted network, or put it behind a proxy that checks who is signing in.

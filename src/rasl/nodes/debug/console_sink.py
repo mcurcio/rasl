@@ -32,7 +32,7 @@ class ConsoleSinkNode(BaseNode):
     Pull-based: Uses @pull_rate to drive the scheduler.
 
     Example config:
-        rasl {
+        graph {
             node ConsoleSink debug {
                 input_port data;
                 max_channels 16;

@@ -251,11 +251,17 @@ class OutputPortSpec:
             ValueError.
         count: Count specification, as for ``InputPortSpec.count``.
         description: Optional human-readable description of the port.
+        same_as: The name of one of the node's input ports, for an output that passes on
+            the payload type it receives there (a filter that keeps colors colors). When
+            the graph is built, the output is typed as whatever feeds that input; when
+            nothing does, or its sources disagree, as ``produces``. None for an output
+            that always emits ``produces``.
     """
 
     produces: ProducesSpec
     count: CountSpec = None
     description: str = ""
+    same_as: str | None = None
 
     def __post_init__(self) -> None:
         _parse_count_spec(self.count)
