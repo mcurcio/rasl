@@ -11,10 +11,13 @@
 # per-commit sha-<commit> image tags stay in image.yml.
 #
 # Versioning starts from the tag v0.1.0. Without it, semantic-release would read
-# the whole history and release 1.0.0, so the first run creates that tag on
-# BASELINE_COMMIT, the alpha merge just before the first release's changes
-# (mcurcio/rasl#12). After that the step does nothing. The release tooling is
-# pinned in .github/release/.
+# the whole history and release 1.0.0, so the first run on alpha tags the commit
+# it builds as v0.1.0; the next feat: or fix: makes the first release. The tag
+# goes on that commit, not an older one, because the job's GITHUB_TOKEN may not
+# create a ref on a commit whose workflow files differ from the default branch's
+# (GitHub requires the `workflows` permission for that). On beta or main, a
+# missing baseline is only reported. The release tooling is pinned in
+# .github/release/.
 name: release
 
 on:
@@ -44,29 +47,35 @@ jobs:
                   fetch-depth: 0 # every commit and tag, to find the last release
 
             - name: Create the baseline tag v0.1.0 if it is missing
-              env:
-                  # alpha just before the first release's changes: the merge of #11
-                  BASELINE_COMMIT: ae299eebd037d5a3a90b948e7d25d418dc4fd9df
+              id: baseline
               run: |
                   if git rev-parse -q --verify refs/tags/v0.1.0 >/dev/null; then
                       echo "v0.1.0 exists"
-                  else
-                      git tag v0.1.0 "$BASELINE_COMMIT"
+                      echo "ok=true" >> "$GITHUB_OUTPUT"
+                  elif [ "$GITHUB_REF_NAME" = alpha ]; then
+                      git tag v0.1.0 "$GITHUB_SHA"
                       git push origin v0.1.0
-                      echo "::notice title=Baseline tag::Created v0.1.0 on $BASELINE_COMMIT"
+                      echo "::notice title=Baseline tag::Created v0.1.0 on $GITHUB_SHA; the next feat: or fix: on alpha is the first release"
+                      echo "ok=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "::warning title=No baseline tag::v0.1.0 is created by the first release run on alpha. Nothing was released."
+                      echo "ok=false" >> "$GITHUB_OUTPUT"
                   fi
 
             - uses: actions/setup-node@v4
+              if: steps.baseline.outputs.ok == 'true'
               with:
                   node-version-file: js/.nvmrc
                   cache: npm
                   cache-dependency-path: .github/release/package-lock.json
 
             - name: Install the release tooling
+              if: steps.baseline.outputs.ok == 'true'
               run: npm ci --prefix .github/release --no-audit --no-fund
 
             - name: Release
               id: semantic
+              if: steps.baseline.outputs.ok == 'true'
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: .github/release/node_modules/.bin/semantic-release
