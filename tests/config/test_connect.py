@@ -196,6 +196,24 @@ class TestConnectErrorsArePlaced:
             parse_config(config)
         assert caught.value.line == 4
 
+    def test_two_connections_into_one_port_are_a_config_error_on_the_connecting_node(self):
+        config = """
+        graph {
+            node cron minute * * * * *;
+            node cron hour 0 * * * *;
+            node ConsoleSink sink {
+                fps 1;
+                connect minute;
+                connect hour;
+            }
+        }
+        """
+        with pytest.raises(
+            ConfigError, match=r"Node 'sink': Overlapping connections into sink\.\w+: hour\.out writes"
+        ) as caught:
+            parse_config(config)
+        assert caught.value.line == 5
+
     def test_an_unknown_source_node_is_a_config_error_on_the_connecting_node(self):
         config = """
         graph {

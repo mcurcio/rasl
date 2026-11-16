@@ -125,8 +125,10 @@ class GraphBuilder:
         Raises:
             KeyError: If source or target node ID is not registered.
             ValueError: If a port does not exist on its node, if a slice
-                reaches past the end of a sized port, or if slice lengths
-                are incompatible.
+                reaches past the end of a sized port, if the rows the edge
+                supplies and the rows it fills are both fixed and differ, if
+                the same edge was already added, or if it writes rows of the
+                target port that an earlier edge writes.
             TypeError: If the port types are incompatible, or a port names
                 a payload type that is not registered.
         """
@@ -192,29 +194,20 @@ class GraphBuilder:
                 f"but {target}.{target_port} does not accept it"
             )
 
-        # Validate slice compatibility if both are specified with fixed lengths
-        if source_slice is not None and target_slice is not None:
-            src_len = source_slice.length(src_port_spec.fixed_count)
-            tgt_len = target_slice.length(tgt_port_spec.fixed_count)
-            if src_len is not None and tgt_len is not None and src_len != tgt_len:
-                raise ValueError(
-                    f"Slice length mismatch: {source}.{source_port}[{source_slice.start}:{source_slice.end}] "
-                    f"has {src_len} channels, but {target}.{target_port}[{target_slice.start}:{target_slice.end}] "
-                    f"has {tgt_len} channels"
-                )
-
-        self._edges.append(
-            Edge(
-                source,
-                source_port,
-                target,
-                target_port,
-                source_slice,
-                target_slice,
-                repeat,
-                repeat_until,
-            )
+        edge = Edge(
+            source,
+            source_port,
+            target,
+            target_port,
+            source_slice,
+            target_slice,
+            repeat,
+            repeat_until,
         )
+        self._check_count(edge, src_port_spec, tgt_port_spec)
+        self._check_no_overlap(edge, src_port_spec, tgt_port_spec)
+
+        self._edges.append(edge)
 
     def connect_default(self, source: str, target: str) -> None:
         """Connect default output of source to default input of target.
@@ -242,6 +235,112 @@ class GraphBuilder:
         tgt_port_name, _ = tgt_inputs.get_default()
 
         self.connect(source, src_port_name, target, tgt_port_name)
+
+    @staticmethod
+    def _supplied_rows(edge: Edge, src_spec: OutputPortSpec) -> Optional[int]:
+        """Rows the edge carries from a fixed source, repeats included; None when unknown.
+
+        Known only when the source port has a fixed count (or the source slice has an
+        end) and no ``repeat_until`` is set: ``repeat_until`` sizes the edge by what it
+        fills, not by its source.
+        """
+        if edge.repeat_until is not None:
+            return None
+        if edge.source_slice is not None:
+            rows = edge.source_slice.length(src_spec.fixed_count)
+        else:
+            rows = src_spec.fixed_count
+        return None if rows is None else rows * max(int(edge.repeat), 1)
+
+    @staticmethod
+    def _label(node: str, port: str, slice_: Optional[Slice]) -> str:
+        """``node.port`` with the slice in config notation, ``node.port[a~b]``."""
+        if slice_ is None:
+            return f"{node}.{port}"
+        end = "" if slice_.end is None else slice_.end
+        return f"{node}.{port}[{slice_.start}~{end}]"
+
+    def _check_count(self, edge: Edge, src_spec: OutputPortSpec, tgt_spec: InputPortSpec) -> None:
+        """Refuse an edge whose fixed source rows and fixed target rows differ.
+
+        Owner, 2026-11-16: a count mismatch between fixed ports is a load error. The
+        source side is the source port's fixed count (or its slice's length) times
+        ``repeat``; the target side is the target port's fixed count (or its slice's
+        length). When either side is not fixed, nothing is compared.
+
+        Raises:
+            ValueError: If both sides are fixed and differ.
+        """
+        supplied = self._supplied_rows(edge, src_spec)
+        if edge.target_slice is not None:
+            window = edge.target_slice.length(tgt_spec.fixed_count)
+        else:
+            window = tgt_spec.fixed_count
+        if supplied is None or window is None or supplied == window:
+            return
+        repeat = f" (repeated {edge.repeat} times)" if edge.repeat > 1 else ""
+        raise ValueError(
+            f"Count mismatch: {self._label(edge.source, edge.source_port, edge.source_slice)} "
+            f"supplies {supplied} elements{repeat}, but "
+            f"{self._label(edge.target, edge.target_port, edge.target_slice)} takes {window}"
+        )
+
+    def _written_rows(self, edge: Edge) -> tuple[int, Optional[int]]:
+        """The rows of the target port an edge writes, as [start, end); end None for to the end.
+
+        The start is the target slice's start (0 without one). The end is the target
+        slice's end; else ``start + repeat_until``; else ``start`` plus the rows a fixed
+        source supplies; else the end of the port.
+        """
+        start = edge.target_slice.start if edge.target_slice is not None else 0
+        if edge.target_slice is not None and edge.target_slice.end is not None:
+            return start, edge.target_slice.end
+        if edge.repeat_until is not None:
+            return start, start + int(edge.repeat_until)
+        src_spec = get_outputs(self._nodes[edge.source]).get(edge.source_port)
+        supplied = self._supplied_rows(edge, src_spec.spec) if src_spec is not None else None
+        return start, None if supplied is None else start + supplied
+
+    def _check_no_overlap(self, edge: Edge, src_spec: OutputPortSpec, tgt_spec: InputPortSpec) -> None:
+        """Refuse an edge already added, or one writing rows an earlier edge writes.
+
+        Owner, 2026-11-16: duplicate edges and overlapping destinations are load errors.
+        An edge whose end is unknown writes to the end of the port, so two unsliced
+        edges into one port overlap unless the first comes from a fixed source that
+        ends before the second starts.
+
+        Raises:
+            ValueError: If the same edge is already in the builder, or the rows it
+                writes in its target port meet the rows of an earlier edge into it.
+        """
+        start, end = self._written_rows(edge)
+        for other in self._edges:
+            if other.target != edge.target or other.target_port != edge.target_port:
+                continue
+            if (
+                other.source == edge.source
+                and other.source_port == edge.source_port
+                and other.source_slice == edge.source_slice
+                and other.target_slice == edge.target_slice
+            ):
+                raise ValueError(
+                    f"Duplicate connection: {self._label(edge.source, edge.source_port, edge.source_slice)} "
+                    f"is already connected to {self._label(edge.target, edge.target_port, edge.target_slice)}"
+                )
+            o_start, o_end = self._written_rows(other)
+            if (end is None or o_start < end) and (o_end is None or start < o_end) and start != end and o_start != o_end:
+                raise ValueError(
+                    f"Overlapping connections into {edge.target}.{edge.target_port}: "
+                    f"{self._label(edge.source, edge.source_port, edge.source_slice)} writes "
+                    f"{self._rows(start, end)}, which "
+                    f"{self._label(other.source, other.source_port, other.source_slice)} already writes "
+                    f"({self._rows(o_start, o_end)}). Give each a target slice that does not overlap"
+                )
+
+    @staticmethod
+    def _rows(start: int, end: Optional[int]) -> str:
+        """A row range in config notation: ``rows [a~b]``, ``rows [a~]``."""
+        return f"rows [{start}~{'' if end is None else end}]"
 
     @staticmethod
     def _check_slice_in_range(

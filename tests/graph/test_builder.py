@@ -312,7 +312,8 @@ class _Ported:
 
 class TestConnectValidation:
     """What GraphBuilder.connect refuses (owner, 2026-11-14: slices out of
-    range and unknown type names are load errors)."""
+    range and unknown type names are load errors; 2026-11-16: duplicate edges,
+    overlapping destinations and fixed-count mismatches too)."""
 
     @staticmethod
     def _builder(source: _Ported, target: _Ported) -> GraphBuilder:
@@ -361,8 +362,14 @@ class TestConnectValidation:
             _Ported("b", inp=InputPortSpec(MatrixPayload, count=3)),
         )
         builder.connect("a", "out", "b", "in", Slice(509, 512), Slice(0, 3))
+        assert len(builder.edges) == 1
+
+        builder = self._builder(
+            _Ported("a", out=OutputPortSpec(MatrixPayload, count=512)),
+            _Ported("b", inp=InputPortSpec(MatrixPayload, count=3)),
+        )
         builder.connect("a", "out", "b", "in", Slice(511, None), Slice(2, None))
-        assert len(builder.edges) == 2
+        assert len(builder.edges) == 1
 
     def test_a_slice_on_an_unbounded_port_cannot_be_checked(self) -> None:
         from rasl.graph import Slice
@@ -385,3 +392,103 @@ class TestConnectValidation:
         builder = self._builder(_Ported("a", out=OutputPortSpec("matrix")), _Ported("b", inp=InputPortSpec("matrix")))
         builder.connect("a", "out", "b", "in")
         assert len(builder.edges) == 1
+
+
+class TestConnectCountsAndOverlaps:
+    """Owner, 2026-11-16: duplicate edges, overlapping destinations and a count
+    mismatch between fixed ports are load errors."""
+
+    @staticmethod
+    def _builder(*nodes: _Ported) -> GraphBuilder:
+        builder = GraphBuilder()
+        for node in nodes:
+            builder.add_node(node)
+        return builder
+
+    def test_a_fixed_output_into_a_fixed_input_of_another_count_is_refused(self) -> None:
+        builder = self._builder(
+            _Ported("a", out=OutputPortSpec(MatrixPayload, count=512)),
+            _Ported("b", inp=InputPortSpec(MatrixPayload, count=3)),
+        )
+        with pytest.raises(ValueError, match=r"Count mismatch: a\.out supplies 512 elements, but b\.in takes 3"):
+            builder.connect("a", "out", "b", "in")
+        assert builder.edges == []
+
+    def test_slices_of_different_lengths_are_refused(self) -> None:
+        from rasl.graph import Slice
+
+        builder = self._builder(_Ported("a"), _Ported("b"))
+        with pytest.raises(ValueError, match=r"a\.out\[0~4\] supplies 4 elements, but b\.in\[0~3\] takes 3"):
+            builder.connect("a", "out", "b", "in", Slice(0, 4), Slice(0, 3))
+
+    def test_repeat_counts_toward_the_rows_supplied(self) -> None:
+        from rasl.graph import Slice
+
+        def nodes() -> GraphBuilder:
+            return self._builder(
+                _Ported("a", out=OutputPortSpec(MatrixPayload, count=1)),
+                _Ported("b", inp=InputPortSpec(MatrixPayload, count=3)),
+            )
+
+        builder = nodes()
+        builder.connect("a", "out", "b", "in", repeat=3)
+        assert len(builder.edges) == 1
+        with pytest.raises(ValueError, match=r"a\.out supplies 3 elements \(repeated 3 times\), but b\.in\[1~\] takes 2"):
+            nodes().connect("a", "out", "b", "in", None, Slice(1, None), repeat=3)
+
+    def test_a_variable_side_is_not_compared(self) -> None:
+        builder = self._builder(_Ported("a"), _Ported("b", inp=InputPortSpec(MatrixPayload, count=3)))
+        builder.connect("a", "out", "b", "in")
+        assert len(builder.edges) == 1
+
+    def test_the_same_edge_twice_is_refused(self) -> None:
+        builder = self._builder(_Ported("a"), _Ported("b"))
+        builder.connect("a", "out", "b", "in")
+        with pytest.raises(ValueError, match=r"Duplicate connection: a\.out is already connected to b\.in"):
+            builder.connect("a", "out", "b", "in")
+        assert len(builder.edges) == 1
+
+    def test_two_unsliced_edges_into_one_port_overlap(self) -> None:
+        builder = self._builder(_Ported("a"), _Ported("c"), _Ported("b"))
+        builder.connect("a", "out", "b", "in")
+        with pytest.raises(
+            ValueError,
+            match=r"Overlapping connections into b\.in: c\.out writes rows \[0~\], which a\.out already writes \(rows \[0~\]\)",
+        ):
+            builder.connect("c", "out", "b", "in")
+
+    def test_overlapping_target_slices_are_refused(self) -> None:
+        from rasl.graph import Slice
+
+        builder = self._builder(_Ported("a"), _Ported("c"), _Ported("b"))
+        builder.connect("a", "out", "b", "in", None, Slice(0, 50))
+        with pytest.raises(ValueError, match=r"c\.out writes rows \[40~\], which a\.out already writes \(rows \[0~50\]\)"):
+            builder.connect("c", "out", "b", "in", None, Slice(40, None))
+
+    def test_adjacent_target_slices_connect(self) -> None:
+        from rasl.graph import Slice
+
+        builder = self._builder(_Ported("a"), _Ported("c"), _Ported("b"))
+        builder.connect("a", "out", "b", "in", None, Slice(0, 50))
+        builder.connect("c", "out", "b", "in", None, Slice(50, None))
+        assert len(builder.edges) == 2
+
+    def test_an_unsliced_fixed_source_ends_where_its_rows_end(self) -> None:
+        from rasl.graph import Slice
+
+        builder = self._builder(
+            _Ported("a", out=OutputPortSpec(MatrixPayload, count=10)), _Ported("c"), _Ported("b")
+        )
+        builder.connect("a", "out", "b", "in")
+        builder.connect("c", "out", "b", "in", None, Slice(10, None))
+        assert len(builder.edges) == 2
+
+    def test_repeat_until_ends_the_rows_written(self) -> None:
+        from rasl.graph import Slice
+
+        builder = self._builder(_Ported("a"), _Ported("c"), _Ported("b"))
+        builder.connect("a", "out", "b", "in", repeat_until=30)
+        with pytest.raises(ValueError, match=r"rows \[29~\], which a\.out already writes \(rows \[0~30\]\)"):
+            builder.connect("c", "out", "b", "in", None, Slice(29, None))
+        builder.connect("c", "out", "b", "in", None, Slice(30, None))
+        assert len(builder.edges) == 2
