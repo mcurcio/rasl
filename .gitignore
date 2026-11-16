@@ -146,3 +146,6 @@ __pycache__
 
 # bd's lock file, left in the repo root by every bd command
 .beads.gate.lock
+
+# The web UI, built from js/packages/web (pnpm build) into the Python package
+src/rasl/app/ui/

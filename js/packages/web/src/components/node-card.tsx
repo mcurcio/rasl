@@ -1,0 +1,76 @@
+// A node on the canvas: its id and type, health from live metrics, and a handle per port.
+import { Handle, type NodeProps, Position } from "@xyflow/react";
+import type { ReactElement } from "react";
+
+import type { NodeMetrics, Port } from "../api";
+import { NODE_WIDTH, PORT_ROW } from "../layout";
+import type { ViewNode } from "../model";
+
+export type NodeCardData = {
+  readonly node: ViewNode;
+  readonly metrics: NodeMetrics | undefined;
+  readonly problemPorts: ReadonlySet<string>;
+};
+
+function health(metrics: NodeMetrics | undefined): string {
+  if (!metrics) return "idle";
+  if (metrics.lastError) return "failing";
+  return metrics.successRate >= 0.99 ? "ok" : "degraded";
+}
+
+function portLabel(port: Port): string {
+  const type = port.types.join("|");
+  const count = port.minCount !== null && port.minCount === port.maxCount ? `×${port.minCount}` : "";
+  const width = port.components !== null ? `[${port.components}]` : "";
+  return `${type}${width}${count}`;
+}
+
+export function NodeCard({ data, selected }: NodeProps & { data: NodeCardData }): ReactElement {
+  const { node, metrics, problemPorts } = data;
+  const rows = Math.max(node.inputs.length, node.outputs.length, 1);
+  return (
+    <div
+      className={`node-card status-${node.status}${selected ? " selected" : ""}${node.error ? " has-error" : ""}`}
+      style={{ width: NODE_WIDTH }}
+      title={node.error ?? node.locked ?? undefined}
+    >
+      <div className="node-header">
+        <span className={`health health-${health(metrics)}`} title={metrics?.lastError ?? health(metrics)} />
+        <span className="node-id">{node.id}</span>
+        <span className="node-type">{node.type}</span>
+        {node.locked ? (
+          <span className="badge" title={node.locked}>
+            locked
+          </span>
+        ) : null}
+        {node.status !== "saved" ? <span className={`badge badge-${node.status}`}>{node.status}</span> : null}
+      </div>
+      <div className="node-ports" style={{ height: rows * PORT_ROW }}>
+        {node.inputs.map((port, i) => (
+          <div key={`in:${port.name}`} className="port port-in" style={{ top: i * PORT_ROW }}>
+            <Handle
+              id={`in:${port.name}`}
+              type="target"
+              position={Position.Left}
+              className={problemPorts.has(`in:${port.name}`) ? "handle-problem" : undefined}
+            />
+            <span className="port-name">{port.name}</span>
+            <span className="port-type">{portLabel(port)}</span>
+          </div>
+        ))}
+        {node.outputs.map((port, i) => (
+          <div key={`out:${port.name}`} className="port port-out" style={{ top: i * PORT_ROW }}>
+            <span className="port-type">{portLabel(port)}</span>
+            <span className="port-name">{port.name}</span>
+            <Handle
+              id={`out:${port.name}`}
+              type="source"
+              position={Position.Right}
+              className={problemPorts.has(`out:${port.name}`) ? "handle-problem" : undefined}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}

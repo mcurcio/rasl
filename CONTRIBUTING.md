@@ -44,7 +44,7 @@ The packages under `src/rasl/` are domains:
 | `nodes` | The built-in nodes: effects, color, debug, literal |
 | `devices` | One package per protocol: `sacn`, `ddp`, `lifx`, `govee` |
 | `config` | The config language on top of [knobly](https://github.com/mcurcio/knobly): node and connect directives, building the graph, reload and the file watcher |
-| `app` | The `rasl` command, the web server (GraphQL and `GET /health`) and the dashboard files |
+| `app` | The `rasl` command, the web server (GraphQL and `GET /health`) and the built web UI (`ui/`, from `js/packages/web`) |
 
 They import each other in one direction only. A package may import only from the packages on the lines below
 its own, and packages on the same line may not import each other:

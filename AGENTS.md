@@ -8,7 +8,8 @@ Claude Code reads `CLAUDE.md` and not `AGENTS.md`. Edit this file; `CLAUDE.md` f
 
 - `src/rasl/`, `tests/`: Python runtime (Python 3.11, `uv`; `pyproject.toml`).
 - `js/`: pnpm workspace (`js/packages/*`: engine, config, color, lighting, server, ui, govee,
-  lifx). Node version in `js/.nvmrc`. Style guide: `js/STYLE.md`.
+  lifx, web). Node version in `js/.nvmrc`. Style guide: `js/STYLE.md`. `web` (`@rasl/web`) is the Python
+  runtime's web UI: `pnpm build` writes it into `src/rasl/app/ui/` (git-ignored), which the server serves.
 - `v2/`: Rust experiment.
 - `docs/`: reference documentation.
 

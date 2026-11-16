@@ -59,18 +59,35 @@ a proxy that checks who is signing in. [SECURITY.md](../SECURITY.md) says more.
 
 | Route | What it serves |
 |---|---|
-| `GET /` | The dashboard. |
+| `GET /` | The web UI: the graph editor. |
 | `GET /health` | The health report as JSON. |
 | `/graphql` | GraphQL: `POST` or `GET` for queries, WebSocket for the subscription, and the GraphiQL editor in a browser. |
 
 ## The dashboard: `GET /`
 
-`GET /` serves a single-page app (`src/rasl/app/ui/`: `index.html`, `app.js`, `styles.css`). It draws the graph,
-and for the node you select it shows its type, ports, connections and metrics. Metrics update once a second
-over the `metricsStream` subscription. The page uses only the GraphQL API below.
+`GET /` serves the graph editor, a single-page app built from `js/packages/web` (`@rasl/web`, TypeScript, React
+and React Flow) into `src/rasl/app/ui/`. Those built files are not committed: `pnpm build` in `js/` writes them,
+and the container image builds them. The page uses only the GraphQL API below and loads nothing from the
+internet.
 
-The page loads two scripts from public CDNs, cytoscape from `cdn.jsdelivr.net` and graphql-ws from `unpkg.com`,
-so the browser needs internet access. The server itself does not.
+It draws the graph as the config files write it ([Graph editor](#graph-editor)), laid out automatically, with
+each node's ports, a health dot from `metricsStream`, and for the selection where it is written, its settings and
+metrics. Editing:
+
+- **Connect**: drag from an output port to an input port.
+- **Add a node**: double-click the canvas, press ⌘K, or drop a wire on empty canvas (the new node is then fed by
+  it). Pick a type, give it an id and settings; its ports are shown before it is added (`previewNode`).
+- **Remove or rename**: select a node or a connection and press Delete, or use the inspector. Removing a node
+  removes its connections.
+- Changes **queue** (owner, 2026-11-16: saved on purpose): queued nodes and connections are drawn dashed,
+  removed ones struck through. The queue is checked as it changes (`previewEdits`): the diff to each file, and
+  the error, with the ports of a refused connection marked. **Save** (`applyEdits`) writes the files; the
+  running graph follows by its reload. ⌘Z drops the last queued change.
+- When the files change on disk while changes are queued, the page says so and checks them again.
+
+Node settings are not edited from the page yet (`rasl-w18`). For development, `pnpm --filter @rasl/web dev`
+in `js/` serves the page with hot reload and forwards `/graphql` to a running rasl (`RASL_API`, default
+`http://127.0.0.1:8080`).
 
 ## Health: `GET /health`
 
