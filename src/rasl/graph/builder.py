@@ -7,6 +7,13 @@ import warnings
 from typing import Dict, List, Optional, Type
 
 from rasl.graph.edge import Edge
+from rasl.graph.errors import (
+    ConnectKeyError,
+    ConnectProblem,
+    ConnectTypeError,
+    ConnectValueError,
+    Endpoint,
+)
 from rasl.graph.node.protocol import Node, get_inputs, get_outputs
 from rasl.graph.order import find_back_edges, toposort_with_cycles
 from rasl.graph.plan import ExecutionPlan
@@ -16,17 +23,24 @@ from rasl.graph.slices import Slice
 from rasl.signal import FramePayload
 
 
-class PortTypeError(TypeError):
+class PortTypeError(ConnectTypeError):
     """A connection whose payload types do not match, found when the graph is built.
 
     Attributes:
         node: The id of the node the connection feeds, where the error belongs.
+        edge: The connection.
     """
 
-    def __init__(self, node: str, message: str) -> None:
-        """Record the target node and the message."""
-        super().__init__(message)
-        self.node = node
+    def __init__(self, edge: Edge, message: str) -> None:
+        """Record the connection and the message."""
+        super().__init__(
+            ConnectProblem.TYPE,
+            message,
+            source=Endpoint(edge.source, edge.source_port, edge.source_slice),
+            target=Endpoint(edge.target, edge.target_port, edge.target_slice),
+        )
+        self.node = edge.target
+        self.edge = edge
 
 
 class CycleWarning(UserWarning):
@@ -122,6 +136,9 @@ class GraphBuilder:
             source_slice: Optional channel slice on source port.
             target_slice: Optional channel slice on target port.
 
+        Every error is a ``ConnectError`` (``rasl.graph.errors``) naming the problem
+        and both ends, and also the built-in exception listed.
+
         Raises:
             KeyError: If source or target node ID is not registered.
             ValueError: If a port does not exist on its node, if a slice
@@ -132,10 +149,16 @@ class GraphBuilder:
             TypeError: If the port types are incompatible, or a port names
                 a payload type that is not registered.
         """
-        if source not in self._nodes:
-            raise KeyError(f"Unknown source node '{source}'")
-        if target not in self._nodes:
-            raise KeyError(f"Unknown target node '{target}'")
+        src_end = Endpoint(source, source_port, source_slice)
+        tgt_end = Endpoint(target, target_port, target_slice)
+        for node_id, kind in ((source, "source"), (target, "target")):
+            if node_id not in self._nodes:
+                raise ConnectKeyError(
+                    ConnectProblem.UNKNOWN_NODE,
+                    f"Unknown {kind} node '{node_id}'",
+                    source=src_end,
+                    target=tgt_end,
+                )
 
         src_node = self._nodes[source]
         tgt_node = self._nodes[target]
@@ -144,21 +167,21 @@ class GraphBuilder:
         tgt_inputs = get_inputs(tgt_node)
 
         # Validate port existence
-        if source_port not in src_outputs:
-            raise ValueError(
-                f"Node '{source}' has no output port '{source_port}'. "
-                f"Available: {src_outputs.names}"
-            )
-        if target_port not in tgt_inputs:
-            raise ValueError(
-                f"Node '{target}' has no input port '{target_port}'. "
-                f"Available: {tgt_inputs.names}"
-            )
+        for node_id, port, group, kind in (
+            (source, source_port, src_outputs, "output"),
+            (target, target_port, tgt_inputs, "input"),
+        ):
+            if port not in group:
+                raise ConnectValueError(
+                    ConnectProblem.UNKNOWN_PORT,
+                    f"Node '{node_id}' has no {kind} port '{port}'. Available: {group.names}",
+                    source=src_end,
+                    target=tgt_end,
+                )
 
         src_spec = src_outputs.get(source_port)
         tgt_spec = tgt_inputs.get(target_port)
-        if src_spec is None or tgt_spec is None:
-            raise ValueError("Port lookup failed")
+        assert src_spec is not None and tgt_spec is not None  # both checked above
         src_port_spec = src_spec.spec
         tgt_port_spec = tgt_spec.spec
 
@@ -171,15 +194,25 @@ class GraphBuilder:
             if unknown:
                 from rasl.signal import list_payload_types
 
-                raise TypeError(
+                raise ConnectTypeError(
+                    ConnectProblem.UNREGISTERED_TYPE,
                     f"Port {label} names a payload type that is not registered: "
                     f"{', '.join(repr(name) for name in unknown)}. "
-                    f"Registered: {', '.join(list_payload_types())}"
+                    f"Registered: {', '.join(list_payload_types())}",
+                    source=src_end,
+                    target=tgt_end,
                 )
 
         # A slice must lie inside a port whose size is known
-        self._check_slice_in_range(src_label, source_slice, src_port_spec)
-        self._check_slice_in_range(tgt_label, target_slice, tgt_port_spec)
+        for label, slice_, port_spec in (
+            (src_label, source_slice, src_port_spec),
+            (tgt_label, target_slice, tgt_port_spec),
+        ):
+            problem = self._slice_out_of_range(label, slice_, port_spec)
+            if problem is not None:
+                raise ConnectValueError(
+                    ConnectProblem.SLICE_RANGE, problem, source=src_end, target=tgt_end
+                )
 
         # Type compatibility check. A pass-through output's type depends on what feeds
         # it, which may not be connected yet: build() checks those edges.
@@ -189,9 +222,12 @@ class GraphBuilder:
             and src_type is not None
             and not tgt_port_spec.accepts_payload_type(src_type)
         ):
-            raise TypeError(
+            raise ConnectTypeError(
+                ConnectProblem.TYPE,
                 f"Type mismatch: {source}.{source_port} emits {src_type.__name__}, "
-                f"but {target}.{target_port} does not accept it"
+                f"but {target}.{target_port} does not accept it",
+                source=src_end,
+                target=tgt_end,
             )
 
         edge = Edge(
@@ -279,10 +315,15 @@ class GraphBuilder:
         if supplied is None or window is None or supplied == window:
             return
         repeat = f" (repeated {edge.repeat} times)" if edge.repeat > 1 else ""
-        raise ValueError(
+        raise ConnectValueError(
+            ConnectProblem.COUNT,
             f"Count mismatch: {self._label(edge.source, edge.source_port, edge.source_slice)} "
             f"supplies {supplied} elements{repeat}, but "
-            f"{self._label(edge.target, edge.target_port, edge.target_slice)} takes {window}"
+            f"{self._label(edge.target, edge.target_port, edge.target_slice)} takes {window}",
+            source=_source_end(edge),
+            target=_target_end(edge),
+            supplied=supplied,
+            takes=window,
         )
 
     def _written_rows(self, edge: Edge) -> tuple[int, Optional[int]]:
@@ -323,18 +364,28 @@ class GraphBuilder:
                 and other.source_slice == edge.source_slice
                 and other.target_slice == edge.target_slice
             ):
-                raise ValueError(
+                raise ConnectValueError(
+                    ConnectProblem.DUPLICATE,
                     f"Duplicate connection: {self._label(edge.source, edge.source_port, edge.source_slice)} "
-                    f"is already connected to {self._label(edge.target, edge.target_port, edge.target_slice)}"
+                    f"is already connected to {self._label(edge.target, edge.target_port, edge.target_slice)}",
+                    source=_source_end(edge),
+                    target=_target_end(edge),
+                    other=_source_end(other),
                 )
             o_start, o_end = self._written_rows(other)
             if (end is None or o_start < end) and (o_end is None or start < o_end) and start != end and o_start != o_end:
-                raise ValueError(
+                raise ConnectValueError(
+                    ConnectProblem.OVERLAP,
                     f"Overlapping connections into {edge.target}.{edge.target_port}: "
                     f"{self._label(edge.source, edge.source_port, edge.source_slice)} writes "
                     f"{self._rows(start, end)}, which "
                     f"{self._label(other.source, other.source_port, other.source_slice)} already writes "
-                    f"({self._rows(o_start, o_end)}). Give each a target slice that does not overlap"
+                    f"({self._rows(o_start, o_end)}). Give each a target slice that does not overlap",
+                    source=_source_end(edge),
+                    target=_target_end(edge),
+                    other=_source_end(other),
+                    rows=(start, end),
+                    other_rows=(o_start, o_end),
                 )
 
     @staticmethod
@@ -343,28 +394,24 @@ class GraphBuilder:
         return f"rows [{start}~{'' if end is None else end}]"
 
     @staticmethod
-    def _check_slice_in_range(
+    def _slice_out_of_range(
         label: str,
         slice_: Optional[Slice],
         spec: InputPortSpec | OutputPortSpec,
-    ) -> None:
-        """Refuse a slice that reaches past the end of a port.
+    ) -> str | None:
+        """Why a slice reaches past the end of a port, or None when it does not.
 
         Only a port with a fixed count or an upper bound has an end; a slice on
         an unbounded port cannot be checked until frames flow.
-
-        Raises:
-            ValueError: If the slice starts at or past the end, or ends past it.
         """
         limit = spec.max_count
         if slice_ is None or limit is None:
-            return
+            return None
         if slice_.start >= limit or (slice_.end is not None and slice_.end > limit):
             end = "" if slice_.end is None else slice_.end
             size = f"has {limit} elements" if spec.fixed_count is not None else f"has at most {limit} elements"
-            raise ValueError(
-                f"Slice [{slice_.start}:{end}] is out of range for port {label}, which {size}"
-            )
+            return f"Slice [{slice_.start}:{end}] is out of range for port {label}, which {size}"
+        return None
 
     def _get_primary_type(self, spec: OutputPortSpec) -> Type[FramePayload] | None:
         """Extract the primary output type from a port spec.
@@ -435,7 +482,7 @@ class GraphBuilder:
                 continue
             if not tgt_spec.spec.accepts_payload_type(src_type):
                 raise PortTypeError(
-                    edge.target,
+                    edge,
                     f"Type mismatch: {edge.source}.{edge.source_port} passes on "
                     f"{src_type.__name__} from its '{src_spec.spec.same_as}' input, but "
                     f"{edge.target}.{edge.target_port} does not accept it",
@@ -502,3 +549,13 @@ class GraphBuilder:
             input_programs=input_programs,
             back_edges=frozenset(back_edges),
         )
+
+
+def _source_end(edge: Edge) -> Endpoint:
+    """The source end of an edge."""
+    return Endpoint(edge.source, edge.source_port, edge.source_slice)
+
+
+def _target_end(edge: Edge) -> Endpoint:
+    """The target end of an edge."""
+    return Endpoint(edge.target, edge.target_port, edge.target_slice)

@@ -492,3 +492,33 @@ class TestConnectCountsAndOverlaps:
             builder.connect("c", "out", "b", "in", None, Slice(29, None))
         builder.connect("c", "out", "b", "in", None, Slice(30, None))
         assert len(builder.edges) == 2
+
+
+class TestConnectErrorsNameTheirPorts:
+    """Every connect error is a ConnectError with both ends (owner, 2026-11-16: errors
+    carry the connect ports), and still the built-in exception it was."""
+
+    def test_a_count_mismatch_carries_both_ends_and_both_counts(self) -> None:
+        from rasl.graph import ConnectError, ConnectProblem, Endpoint
+
+        builder = GraphBuilder()
+        builder.add_node(_Ported("a", out=OutputPortSpec(MatrixPayload, count=512)))
+        builder.add_node(_Ported("b", inp=InputPortSpec(MatrixPayload, count=3)))
+        with pytest.raises(ValueError) as caught:
+            builder.connect("a", "out", "b", "in")
+        error = caught.value
+        assert isinstance(error, ConnectError)
+        assert error.problem is ConnectProblem.COUNT
+        assert (error.source, error.target) == (Endpoint("a", "out"), Endpoint("b", "in"))
+        assert (error.supplied, error.takes) == (512, 3)
+
+    def test_an_unknown_node_is_a_key_error_that_prints_plainly(self) -> None:
+        from rasl.graph import ConnectError, ConnectProblem
+
+        builder = GraphBuilder()
+        builder.add_node(_Ported("b"))
+        with pytest.raises(KeyError) as caught:
+            builder.connect("a", "out", "b", "in")
+        assert isinstance(caught.value, ConnectError)
+        assert caught.value.problem is ConnectProblem.UNKNOWN_NODE
+        assert str(caught.value) == "Unknown source node 'a'"

@@ -14,7 +14,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from rasl.config.document import Directive, arg_texts, children
-from rasl.graph import GraphBuilder, Slice
+from rasl.graph import (
+    ConnectKeyError,
+    ConnectProblem,
+    ConnectValueError,
+    Endpoint,
+    GraphBuilder,
+    Slice,
+)
 from rasl.graph.node import get_inputs, get_outputs
 
 
@@ -193,19 +200,41 @@ def resolve_connections(
     """
     nodes = builder.nodes
     if target_node_id not in nodes:
-        raise KeyError(f"Unknown target node '{target_node_id}'")
+        raise ConnectKeyError(
+            ConnectProblem.UNKNOWN_NODE,
+            f"Unknown target node '{target_node_id}'",
+            source=Endpoint(""),
+            target=Endpoint(target_node_id),
+        )
 
     tgt_inputs = get_inputs(nodes[target_node_id])
 
     for desc in descriptors:
         # Parse source reference
-        source_ref = parse_port_ref(desc.source)
+        target_end = Endpoint(target_node_id)
+        try:
+            source_ref = parse_port_ref(desc.source)
+        except ValueError as error:
+            raise ConnectValueError(
+                ConnectProblem.BAD_REFERENCE, str(error), source=Endpoint(desc.source), target=target_end
+            ) from error
         if not source_ref.node:
-            raise ValueError(f"Source must specify a node: {desc.source}")
+            raise ConnectValueError(
+                ConnectProblem.BAD_REFERENCE,
+                f"Source must specify a node: {desc.source}",
+                source=Endpoint(desc.source),
+                target=target_end,
+            )
 
         source_node_id = source_ref.node
+        source_end = Endpoint(source_node_id, source_ref.port, source_ref.slice_)
         if source_node_id not in nodes:
-            raise KeyError(f"Unknown source node '{source_node_id}'")
+            raise ConnectKeyError(
+                ConnectProblem.UNKNOWN_NODE,
+                f"Unknown source node '{source_node_id}'",
+                source=source_end,
+                target=target_end,
+            )
 
         source_node = nodes[source_node_id]
         src_outputs = get_outputs(source_node)
@@ -215,15 +244,19 @@ def resolve_connections(
             source_port = source_ref.port
         else:
             source_port, _ = src_outputs.get_default()
+        source_end = Endpoint(source_node_id, source_port, source_ref.slice_)
 
         # Get source port spec for channel info
         src_spec = src_outputs.get(source_port)
         if src_spec is None:
             # The graph's own wording (GraphBuilder.connect), raised here because the
             # spec is read below, before the graph would see the port
-            raise ValueError(
+            raise ConnectValueError(
+                ConnectProblem.UNKNOWN_PORT,
                 f"Node '{source_node_id}' has no output port '{source_port}'. "
-                f"Available: {src_outputs.names}"
+                f"Available: {src_outputs.names}",
+                source=source_end,
+                target=target_end,
             )
 
         # Resolve target port (use default if not specified)
@@ -259,10 +292,14 @@ def resolve_connections(
             )
             continue
 
+        target_end = Endpoint(target_node_id, target_port, target_slice_base)
         if desc.repeat_until is not None:
-            raise ValueError(
+            raise ConnectValueError(
+                ConnectProblem.BAD_REFERENCE,
                 "repeat_until is only supported for implicit repeat connections "
-                "(no source or target slicing)"
+                "(no source or target slicing)",
+                source=source_end,
+                target=target_end,
             )
 
         # Determine source slice and length for repeat
@@ -281,9 +318,12 @@ def resolve_connections(
         if desc.repeat > 1 and slice_length is None:
             # Each copy would land on the same rows (rasl-pd0.10: overlapping edges
             # are refused), so say what is missing instead
-            raise ValueError(
+            raise ConnectValueError(
+                ConnectProblem.BAD_REFERENCE,
                 f"repeat {desc.repeat} needs the length of {desc.source}: give the source "
-                f"a slice with an end, or connect a port with a fixed count"
+                f"a slice with an end, or connect a port with a fixed count",
+                source=source_end,
+                target=target_end,
             )
 
         # Create edges (possibly multiple for repeat)

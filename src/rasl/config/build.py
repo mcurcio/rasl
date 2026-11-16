@@ -14,6 +14,7 @@ from typing import Any
 
 from rasl.config.connect import parse_connect_directive, resolve_connections
 from rasl.config.document import (
+    ConfigError,
     Directive,
     Rendered,
     children,
@@ -22,7 +23,7 @@ from rasl.config.document import (
     parse_document,
 )
 from rasl.config.node_directive import _node_config, node_spec
-from rasl.graph import ExecutionPlan, GraphBuilder, PortTypeError
+from rasl.graph import ConnectError, ExecutionPlan, GraphBuilder, PortTypeError
 from rasl.graph.node import ensure_nodes_loaded
 from rasl.runtime import pull_rate_of
 
@@ -90,36 +91,26 @@ def build_plan(
         node_directives[node_id] = directive
 
     # Second pass: each node's connect directives become edges, now that every
-    # node (and so every port) is known
+    # node (and so every port) is known. An error is placed on the connect line
+    # that asks for the connection, and carries the graph's ConnectError.
+    edge_lines: list[tuple[int, Directive]] = []  # (first edge index, connect line)
     for node_id, directive in node_directives.items():
-        descriptors = [
-            parse_connect_directive(child)
-            for child in directive.block or ()
-            if child.name == "connect"
-        ]
-        try:
-            resolve_connections(builder, node_id, descriptors)
-        except (KeyError, ValueError, TypeError) as e:
-            # The graph's own message, placed on the node whose connect it is
-            message = e.args[0] if isinstance(e, KeyError) and e.args else str(e)
-            raise config_error(
-                directive,
-                f"Node '{node_id}': {message}",
-                code="rasl/connect",
-                tree=tree,
-            ) from e
+        for line in children(directive, "connect"):
+            try:
+                descriptor = parse_connect_directive(line)
+                edge_lines.append((len(builder.edges), line))
+                resolve_connections(builder, node_id, [descriptor])
+            except (KeyError, ValueError, TypeError) as e:
+                raise _connect_error(line, node_id, e, tree) from e
 
     try:
         plan = builder.build()
     except PortTypeError as e:
-        # A pass-through output's type is known only once every edge is: placed on the
-        # node it feeds, like the connect errors above
-        raise config_error(
-            node_directives[e.node],
-            f"Node '{e.node}': {e}",
-            code="rasl/connect",
-            tree=tree,
-        ) from e
+        # A pass-through output's type is known only once every edge is: placed on
+        # the connect line that made the edge
+        index = builder.edges.index(e.edge)
+        line = next(line for first, line in reversed(edge_lines) if first <= index)
+        raise _connect_error(line, e.node, e, tree) from e
     # A node's rate comes from its settings: check it here, on the node's line
     for node_id, node in plan.nodes.items():
         try:
@@ -129,6 +120,18 @@ def build_plan(
                 node_directives[node_id], str(e), code="rasl/rate", tree=tree
             ) from e
     return plan, configs
+
+
+def _connect_error(line: Directive, node_id: str, error: Exception, tree: Rendered) -> ConfigError:
+    """A connect line's error, placed on that line, with the graph's ``ConnectError``."""
+    message = error.args[0] if isinstance(error, KeyError) and error.args else str(error)
+    return config_error(
+        line,
+        f"Node '{node_id}': {message}",
+        code="rasl/connect",
+        tree=tree,
+        connection=error if isinstance(error, ConnectError) else None,
+    )
 
 
 def parse_config(config_text: str) -> ExecutionPlan:

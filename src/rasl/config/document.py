@@ -24,7 +24,7 @@ Example:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from knobly import (
@@ -41,6 +41,9 @@ from knobly import (
 )
 from knobly.files import file_source, file_writer
 from knobly.include import include
+
+if TYPE_CHECKING:
+    from rasl.graph import ConnectError
 
 logger = structlog.get_logger()
 
@@ -76,6 +79,9 @@ class ConfigError(Exception):
         documents: Every file the load read, the broken ones included (what a
             watcher must watch to see the fix). Empty when the error was made
             without a place.
+        connection: For a connection the graph refuses (code ``rasl/connect``), the
+            graph's ``ConnectError``: the problem and both ends, ports and slices
+            included. None for every other error.
     """
 
     def __init__(
@@ -87,8 +93,10 @@ class ConfigError(Exception):
         diagnostics: tuple[LocatedDiagnostic, ...] = (),
         documents: tuple[str, ...] = (),
         formatted: str | None = None,
+        connection: ConnectError | None = None,
     ) -> None:
         self.message = message
+        self.connection = connection
         self.line = line
         self.column = column
         self.diagnostics = diagnostics
@@ -102,6 +110,7 @@ class ConfigError(Exception):
         cls,
         diagnostics: tuple[LocatedDiagnostic, ...],
         graph: written.DocumentGraph,
+        connection: ConnectError | None = None,
     ) -> "ConfigError":
         """One error for all of ``diagnostics``, printed with source lines and carets."""
         first = diagnostics[0]
@@ -113,6 +122,7 @@ class ConfigError(Exception):
             diagnostics=diagnostics,
             documents=tuple(graph.documents),
             formatted="\n".join(written.format_diagnostic(d, graph) for d in diagnostics),
+            connection=connection,
         )
 
 
@@ -122,6 +132,7 @@ def config_error(
     *,
     code: str,
     tree: Rendered,
+    connection: ConnectError | None = None,
 ) -> ConfigError:
     """A ``ConfigError`` placed on ``at``, a directive, a value or the whole config.
 
@@ -130,9 +141,10 @@ def config_error(
         message: Description of the problem.
         code: rasl's code for it, ``rasl/<name>``.
         tree: The rendered config ``at`` belongs to (for the source line shown).
+        connection: The graph's error, for a connection it refuses.
     """
     error: DiagnosticError = at.error(message, code=code)
-    return ConfigError.from_diagnostics((error.diagnostic,), tree.graph)
+    return ConfigError.from_diagnostics((error.diagnostic,), tree.graph, connection)
 
 
 def _render(graph: written.DocumentGraph) -> Rendered:
