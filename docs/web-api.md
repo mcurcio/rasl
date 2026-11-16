@@ -49,7 +49,10 @@ The container image passes `--api-host 0.0.0.0 --api-port $RASL_PORT`
 ## Security
 
 The server has no authentication and no access control. Anyone who can reach the port can read the graph (node
-names, types and ports), the metrics, and the last config error, which quotes lines of the config file. It binds `127.0.0.1` by default. Bind another address only on a trusted network, or put the server behind
+names, types and ports), the metrics, and the last config error, which quotes lines of the config file. When the
+config is watched, they can also **change the config files** through the graph editor's mutations
+([Graph editor](#graph-editor)); the deployment puts the server behind the cluster's Keycloak sign-in for that
+(`rasl-6sr.8`). It binds `127.0.0.1` by default. Bind another address only on a trusted network, or put the server behind
 a proxy that checks who is signing in. [SECURITY.md](../SECURITY.md) says more.
 
 ## Routes
@@ -131,7 +134,9 @@ The status returns to `ok` at the next reload that succeeds.
 
 ## GraphQL: `/graphql`
 
-The API is read-only: it has queries and one subscription, and no mutations. Field names are camelCase.
+The API reads the running graph, its metrics and health, and, for the graph editor, the config files as written.
+Its only writes are the editor's mutations, which change the config files ([Graph editor](#graph-editor)). Field
+names are camelCase.
 
 - **Queries** go as `POST` with a JSON body `{"query": "...", "variables": {...}}`, or as `GET` with the query
   in the `query` parameter.
@@ -146,10 +151,19 @@ type Query {
   graph: Graph!
   metrics: MetricsSnapshot!
   node(nodeId: String!): Node
+  configGraph: ConfigGraph
+  nodeTypes: [NodeType!]!
+  previewNode(type: String!, values: String! = "", settings: [SettingInput!] = null): ConfigNode!
+}
+
+type Mutation {
+  previewEdits(baseVersion: String!, edits: [EditInput!]!): EditOutcome!
+  applyEdits(baseVersion: String!, edits: [EditInput!]!): EditOutcome!
 }
 
 type Subscription {
   metricsStream(intervalMs: Int! = 1000): MetricsSnapshot!
+  configChanged(intervalMs: Int! = 1000): ConfigChange!
 }
 ```
 
@@ -423,6 +437,32 @@ curl -sS -H 'content-type: application/json' -d '{"query":"{ health { nope } }"}
 ```json
 {"data": null, "errors": [{"message": "Cannot query field 'nope' on type 'Health'.", "locations": [{"line": 1, "column": 12}]}]}
 ```
+
+## Graph editor
+
+The editor changes the config files, never the running graph (`src/rasl/config/edit.py`, `view.py`;
+`src/rasl/app/server/editor_api.py`). A saved edit reaches the running graph by the watcher's reload, as an edit in
+a text editor does. Without a watched config (`--no-watch`), `configGraph` is null and every edit is refused.
+
+| Field | What it does |
+|---|---|
+| `configGraph` | The graph as the files write it: each node (type, file and line, settings, ports, `locked` reason) and each `connect` line (source and port as written, resolved ports, `repeat`, file and line, `locked`), the files' `version`, and `error` when the config does not build. A node is built on its own to show its ports, so one broken node does not hide the others. |
+| `nodeTypes` | Every node type, by the name a `node` line uses, with its aliases, a one-line summary and the JSON Schema of its settings. |
+| `previewNode(type, values, settings)` | A node not in the config yet, built (never started) to show its ports, which can depend on its settings. |
+| `previewEdits(baseVersion, edits)` | What a batch would change (a unified diff per file) and whether the result builds. Writes nothing. |
+| `applyEdits(baseVersion, edits)` | The same, then saves the files when the result builds. |
+| `configChanged(intervalMs)` | The files' version, then each new version or reload outcome. |
+
+An edit is one of `addNode {type, id, values, settings}`, `removeNode {id}` (its `connect` lines go with it),
+`renameNode {id, newId}` (every `connect` line that reads it follows), `connect {source, target, port, repeat,
+repeatUntil}` and `disconnect {source, target, port}`; sources and ports are written in config notation
+(`hue.out[0~3]`). A new node goes after the last node the batch connects it from, else before the first node it
+feeds, else at the end of the `graph` block. Comments and layout are kept.
+
+An `EditOutcome` is exactly one of: `ok` (`saved` lists the files written; empty for a preview), `error` (the
+edited config does not build: placed in the edited text, with `connection` naming both ports for a refused
+connection), `refused` (an edit cannot be made: an unknown node, a taken id, a line in a `@snippet` or in a file
+read twice), or `conflict` (the files changed since `baseVersion`: read `configGraph` again).
 
 ## Subscriptions over WebSocket
 

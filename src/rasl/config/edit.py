@@ -225,7 +225,7 @@ class EditResult:
         return "".join(change.diff() for change in self.changes)
 
 
-def _version_of(graph: WrittenGraph) -> str:
+def version_of(graph: WrittenGraph) -> str:
     """A hash of every file the config reads, by path and text as loaded or saved."""
     digest = hashlib.sha256()
     for path, document in graph.documents.items():
@@ -250,7 +250,7 @@ class ConfigEditor:
 
     def version(self) -> str:
         """The version of the files now on disk (a hash of their paths and texts)."""
-        return _version_of(load_written(self.path))
+        return version_of(load_written(self.path))
 
     def preview(self, edits: Sequence[Edit], base_version: str) -> EditResult:
         """Apply ``edits`` to a copy and check it; write nothing.
@@ -283,12 +283,12 @@ class ConfigEditor:
         except LostUpdate as lost:
             raise EditConflict(f"Changed on disk while saving: {', '.join(lost.paths)}") from lost
         return EditResult(
-            ok=True, changes=changes, error=None, version=_version_of(graph), saved=tuple(saved)
+            ok=True, changes=changes, error=None, version=version_of(graph), saved=tuple(saved)
         )
 
     def _load(self, base_version: str) -> WrittenGraph:
         graph = load_written(self.path)
-        if _version_of(graph) != base_version:
+        if version_of(graph) != base_version:
             raise EditConflict("The config files changed since this edit was made; reload them")
         return graph
 
@@ -307,6 +307,24 @@ class ConfigEditor:
         except ConfigError as error:
             return changes, error
         return changes, None
+
+
+def lock_reason(directive: Directive) -> str | None:
+    """Why an edit to ``directive``'s line would change more than it, or None.
+
+    A line written in a ``@snippet`` is every ``@use`` of it; a line in a file read more
+    than once is every read of it.
+    """
+    statement = directive.written
+    parent = statement.parent
+    while parent is not None:
+        if parent.kind == "snippet":
+            return f"is written in @snippet {parent.name}"
+        parent = parent.parent
+    copies = len(statement.copies())
+    if copies != 1:
+        return f"is in a file read {copies} times"
+    return None
 
 
 class _Batch:
@@ -355,16 +373,10 @@ class _Batch:
 
     def editable(self, directive: Directive, what: str) -> Statement:
         """The line ``directive`` is written on, when an edit there changes only it."""
-        statement = directive.written
-        parent = statement.parent
-        while parent is not None:
-            if parent.kind == "snippet":
-                raise self.refuse(f"{what} is written in @snippet {parent.name}; it is locked")
-            parent = parent.parent
-        copies = len(statement.copies())
-        if copies != 1:
-            raise self.refuse(f"{what} is in a file read {copies} times; it is locked")
-        return statement
+        reason = lock_reason(directive)
+        if reason is not None:
+            raise self.refuse(f"{what} {reason}; it is locked")
+        return directive.written
 
     def readers(self, node_id: str) -> list[Directive]:
         """Every rendered ``connect`` line in the graph that reads from ``node_id``."""
