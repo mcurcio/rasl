@@ -30,6 +30,8 @@ class ConnectProblem(str, Enum):
         COUNT: Fixed source rows and fixed target rows differ.
         DUPLICATE: The same connection is already there.
         OVERLAP: It writes rows of the target port an earlier connection writes.
+        COMPONENTS: A matrix coerced into a color type has another number of columns
+            than the color has components.
     """
 
     UNKNOWN_NODE = "unknown-node"
@@ -41,6 +43,7 @@ class ConnectProblem(str, Enum):
     COUNT = "count"
     DUPLICATE = "duplicate"
     OVERLAP = "overlap"
+    COMPONENTS = "components"
 
 
 @dataclass(frozen=True)
@@ -71,8 +74,10 @@ class ConnectError(Exception):
         rows: For ``OVERLAP``, the rows of the target port this connection writes, as
             ``(start, end)``, end None for "to the end"; else None.
         other_rows: For ``OVERLAP``, the rows the earlier connection writes; else None.
-        supplied: For ``COUNT``, the rows the source supplies (repeats included).
-        takes: For ``COUNT``, the rows the target takes.
+        supplied: For ``COUNT``, the rows the source supplies (repeats included); for
+            ``COMPONENTS``, the columns it supplies.
+        takes: For ``COUNT``, the rows the target takes; for ``COMPONENTS``, the
+            components of the color type it takes.
     """
 
     def __init__(
@@ -102,6 +107,31 @@ class ConnectError(Exception):
     def __str__(self) -> str:
         """The message (a ``KeyError`` would print it quoted)."""
         return self.message
+
+
+class ComponentsError(ValueError):
+    """A plain matrix reached a color port with another number of columns than the color.
+
+    Raised on the first frame that shows it, for a source whose width is not known before
+    the graph runs (owner, 2026-11-16: "fail on first data if the ports are dynamic"). A
+    width known at load is refused then, as a ``ConnectError`` with ``COMPONENTS``.
+
+    Attributes:
+        target: The port the frame was for.
+        source: The output the frame came from.
+        supplied: Columns the frame has.
+        takes: Components of the port's color type.
+    """
+
+    def __init__(self, target: Endpoint, source: Endpoint, supplied: int, takes: int, type_name: str) -> None:
+        self.target = target
+        self.source = source
+        self.supplied = supplied
+        self.takes = takes
+        super().__init__(
+            f"{source.node}.{source.port} sent {supplied} columns into {target.node}.{target.port}, "
+            f"which takes {type_name} ({takes} components)"
+        )
 
 
 class ConnectValueError(ConnectError, ValueError):

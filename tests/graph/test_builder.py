@@ -522,3 +522,63 @@ class TestConnectErrorsNameTheirPorts:
         assert isinstance(caught.value, ConnectError)
         assert caught.value.problem is ConnectProblem.UNKNOWN_NODE
         assert str(caught.value) == "Unknown source node 'a'"
+
+
+class TestMatrixIntoColor:
+    """Owner, 2026-11-16: a plain matrix may feed a concrete color port (coerced to that
+    color), and a component mismatch is refused at load when the width is known, or
+    fails on the first frame when it is not."""
+
+    @staticmethod
+    def _builder(out: OutputPortSpec, inp: InputPortSpec) -> GraphBuilder:
+        builder = GraphBuilder()
+        builder.add_node(_Ported("a", out=out))
+        builder.add_node(_Ported("b", inp=inp))
+        return builder
+
+    def test_a_matrix_of_the_colors_width_connects(self) -> None:
+        from rasl.color.payloads import HsbkColorPayload
+
+        builder = self._builder(OutputPortSpec(MatrixPayload, components=4), InputPortSpec(HsbkColorPayload))
+        builder.connect("a", "out", "b", "in")
+        assert len(builder.edges) == 1
+
+    def test_a_known_width_that_differs_is_refused_at_load(self) -> None:
+        from rasl.color.payloads import HsbkColorPayload
+        from rasl.graph import ConnectProblem, ConnectTypeError
+
+        builder = self._builder(OutputPortSpec(MatrixPayload, components=1), InputPortSpec(HsbkColorPayload))
+        with pytest.raises(ConnectTypeError, match=r"a\.out emits 1 columns, but b\.in takes HsbkColorPayload \(4 components\)") as caught:
+            builder.connect("a", "out", "b", "in")
+        assert caught.value.problem is ConnectProblem.COMPONENTS
+        assert (caught.value.supplied, caught.value.takes) == (1, 4)
+
+    def test_another_color_type_still_needs_a_color_node(self) -> None:
+        from rasl.color.payloads import HsbkColorPayload, RgbColorPayload
+        from rasl.graph import ConnectProblem, ConnectTypeError
+
+        builder = self._builder(OutputPortSpec(RgbColorPayload), InputPortSpec(HsbkColorPayload))
+        with pytest.raises(ConnectTypeError) as caught:
+            builder.connect("a", "out", "b", "in")
+        assert caught.value.problem is ConnectProblem.TYPE
+
+    def test_an_unknown_width_is_checked_on_the_first_frame(self) -> None:
+        import numpy as np
+
+        from rasl.color.payloads import HsbkColorPayload
+        from rasl.graph import ComponentsError
+        from rasl.signal import Frame
+
+        builder = self._builder(OutputPortSpec(MatrixPayload), InputPortSpec(HsbkColorPayload))
+        builder.connect("a", "out", "b", "in")
+        program = builder.build().input_programs[("b", "in")]
+        assert program.coerce is HsbkColorPayload
+
+        def frames(columns: int):
+            frame = Frame(topic="t", timestamp=0.0, payload=MatrixPayload(np.zeros((2, columns), dtype=np.float32)))
+            return lambda *_: frame
+
+        delivered = program.populate(0, frames(4), lambda *_: np.zeros((2, 4), dtype=np.float32))
+        assert isinstance(delivered.payload, HsbkColorPayload)
+        with pytest.raises(ComponentsError, match=r"a\.out sent 1 columns into b\.in, which takes HsbkColorPayload \(4 components\)"):
+            program.populate(0, frames(1), lambda *_: np.zeros((2, 4), dtype=np.float32))

@@ -12,6 +12,7 @@ from typing import Callable, Dict, List, Set, Tuple
 import numpy as np
 
 from rasl.graph.edge import Edge
+from rasl.graph.errors import ComponentsError, Endpoint
 from rasl.graph.node.protocol import Node, get_inputs
 from rasl.graph.ports.port import InputPort
 from rasl.signal import Frame, MatrixPayload
@@ -201,6 +202,9 @@ class InputPortProgram:
         passthrough_is_back_edge: True if the passthrough edge closes a cycle.
         ops: The copy and repeat operations, in edge order. Where two write the same rows, the
             later one wins.
+        coerce: The color type the port takes a plain matrix as (``coercion_target``), or
+            None. A plain-matrix frame for it is checked for that type's number of columns
+            (``ComponentsError`` when it differs) and handed on as that type.
     """
 
     target: InputPort
@@ -210,6 +214,7 @@ class InputPortProgram:
     passthrough: Tuple[str, str] | None
     passthrough_is_back_edge: bool
     ops: Tuple[EdgeOp, ...]
+    coerce: type | None = None
 
     @staticmethod
     def enable_profiling(enabled: bool = True) -> None:
@@ -257,7 +262,22 @@ class InputPortProgram:
         """
         if self.passthrough is not None:
             src_node, src_port = self.passthrough
-            return resolve(src_node, src_port, self.passthrough_is_back_edge, tick)
+            frame = resolve(src_node, src_port, self.passthrough_is_back_edge, tick)
+            if frame is None or self.coerce is None or isinstance(frame.payload, self.coerce):
+                return frame
+            data = getattr(frame.payload, "data", None)
+            if data is None:
+                return frame
+            data = np.asarray(data, dtype=np.float32)
+            if data.ndim == 1:
+                data = data.reshape(-1, 1)
+            self._check_columns(src_node, src_port, int(data.shape[1]))
+            return Frame(
+                topic=frame.topic,
+                timestamp=frame.timestamp,
+                payload=self.coerce(data),
+                metadata=frame.metadata,
+            )
 
         profile = _ipp_profile_enabled
         if profile:
@@ -292,6 +312,8 @@ class InputPortProgram:
                 src = src.reshape(-1, 1)
             if src.ndim != 2:
                 continue
+            if self.coerce is not None and not isinstance(frame.payload, self.coerce):
+                self._check_columns(op.source, op.source_port, int(src.shape[1]))
             rows = max(rows, op.required_rows(int(src.shape[0])))
             if self.fixed_cols is None:
                 cols = max(cols, int(src.shape[1]))
@@ -331,9 +353,22 @@ class InputPortProgram:
         return Frame(
             topic=first.topic,
             timestamp=first.timestamp,
-            payload=MatrixPayload(view),
+            payload=MatrixPayload(view) if self.coerce is None else self.coerce(view),
             metadata=first.metadata,
         )
+
+    def _check_columns(self, source: str, source_port: str, columns: int) -> None:
+        """Refuse a plain matrix whose columns are not the coerced color's components."""
+        assert self.coerce is not None
+        takes = int(self.coerce.components)
+        if columns != takes:
+            raise ComponentsError(
+                target=Endpoint(self.buffer_key[0], self.buffer_key[1]),
+                source=Endpoint(source, source_port),
+                supplied=columns,
+                takes=takes,
+                type_name=self.coerce.__name__,
+            )
 
 
 def compile_input_programs(
@@ -401,6 +436,7 @@ def compile_input_programs(
                         passthrough=passthrough,
                         passthrough_is_back_edge=passthrough_is_back,
                         ops=(),
+                        coerce=port.spec.coercion_target(),
                     )
                     continue
 
@@ -448,6 +484,7 @@ def compile_input_programs(
                 passthrough=None,
                 passthrough_is_back_edge=False,
                 ops=tuple(ops),
+                coerce=port.spec.coercion_target(),
             )
 
     return programs

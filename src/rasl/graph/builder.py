@@ -217,17 +217,15 @@ class GraphBuilder:
         # Type compatibility check. A pass-through output's type depends on what feeds
         # it, which may not be connected yet: build() checks those edges.
         src_type = self._get_primary_type(src_port_spec)
-        if (
-            src_port_spec.same_as is None
-            and src_type is not None
-            and not tgt_port_spec.accepts_payload_type(src_type)
-        ):
-            raise ConnectTypeError(
-                ConnectProblem.TYPE,
+        if src_port_spec.same_as is None and src_type is not None:
+            self._check_type(
+                src_type,
+                src_port_spec.known_components,
+                tgt_port_spec,
+                src_end,
+                tgt_end,
                 f"Type mismatch: {source}.{source_port} emits {src_type.__name__}, "
                 f"but {target}.{target_port} does not accept it",
-                source=src_end,
-                target=tgt_end,
             )
 
         edge = Edge(
@@ -271,6 +269,44 @@ class GraphBuilder:
         tgt_port_name, _ = tgt_inputs.get_default()
 
         self.connect(source, src_port_name, target, tgt_port_name)
+
+    @staticmethod
+    def _check_type(
+        src_type: Type[FramePayload],
+        src_components: int | None,
+        tgt_spec: InputPortSpec,
+        src_end: Endpoint,
+        tgt_end: Endpoint,
+        mismatch: str,
+    ) -> None:
+        """Refuse a source type the target does not take, as is or by coercion.
+
+        A concrete color port takes a plain matrix by coercion (owner, 2026-11-16); its
+        columns must then equal the color's components. When the source's width is
+        known before the graph runs, a mismatch is refused here; when it is not, the
+        port's program checks the first frame (``ComponentsError``).
+
+        Raises:
+            ConnectTypeError: ``TYPE`` for a type the port does not take,
+                ``COMPONENTS`` for a known width that differs.
+        """
+        if tgt_spec.accepts_payload_type(src_type):
+            return
+        target_type = tgt_spec.coercion_target()
+        if target_type is None or not target_type.coerces_from(src_type):
+            raise ConnectTypeError(ConnectProblem.TYPE, mismatch, source=src_end, target=tgt_end)
+        takes = int(target_type.components)
+        if src_components is not None and src_components != takes:
+            raise ConnectTypeError(
+                ConnectProblem.COMPONENTS,
+                f"Component mismatch: {src_end.node}.{src_end.port} emits {src_components} "
+                f"columns, but {tgt_end.node}.{tgt_end.port} takes {target_type.__name__} "
+                f"({takes} components)",
+                source=src_end,
+                target=tgt_end,
+                supplied=src_components,
+                takes=takes,
+            )
 
     @staticmethod
     def _supplied_rows(edge: Edge, src_spec: OutputPortSpec) -> Optional[int]:
@@ -480,13 +516,19 @@ class GraphBuilder:
             tgt_spec = get_inputs(self._nodes[edge.target]).get(edge.target_port)
             if src_type is None or tgt_spec is None:
                 continue
-            if not tgt_spec.spec.accepts_payload_type(src_type):
-                raise PortTypeError(
-                    edge,
-                    f"Type mismatch: {edge.source}.{edge.source_port} passes on "
-                    f"{src_type.__name__} from its '{src_spec.spec.same_as}' input, but "
-                    f"{edge.target}.{edge.target_port} does not accept it",
+            message = (
+                f"Type mismatch: {edge.source}.{edge.source_port} passes on "
+                f"{src_type.__name__} from its '{src_spec.spec.same_as}' input, but "
+                f"{edge.target}.{edge.target_port} does not accept it"
+            )
+            try:
+                # A pass-through's width follows its input, unknown here: a plain matrix
+                # coerced into a color is checked on its first frame
+                self._check_type(
+                    src_type, None, tgt_spec.spec, _source_end(edge), _target_end(edge), message
                 )
+            except ConnectTypeError as error:
+                raise PortTypeError(edge, error.message) from error
 
     def build(self, allow_cycles: bool = True) -> ExecutionPlan:
         """Validate the graph and compile it into an ExecutionPlan.

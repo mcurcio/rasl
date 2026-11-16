@@ -238,6 +238,20 @@ class InputPortSpec:
 
         return False
 
+    def coercion_target(self) -> Type | None:
+        """The one type this port takes by coercion (a concrete color type), or None.
+
+        Only a port that accepts exactly one type coerces: with several, which one a
+        plain matrix should become is not known.
+        """
+        resolved = self.resolve_payload_types()
+        if len(resolved) != 1 or not hasattr(resolved[0], "coerces_from"):
+            return None
+        target = resolved[0]
+        from rasl.signal import MatrixPayload
+
+        return target if target.coerces_from(MatrixPayload) else None
+
 
 ProducesSpec = Union[str, Type]
 
@@ -256,12 +270,16 @@ class OutputPortSpec:
             the graph is built, the output is typed as whatever feeds that input; when
             nothing does, or its sources disagree, as ``produces``. None for an output
             that always emits ``produces``.
+        components: Columns per element the output always emits, when its type does
+            not fix them (a plain matrix of known width); None when unknown until it
+            runs. A color type's own ``components`` needs no declaration here.
     """
 
     produces: ProducesSpec
     count: CountSpec = None
     description: str = ""
     same_as: str | None = None
+    components: int | None = None
 
     def __post_init__(self) -> None:
         _parse_count_spec(self.count)
@@ -277,6 +295,15 @@ class OutputPortSpec:
         if isinstance(self.produces, str):
             return self.produces
         return getattr(self.produces, "domain", self.produces.__name__)
+
+    @property
+    def known_components(self) -> int | None:
+        """Columns per element, when known before the graph runs: declared, or the type's."""
+        if self.components is not None:
+            return self.components
+        resolved = self.resolve_payload_types()
+        components = getattr(resolved[0], "components", None) if resolved else None
+        return components if isinstance(components, int) else None
 
     def resolve_payload_types(self) -> tuple[Type, ...]:
         """Resolve the produced type to its payload class.

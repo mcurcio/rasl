@@ -11,6 +11,7 @@
 from rasl.graph.builder import CycleWarning, GraphBuilder, PortTypeError
 from rasl.graph.edge import Edge
 from rasl.graph.errors import (
+    ComponentsError,
     ConnectError,
     ConnectKeyError,
     ConnectProblem,
@@ -23,6 +24,7 @@ from rasl.graph.routing import CopySliceOp, EdgeOp, InputPortProgram, RepeatSlic
 from rasl.graph.slices import Slice
 
 __all__ = [
+    "ComponentsError",
     "ConnectError",
     "ConnectKeyError",
     "ConnectProblem",

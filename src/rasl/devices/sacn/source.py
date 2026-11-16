@@ -121,9 +121,10 @@ class SacnSourceNode(BaseNode):
 
     def _init_ports(self) -> None:
         port_specs: dict[str, OutputPortSpec] = {
-            f"universe_{u}": OutputPortSpec(MatrixPayload) for u in self._universes
+            # RGB triplets: three columns (declared so a color port can check them at load)
+            f"universe_{u}": OutputPortSpec(MatrixPayload, components=3) for u in self._universes
         }
-        port_specs["channels"] = OutputPortSpec(MatrixPayload)
+        port_specs["channels"] = OutputPortSpec(MatrixPayload, components=3)
         # `connect sacn;` takes every universe, merged (owner, 2026-11-15)
         self.outputs = PortGroup.outputs(**port_specs).with_default("channels")
         self._channels_port = getattr(self.outputs, "channels", None)

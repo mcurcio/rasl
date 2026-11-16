@@ -63,6 +63,16 @@ class FramePayload:
         return arr
 
     @classmethod
+    def coerces_from(cls, other: Type[FramePayload]) -> bool:
+        """Whether a port of this type takes ``other`` by retyping its data (no converter).
+
+        Default: never. A concrete color type takes a plain matrix (owner, 2026-11-16:
+        a general type coerces into a more specific one that inherits from it); the
+        data must then have ``cls.components`` columns.
+        """
+        return False
+
+    @classmethod
     def is_compatible_with(cls, other: Type[FramePayload]) -> bool:
         """Check if `other` type can be accepted by ports expecting `cls`.
 

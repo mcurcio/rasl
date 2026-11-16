@@ -49,6 +49,19 @@ class ColorPayload(MatrixPayload):
         object.__setattr__(self, "_model", normalized)
         object.__setattr__(self, "_encoding", encoding)
 
+    @classmethod
+    def coerces_from(cls, other: type) -> bool:
+        """A concrete color type (one with a ``model_name``) takes a plain matrix.
+
+        Not another color type: crossing color spaces takes a Color node. Not the
+        generic ``ColorPayload``: it has no model to give the data.
+        """
+        return (
+            cls.model_name is not None
+            and issubclass(other, MatrixPayload)
+            and not issubclass(other, ColorPayload)
+        )
+
     @property
     def model(self) -> str:
         """The normalised color model name of the data, such as 'srgb' or 'oklch'."""
