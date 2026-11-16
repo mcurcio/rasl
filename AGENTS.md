@@ -53,10 +53,11 @@ computes the version from the Conventional Commits since that channel's last rel
 image with that version and the channel tag (`:alpha`, `:beta`, or `:latest` plus `:X.Y` and `:X`
 on main). While rasl is 0.x, a breaking change bumps the minor version (`releaseRules` in
 `.releaserc.json`; remove that rule to go to 1.0.0). Versions count from the tag `v0.1.0`, which
-the workflow creates on its first run (on `alpha` just before mcurcio/rasl#12) if it is missing
-(owner, 2026-11-16: "Can't it be automated via the workflow?"). The container image is the only
-release package; the Python package is not published (`rasl` is taken on PyPI by another project)
-and neither are the `js/` packages (owner, 2026-11-16).
+the first run on `alpha` creates on the commit it builds (owner, 2026-11-16: "Can't it be
+automated via the workflow?"); the job's token cannot tag an older commit whose workflow files
+differ. The container image is the only release package; the Python package is not published
+(`rasl` is taken on PyPI by another project) and neither are the `js/` packages (owner,
+2026-11-16).
 
 ## Branches and worktrees
 
