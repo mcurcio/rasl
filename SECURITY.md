@@ -22,8 +22,8 @@ The JavaScript workspace (`js/`) and the Rust experiment (`v2/`) are not publish
 
 ## Supported versions
 
-rasl has no versioned releases yet. Fixes go to the `alpha` branch, and the next image built from it
-(`ghcr.io/mcurcio/rasl:sha-<commit>`) carries them. Older images are not patched.
+Only the newest release is supported. Fixes go to the `alpha` branch, reach the `alpha` image first, and
+then `beta` and the next stable release (`ghcr.io/mcurcio/rasl:latest`). Older releases are not patched.
 
 ## Things to know before you deploy
 

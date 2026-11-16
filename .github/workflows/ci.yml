@@ -1,5 +1,5 @@
 # Checks only: lint and tests for the Python runtime and the JS workspace.
-# Nothing here publishes. Releases are build.yml's job, which is disabled (rasl-4v6).
+# Nothing here publishes. Releases are release.yml's job.
 name: CI
 
 on:

@@ -135,7 +135,8 @@ follows the docstring rule above, and gets tests under the matching folder in `t
 ## The container image
 
 The image is built from the `Dockerfile` on `python:3.11-slim-bookworm`. The image workflow pushes it to
-`ghcr.io/mcurcio/rasl`, tagged `sha-<commit>`, on a push to `alpha`. It is the only thing any workflow publishes:
+`ghcr.io/mcurcio/rasl`, tagged `sha-<commit>`, on every push to `alpha`, and the release workflow pushes it with
+version and channel tags (see [Branches and releases](#branches-and-releases)). It is the only release package:
 rasl is not on PyPI.
 
 To build it and run a short version of the workflow's smoke test locally:
@@ -172,11 +173,21 @@ Fork your branch from `alpha`, and open your pull request against `alpha`. The o
 promotes `alpha` to `beta` and `beta` to `main`. Never base work on `beta` or `main`, and never open a pull
 request against them.
 
-Versions will follow [Semantic Versioning](https://semver.org/), computed from the Conventional Commits below:
-each channel releases what has reached it, `alpha` and `beta` as prereleases (`-alpha.N`, `-beta.N`) and `main`
-as stable versions. The release automation is not in place yet: there are no versioned releases so far, and
-the old release workflow (`.github/workflows/build.yml`) is disabled. Today, a merge to `alpha` publishes only
-the container image `ghcr.io/mcurcio/rasl:sha-<commit>`.
+Releases are automatic. On every push to `alpha`, `beta` or `main`, `.github/workflows/release.yml` runs
+[semantic-release](https://semantic-release.gitbook.io/): it computes the next [Semantic Versioning](https://semver.org/)
+version from the Conventional Commits below since that channel's last release, tags the commit, writes a GitHub
+Release with notes, and publishes the container image:
+
+| Branch | Version | Image tags |
+|---|---|---|
+| `alpha` | `X.Y.Z-alpha.N` | `X.Y.Z-alpha.N`, `alpha` |
+| `beta` | `X.Y.Z-beta.N` | `X.Y.Z-beta.N`, `beta` |
+| `main` | `X.Y.Z` | `X.Y.Z`, `X.Y`, `X`, `latest` |
+
+A `fix:` makes a patch release and a `feat:` a minor one. While rasl is 0.x, a breaking change (`!` or
+`BREAKING CHANGE:`) also makes a minor release; going to 1.0.0 is a deliberate change to `.releaserc.json`.
+Commits like `docs:`, `chore:` and `ci:` release nothing. Every push to `alpha` also publishes
+`sha-<commit>`, which deployments can pin.
 
 ## Commits and pull requests
 

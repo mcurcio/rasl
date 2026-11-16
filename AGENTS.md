@@ -44,12 +44,18 @@ entrypoint, `docker/entrypoint.sh`, drops from root to `PUID`:`PGID`, applies `U
 `HEALTHCHECK` runs `docker/healthcheck.py` against `GET /health`) and smoke-tests it on pull
 requests; on a push to `alpha` it pushes `ghcr.io/mcurcio/rasl:sha-<sha>`. The container's
 variables are listed in `README.md` (Installation, Container).
-That image is the only thing any workflow publishes. mcurcio/iac (`workloads/rasl`) deploys it
-by tag and digest.
+mcurcio/iac (`workloads/rasl`) deploys it by tag and digest.
 
-The release workflow is disabled (owner, 2026-10-21: "Disable the workflows").
-`.github/workflows/build.yml` is stale (it expects npm at the repo root) and its `publish` job
-runs `lerna publish` on push. Leave it disabled until `rasl-4v6` is resolved.
+`.github/workflows/release.yml` releases each channel with semantic-release (config
+`.releaserc.json`, tooling pinned in `.github/release/`): on a push to `alpha`, `beta` or `main` it
+computes the version from the Conventional Commits since that channel's last release, tags it
+(`vX.Y.Z`, `vX.Y.Z-alpha.N`, `vX.Y.Z-beta.N`), writes a GitHub Release, and pushes the container
+image with that version and the channel tag (`:alpha`, `:beta`, or `:latest` plus `:X.Y` and `:X`
+on main). While rasl is 0.x, a breaking change bumps the minor version (`releaseRules` in
+`.releaserc.json`; remove that rule to go to 1.0.0). It refuses to run until the baseline tag
+`v0.1.0` exists. The container image is the only release package; the Python package is not
+published (`rasl` is taken on PyPI by another project) and neither are the `js/` packages (owner,
+2026-11-16).
 
 ## Branches and worktrees
 
@@ -64,9 +70,8 @@ releases. The CI release process and semantic releases should respect that.").
 | `beta`  | Takes merges from `alpha`. | beta prereleases (`-beta.N`) |
 | `main`  | Takes merges from `beta`. Never base work on it or push code to it. | stable releases |
 
-The release automation is not built yet (`rasl-4v6`): any CI release step and semantic versioning
-must follow this channel model. Today a push to `alpha` publishes only the container image
-(`ghcr.io/mcurcio/rasl:sha-<sha>`), and the old `build.yml` (`lerna publish`) stays disabled.
+`.github/workflows/release.yml` follows this channel model (see CI above); any change to releases
+must keep following it.
 
 - **Fork every branch and worktree from `alpha`**, and target `alpha` with pull requests. The
   owner promotes `alpha` to `beta` and `beta` to `main`; agents never open pull requests against
