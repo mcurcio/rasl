@@ -10,6 +10,9 @@ adds when it reads one:
 - ``arg_text`` / ``arg_texts``: a directive's values as the strings rasl's parsers take.
 - ``scalar``: a value as the Python value a node's config model validates.
 - ``config_error``: a ``ConfigError`` placed on a directive, a value or the whole config.
+- ``load_written`` / ``render_written`` / ``save_written`` / ``config_text``: the config as
+  written, for a program that edits the files (``rasl.config.edit``): load it, edit its
+  statements, render it to check, and save it back with comments and layout kept.
 
 Example:
     >>> tree = parse_document("graph { node Waveform wave { fps 30; } }")
@@ -25,14 +28,18 @@ from typing import Any
 
 import structlog
 from knobly import (
+    BadTextError,
+    ConfigText,
     DiagnosticError,
     Diagnostics,
     LocatedDiagnostic,
+    LostUpdateError,
     memory_source,
     rendered,
+    text,
     written,
 )
-from knobly.files import file_source
+from knobly.files import file_source, file_writer
 from knobly.include import include
 
 logger = structlog.get_logger()
@@ -42,6 +49,12 @@ Rendered = rendered.Rendered
 
 Directive = rendered.Directive
 """A directive of a loaded config: ``name``, ``values`` and ``block`` (None without one)."""
+
+WrittenGraph = written.DocumentGraph
+"""A config as written: every file it reads, editable, and saved back with ``save_written``."""
+
+Statement = written.WrittenDirective
+"""A directive as written: the line an edit changes (``rendered`` directives' ``written``)."""
 
 Value = written.ExpandedValue
 """One value of a directive: a word, a string, a list, a slice or an index."""
@@ -144,6 +157,67 @@ def load_document(path: str | Path) -> Rendered:
         raise FileNotFoundError(f"Config file not found: {path}")
     processor = written.Processor(source=file_source(), extensions=[include()])
     return _render(processor.load(str(path)))
+
+
+def load_written(path: str | Path) -> WrittenGraph:
+    """Load a config file, and every file it includes, as written, for editing.
+
+    Problems in the files are not raised here: ``render_written`` raises them.
+
+    Raises:
+        FileNotFoundError: If the file doesn't exist.
+    """
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Config file not found: {path}")
+    processor = written.Processor(source=file_source(), extensions=[include()])
+    return processor.load(str(path))
+
+
+def render_written(graph: WrittenGraph) -> Rendered:
+    """Render a config as written (edited or not), as ``load_document`` would.
+
+    Raises:
+        ConfigError: If knobly finds a problem in the files.
+    """
+    return _render(graph)
+
+
+def save_written(graph: WrittenGraph) -> list[str]:
+    """Write every file of ``graph`` whose text was edited; return their paths.
+
+    Raises:
+        knobly.LostUpdateError: If a file changed on disk since it was loaded; nothing
+            is written.
+        knobly.SaveError: If writing failed.
+    """
+    return list(graph.save(file_writer()))
+
+
+def config_text(raw: str) -> ConfigText:
+    """Text written in config syntax, as an edit takes it (checked by the edit)."""
+    return text(raw)
+
+
+def edit_error(error: BadTextError, what: str) -> ConfigError:
+    """A ``ConfigError`` for text an edit refused, placed in that text.
+
+    Args:
+        error: What knobly raised.
+        what: The text the edit was given, quoted in the message.
+    """
+    first = error.diagnostics[0]
+    start = first.span.start
+    return ConfigError(
+        f"{first.message} in {what!r}", line=start.line + 1, column=start.column
+    )
+
+
+LostUpdate = LostUpdateError
+"""Raised by ``save_written`` when a file changed on disk since it was loaded."""
+
+BadText = BadTextError
+"""Raised by an edit given text that does not parse where it goes."""
 
 
 def parse_document(text: str) -> Rendered:
