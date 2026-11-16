@@ -214,6 +214,23 @@ class TestConnectErrorsArePlaced:
             parse_config(config)
         assert caught.value.line == 5
 
+    def test_a_repeat_of_a_source_of_unknown_length_is_a_config_error(self):
+        config = """
+        graph {
+            node Waveform hue {
+                output_channels 4;
+            }
+            node ConsoleSink sink {
+                fps 1;
+                connect hue[2~] dmx[0~] {
+                    repeat 3;
+                }
+            }
+        }
+        """
+        with pytest.raises(ConfigError, match=r"Node 'sink': repeat 3 needs the length of hue\[2:\]"):
+            parse_config(config)
+
     def test_an_unknown_source_node_is_a_config_error_on_the_connecting_node(self):
         config = """
         graph {

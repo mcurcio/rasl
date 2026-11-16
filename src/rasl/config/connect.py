@@ -278,6 +278,14 @@ def resolve_connections(
         else:
             slice_length = None
 
+        if desc.repeat > 1 and slice_length is None:
+            # Each copy would land on the same rows (rasl-pd0.10: overlapping edges
+            # are refused), so say what is missing instead
+            raise ValueError(
+                f"repeat {desc.repeat} needs the length of {desc.source}: give the source "
+                f"a slice with an end, or connect a port with a fixed count"
+            )
+
         # Create edges (possibly multiple for repeat)
         for i in range(desc.repeat):
             # Calculate target slice with offset
