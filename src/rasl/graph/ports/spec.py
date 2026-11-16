@@ -238,19 +238,20 @@ class InputPortSpec:
 
         return False
 
-    def coercion_target(self) -> Type | None:
-        """The one type this port takes by coercion (a concrete color type), or None.
+    def coercion_target(self, payload_type: Type) -> Type | None:
+        """The type this port retypes ``payload_type`` as, or None when it does not.
 
-        Only a port that accepts exactly one type coerces: with several, which one a
-        plain matrix should become is not known.
+        A port that does not accept ``payload_type`` as it is takes it by coercion when
+        exactly one of the types it accepts is a more specific type that coerces from
+        it (``FramePayload.coerces_from``). With none, or with two (which one is meant
+        is not known), it does not.
         """
-        resolved = self.resolve_payload_types()
-        if len(resolved) != 1 or not hasattr(resolved[0], "coerces_from"):
-            return None
-        target = resolved[0]
-        from rasl.signal import MatrixPayload
-
-        return target if target.coerces_from(MatrixPayload) else None
+        candidates = [
+            accepted
+            for accepted in self.resolve_payload_types()
+            if hasattr(accepted, "coerces_from") and accepted.coerces_from(payload_type)
+        ]
+        return candidates[0] if len(candidates) == 1 else None
 
 
 ProducesSpec = Union[str, Type]

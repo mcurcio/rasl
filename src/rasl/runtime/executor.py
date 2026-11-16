@@ -10,7 +10,7 @@ import numpy as np
 import structlog
 
 from rasl.graph import Edge, ExecutionPlan, InputPortProgram
-from rasl.graph.errors import ComponentsError
+from rasl.graph.errors import CoercionError
 from rasl.graph.node import TickContext
 from rasl.graph.ports import OutputPort
 from rasl.runtime.diagnostics import TickTrace, TimingStats
@@ -283,7 +283,7 @@ class Executor:
                     resolve=self._resolve_frame,
                     ensure_buffer=self._ensure_port_buffer,
                 )
-            except ComponentsError as error:
+            except CoercionError as error:
                 self._node_failed(node_id, error, (time.perf_counter() - pull_start) * 1000)
                 raise _NodeFailed(node_id) from error
             program.target._set_frame(frame)

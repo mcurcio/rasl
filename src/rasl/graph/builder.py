@@ -281,10 +281,11 @@ class GraphBuilder:
     ) -> None:
         """Refuse a source type the target does not take, as is or by coercion.
 
-        A concrete color port takes a plain matrix by coercion (owner, 2026-11-16); its
-        columns must then equal the color's components. When the source's width is
-        known before the graph runs, a mismatch is refused here; when it is not, the
-        port's program checks the first frame (``ComponentsError``).
+        A port takes a more general type than its own by retyping it (owner,
+        2026-11-16: any type along its inheritance chain). When the type it becomes
+        has a fixed ``components``, a source width known before the graph runs must
+        match it, or is refused here; any other check runs on each frame
+        (``CoercionError``).
 
         Raises:
             ConnectTypeError: ``TYPE`` for a type the port does not take,
@@ -292,11 +293,11 @@ class GraphBuilder:
         """
         if tgt_spec.accepts_payload_type(src_type):
             return
-        target_type = tgt_spec.coercion_target()
-        if target_type is None or not target_type.coerces_from(src_type):
+        target_type = tgt_spec.coercion_target(src_type)
+        if target_type is None:
             raise ConnectTypeError(ConnectProblem.TYPE, mismatch, source=src_end, target=tgt_end)
-        takes = int(target_type.components)
-        if src_components is not None and src_components != takes:
+        takes = getattr(target_type, "components", None)
+        if isinstance(takes, int) and src_components is not None and src_components != takes:
             raise ConnectTypeError(
                 ConnectProblem.COMPONENTS,
                 f"Component mismatch: {src_end.node}.{src_end.port} emits {src_components} "

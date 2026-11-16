@@ -6,16 +6,17 @@ from __future__ import annotations
 
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Set, Tuple
 
 import numpy as np
 
 from rasl.graph.edge import Edge
-from rasl.graph.errors import ComponentsError, Endpoint
+from rasl.graph.errors import CoercionError, Endpoint
 from rasl.graph.node.protocol import Node, get_inputs
 from rasl.graph.ports.port import InputPort
-from rasl.signal import Frame, MatrixPayload
+from rasl.graph.ports.spec import InputPortSpec
+from rasl.signal import Frame, FramePayload, MatrixPayload, PayloadCoercionError
 
 
 @dataclass(slots=True)
@@ -180,6 +181,19 @@ class RepeatSliceOp:
 
 EdgeOp = CopySliceOp | RepeatSliceOp
 
+_UNSEEN = object()
+"""A payload type no frame of has reached the port yet."""
+
+_REFUSED = object()
+"""A payload type the port takes neither as it is nor retyped."""
+
+
+def _buffer_type(spec: InputPortSpec) -> type:
+    """What a port's buffer-built frame is handed on as (``InputPortProgram.buffer_type``)."""
+    if spec.accepts_payload_type(MatrixPayload):
+        return MatrixPayload
+    return spec.coercion_target(MatrixPayload) or MatrixPayload
+
 
 # Module-level profiling state (outside dataclass to avoid mutable default issues)
 _ipp_profile_enabled: bool = False
@@ -202,9 +216,16 @@ class InputPortProgram:
         passthrough_is_back_edge: True if the passthrough edge closes a cycle.
         ops: The copy and repeat operations, in edge order. Where two write the same rows, the
             later one wins.
-        coerce: The color type the port takes a plain matrix as (``coercion_target``), or
-            None. A plain-matrix frame for it is checked for that type's number of columns
-            (``ComponentsError`` when it differs) and handed on as that type.
+        buffer_type: The type a frame built in the buffer is handed on as: a plain matrix
+            when the port takes one, else the more specific type the port retypes a matrix
+            as (``InputPortSpec.coercion_target``).
+        coercions: What each payload type that reached the port becomes, worked out on
+            its first frame: None to pass it on as it is, a type to retype it as, or
+            ``_REFUSED``.
+
+    A frame whose type the port does not accept as it is is retyped as the more specific
+    type the port takes (owner, 2026-11-16: any type coerces to a more specific type of
+    its inheritance chain); one that cannot be raises ``CoercionError``.
     """
 
     target: InputPort
@@ -214,7 +235,8 @@ class InputPortProgram:
     passthrough: Tuple[str, str] | None
     passthrough_is_back_edge: bool
     ops: Tuple[EdgeOp, ...]
-    coerce: type | None = None
+    buffer_type: type = MatrixPayload
+    coercions: dict = field(default_factory=dict)
 
     @staticmethod
     def enable_profiling(enabled: bool = True) -> None:
@@ -263,19 +285,15 @@ class InputPortProgram:
         if self.passthrough is not None:
             src_node, src_port = self.passthrough
             frame = resolve(src_node, src_port, self.passthrough_is_back_edge, tick)
-            if frame is None or self.coerce is None or isinstance(frame.payload, self.coerce):
+            if frame is None:
+                return None
+            payload = self._retype(frame.payload, src_node, src_port)
+            if payload is frame.payload:
                 return frame
-            data = getattr(frame.payload, "data", None)
-            if data is None:
-                return frame
-            data = np.asarray(data, dtype=np.float32)
-            if data.ndim == 1:
-                data = data.reshape(-1, 1)
-            self._check_columns(src_node, src_port, int(data.shape[1]))
             return Frame(
                 topic=frame.topic,
                 timestamp=frame.timestamp,
-                payload=self.coerce(data),
+                payload=payload,
                 metadata=frame.metadata,
             )
 
@@ -312,8 +330,8 @@ class InputPortProgram:
                 src = src.reshape(-1, 1)
             if src.ndim != 2:
                 continue
-            if self.coerce is not None and not isinstance(frame.payload, self.coerce):
-                self._check_columns(op.source, op.source_port, int(src.shape[1]))
+            # Each source must be one the port takes, as is or retyped
+            self._retype(frame.payload, op.source, op.source_port)
             rows = max(rows, op.required_rows(int(src.shape[0])))
             if self.fixed_cols is None:
                 cols = max(cols, int(src.shape[1]))
@@ -353,23 +371,50 @@ class InputPortProgram:
         return Frame(
             topic=first.topic,
             timestamp=first.timestamp,
-            payload=MatrixPayload(view) if self.coerce is None else self.coerce(view),
+            payload=self._buffer_payload(view),
             metadata=first.metadata,
         )
 
-    def _check_columns(self, source: str, source_port: str, columns: int) -> None:
-        """Refuse a plain matrix whose columns are not the coerced color's components."""
-        assert self.coerce is not None
-        takes = int(self.coerce.components)
-        if columns != takes:
-            raise ComponentsError(
-                target=Endpoint(self.buffer_key[0], self.buffer_key[1]),
-                source=Endpoint(source, source_port),
-                supplied=columns,
-                takes=takes,
-                type_name=self.coerce.__name__,
-            )
+    def _retype(self, payload: FramePayload, source: str, source_port: str) -> FramePayload:
+        """``payload`` as the port takes it: as it is, or retyped to the port's type.
 
+        Raises:
+            CoercionError: If the port takes it neither as it is nor retyped.
+        """
+        kind = type(payload)
+        target = self.coercions.get(kind, _UNSEEN)
+        if target is _UNSEEN:
+            spec = self.target.spec
+            if spec.accepts_payload_type(kind):
+                target = None
+            else:
+                target = spec.coercion_target(kind) or _REFUSED
+            self.coercions[kind] = target
+        if target is None:
+            return payload
+        if target is _REFUSED:
+            raise CoercionError(
+                Endpoint(self.buffer_key[0], self.buffer_key[1]),
+                Endpoint(source, source_port),
+                f"the port does not take {kind.__name__}",
+            )
+        try:
+            return target.coerce(payload)
+        except PayloadCoercionError as error:
+            raise CoercionError(
+                Endpoint(self.buffer_key[0], self.buffer_key[1]),
+                Endpoint(source, source_port),
+                str(error),
+                supplied=error.supplied,
+                takes=error.takes,
+            ) from error
+
+    def _buffer_payload(self, view: np.ndarray) -> FramePayload:
+        """The frame built in the buffer, as ``buffer_type``."""
+        matrix = MatrixPayload(view)
+        if self.buffer_type is MatrixPayload:
+            return matrix
+        return self.buffer_type.coerce(matrix)
 
 def compile_input_programs(
     nodes: Mapping[str, Node],
@@ -436,7 +481,6 @@ def compile_input_programs(
                         passthrough=passthrough,
                         passthrough_is_back_edge=passthrough_is_back,
                         ops=(),
-                        coerce=port.spec.coercion_target(),
                     )
                     continue
 
@@ -484,7 +528,7 @@ def compile_input_programs(
                 passthrough=None,
                 passthrough_is_back_edge=False,
                 ops=tuple(ops),
-                coerce=port.spec.coercion_target(),
+                buffer_type=_buffer_type(port.spec),
             )
 
     return programs

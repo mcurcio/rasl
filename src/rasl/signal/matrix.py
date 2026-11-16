@@ -11,7 +11,7 @@ from typing import Any, ClassVar
 import numpy as np
 from numpy.typing import NDArray
 
-from rasl.signal.payload import FramePayload, PayloadDescriptor
+from rasl.signal.payload import FramePayload, PayloadCoercionError, PayloadDescriptor
 from rasl.signal.registry import payload
 
 
@@ -47,6 +47,36 @@ class MatrixPayload(FramePayload):
                 f"MatrixPayload data must be 1D or 2D, got shape {arr.shape!r}"
             )
         self._data = arr
+
+    @classmethod
+    def coerce(cls, payload: FramePayload) -> FramePayload:
+        """A matrix as this type: its data, retyped (no copy where the type allows).
+
+        A type with a fixed ``components`` takes only data of that many columns.
+
+        Raises:
+            PayloadCoercionError: If ``payload`` is not a matrix, or its columns are not
+                ``cls.components``, or this type cannot be built from data alone.
+        """
+        if isinstance(payload, cls):
+            return payload
+        if not isinstance(payload, MatrixPayload):
+            raise PayloadCoercionError(f"{type(payload).__name__} cannot be made a {cls.__name__}")
+        data = payload.data
+        takes = getattr(cls, "components", None)
+        if isinstance(takes, int) and data.shape[1] != takes:
+            raise PayloadCoercionError(
+                f"{type(payload).__name__} of {data.shape[1]} columns cannot be made a "
+                f"{cls.__name__} ({takes} components)",
+                supplied=int(data.shape[1]),
+                takes=takes,
+            )
+        return cls._from_data(data)
+
+    @classmethod
+    def _from_data(cls, data: NDArray[np.float32]) -> "MatrixPayload":
+        """This type built from bare data; a type needing more overrides it."""
+        return cls(data)
 
     @property
     def data(self) -> NDArray[np.float32]:

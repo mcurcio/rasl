@@ -30,8 +30,8 @@ class ConnectProblem(str, Enum):
         COUNT: Fixed source rows and fixed target rows differ.
         DUPLICATE: The same connection is already there.
         OVERLAP: It writes rows of the target port an earlier connection writes.
-        COMPONENTS: A matrix coerced into a color type has another number of columns
-            than the color has components.
+        COMPONENTS: A source coerced into a more specific type has another number of
+            columns than that type's components.
     """
 
     UNKNOWN_NODE = "unknown-node"
@@ -109,28 +109,36 @@ class ConnectError(Exception):
         return self.message
 
 
-class ComponentsError(ValueError):
-    """A plain matrix reached a color port with another number of columns than the color.
+class CoercionError(ValueError):
+    """A frame a port could not retype as the more specific type it takes.
 
-    Raised on the first frame that shows it, for a source whose width is not known before
-    the graph runs (owner, 2026-11-16: "fail on first data if the ports are dynamic"). A
-    width known at load is refused then, as a ``ConnectError`` with ``COMPONENTS``.
+    Raised on the frame that shows it (owner, 2026-11-16: "fail on first data if the
+    ports are dynamic"): a source whose width or actual type is not known before the
+    graph runs. A width known at load is refused then, as a ``ConnectError`` with
+    ``COMPONENTS``.
 
     Attributes:
         target: The port the frame was for.
         source: The output the frame came from.
-        supplied: Columns the frame has.
-        takes: Components of the port's color type.
+        supplied: For a width mismatch, the columns the frame has; else None.
+        takes: For a width mismatch, the components the port's type takes; else None.
     """
 
-    def __init__(self, target: Endpoint, source: Endpoint, supplied: int, takes: int, type_name: str) -> None:
+    def __init__(
+        self,
+        target: Endpoint,
+        source: Endpoint,
+        reason: str,
+        *,
+        supplied: int | None = None,
+        takes: int | None = None,
+    ) -> None:
         self.target = target
         self.source = source
         self.supplied = supplied
         self.takes = takes
         super().__init__(
-            f"{source.node}.{source.port} sent {supplied} columns into {target.node}.{target.port}, "
-            f"which takes {type_name} ({takes} components)"
+            f"{source.node}.{source.port} into {target.node}.{target.port}: {reason}"
         )
 
 

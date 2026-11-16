@@ -525,9 +525,9 @@ class TestConnectErrorsNameTheirPorts:
 
 
 class TestMatrixIntoColor:
-    """Owner, 2026-11-16: a plain matrix may feed a concrete color port (coerced to that
-    color), and a component mismatch is refused at load when the width is known, or
-    fails on the first frame when it is not."""
+    """Owner, 2026-11-16: a more general type feeds a port of a more specific type of its
+    inheritance chain, retyped (a matrix into a color or a bool port); a component
+    mismatch is refused at load when the width is known, or fails on the first frame."""
 
     @staticmethod
     def _builder(out: OutputPortSpec, inp: InputPortSpec) -> GraphBuilder:
@@ -566,13 +566,12 @@ class TestMatrixIntoColor:
         import numpy as np
 
         from rasl.color.payloads import HsbkColorPayload
-        from rasl.graph import ComponentsError
+        from rasl.graph import CoercionError
         from rasl.signal import Frame
 
         builder = self._builder(OutputPortSpec(MatrixPayload), InputPortSpec(HsbkColorPayload))
         builder.connect("a", "out", "b", "in")
         program = builder.build().input_programs[("b", "in")]
-        assert program.coerce is HsbkColorPayload
 
         def frames(columns: int):
             frame = Frame(topic="t", timestamp=0.0, payload=MatrixPayload(np.zeros((2, columns), dtype=np.float32)))
@@ -580,5 +579,39 @@ class TestMatrixIntoColor:
 
         delivered = program.populate(0, frames(4), lambda *_: np.zeros((2, 4), dtype=np.float32))
         assert isinstance(delivered.payload, HsbkColorPayload)
-        with pytest.raises(ComponentsError, match=r"a\.out sent 1 columns into b\.in, which takes HsbkColorPayload \(4 components\)"):
+        with pytest.raises(CoercionError, match=r"a\.out into b\.in: MatrixPayload of 1 columns cannot be made a HsbkColorPayload \(4 components\)") as caught:
             program.populate(0, frames(1), lambda *_: np.zeros((2, 4), dtype=np.float32))
+        assert (caught.value.supplied, caught.value.takes) == (1, 4)
+
+    def test_a_generic_color_of_another_model_fails_on_its_first_frame(self) -> None:
+        import numpy as np
+
+        from rasl.color import ColorPayload
+        from rasl.color.payloads import RgbColorPayload
+        from rasl.graph import CoercionError
+        from rasl.signal import Frame
+
+        builder = self._builder(OutputPortSpec(ColorPayload), InputPortSpec(RgbColorPayload))
+        builder.connect("a", "out", "b", "in")
+        program = builder.build().input_programs[("b", "in")]
+
+        def frames(model: str):
+            frame = Frame(topic="t", timestamp=0.0, payload=ColorPayload(np.zeros((2, 3), dtype=np.float32), model))
+            return lambda *_: frame
+
+        assert isinstance(program.populate(0, frames("srgb"), None).payload, RgbColorPayload)
+        with pytest.raises(CoercionError, match="model hsl cannot be made a RgbColorPayload"):
+            program.populate(0, frames("hsl"), None)
+
+    def test_a_matrix_feeds_a_bool_port_as_a_mask(self) -> None:
+        import numpy as np
+
+        from rasl.signal import BoolPayload, Frame
+
+        builder = self._builder(OutputPortSpec(MatrixPayload), InputPortSpec(BoolPayload))
+        builder.connect("a", "out", "b", "in")
+        program = builder.build().input_programs[("b", "in")]
+        frame = Frame(topic="t", timestamp=0.0, payload=MatrixPayload(np.array([[0.0], [0.4]], dtype=np.float32)))
+        delivered = program.populate(0, lambda *_: frame, None)
+        assert isinstance(delivered.payload, BoolPayload)
+        assert delivered.payload.data.tolist() == [[0.0], [1.0]]
