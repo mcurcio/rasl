@@ -1,0 +1,127 @@
+# Release each channel with semantic-release, then publish its container image.
+#
+#   alpha -> X.Y.Z-alpha.N    image tags :X.Y.Z-alpha.N and :alpha
+#   beta  -> X.Y.Z-beta.N     image tags :X.Y.Z-beta.N  and :beta
+#   main  -> X.Y.Z (stable)   image tags :X.Y.Z, :X.Y, :X and :latest
+#
+# Versions come from the Conventional Commits since the channel's last release
+# (.releaserc.json). While rasl is 0.x, a breaking change bumps the minor version.
+# semantic-release tags the commit (vX.Y.Z...) and writes a GitHub Release with
+# notes. The image is published only when a version is released. The
+# per-commit sha-<commit> image tags stay in image.yml.
+#
+# Versioning starts from the tag v0.1.0, which the owner creates once. Without it,
+# semantic-release would read the whole history and release 1.0.0, so this
+# workflow stops and says so. The release tooling is pinned in .github/release/.
+name: release
+
+on:
+    push:
+        branches: [alpha, beta, main]
+    workflow_dispatch: {}
+
+concurrency:
+    # One release at a time per branch, and never cancel one halfway
+    group: release-${{ github.ref }}
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+
+jobs:
+    release:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write # tags and GitHub Releases
+        outputs:
+            version: ${{ steps.semantic.outputs.version }}
+            channel: ${{ steps.semantic.outputs.channel }}
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0 # every commit and tag, to find the last release
+
+            - name: Require the baseline tag v0.1.0
+              id: baseline
+              run: |
+                  if git rev-parse -q --verify refs/tags/v0.1.0 >/dev/null; then
+                      echo "ok=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "::warning title=No baseline tag::Create the tag v0.1.0 on alpha first (git tag v0.1.0 origin/alpha && git push origin v0.1.0). Without it, the first release would be 1.0.0. Nothing was released."
+                      echo "ok=false" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - uses: actions/setup-node@v4
+              if: steps.baseline.outputs.ok == 'true'
+              with:
+                  node-version-file: js/.nvmrc
+                  cache: npm
+                  cache-dependency-path: .github/release/package-lock.json
+
+            - name: Install the release tooling
+              if: steps.baseline.outputs.ok == 'true'
+              run: npm ci --prefix .github/release --no-audit --no-fund
+
+            - name: Release
+              id: semantic
+              if: steps.baseline.outputs.ok == 'true'
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: .github/release/node_modules/.bin/semantic-release
+
+    image:
+        needs: release
+        if: needs.release.outputs.version != ''
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            packages: write
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Image tags
+              id: tags
+              env:
+                  VERSION: ${{ needs.release.outputs.version }}
+                  CHANNEL: ${{ needs.release.outputs.channel }}
+                  IMAGE: ghcr.io/${{ github.repository_owner }}/rasl
+              run: |
+                  set -eu
+                  tags="$IMAGE:$VERSION,$IMAGE:$CHANNEL"
+                  if [ "$CHANNEL" = latest ]; then
+                      major="${VERSION%%.*}"
+                      minor="${VERSION#*.}"; minor="${minor%%.*}"
+                      tags="$tags,$IMAGE:$major.$minor,$IMAGE:$major"
+                  fi
+                  echo "tags=$tags" >> "$GITHUB_OUTPUT"
+                  echo "Tags: $tags"
+
+            - uses: docker/login-action@v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Build and push
+              id: build
+              uses: docker/build-push-action@v6
+              with:
+                  context: .
+                  platforms: linux/amd64
+                  push: true
+                  tags: ${{ steps.tags.outputs.tags }}
+                  build-args: |
+                      VERSION=${{ needs.release.outputs.version }}
+                      REVISION=${{ github.sha }}
+                  provenance: false
+                  sbom: false
+
+            - name: Summary
+              run: |
+                  {
+                      echo "### rasl ${{ needs.release.outputs.version }} (${{ needs.release.outputs.channel }})"
+                      echo
+                      echo "| tags | digest |"
+                      echo "| --- | --- |"
+                      echo "| \`${{ steps.tags.outputs.tags }}\` | \`${{ steps.build.outputs.digest }}\` |"
+                  } >> "$GITHUB_STEP_SUMMARY"

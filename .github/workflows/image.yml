@@ -3,8 +3,7 @@
 #   Dockerfile -> ghcr.io/<owner>/rasl
 #
 # Pull requests build and smoke-test without pushing, so a broken image fails the PR; a push
-# to alpha publishes. This is the only thing it publishes: no npm or PyPI packages (those are
-# build.yml's, which stays disabled, rasl-4v6).
+# to alpha publishes. Versioned releases and their image tags are release.yml's job.
 #
 # Tags: `sha-<full-git-sha>` only, tying the image to the commit that built it. No floating
 # tag: the deployment (mcurcio/iac, workloads/rasl) pins a tag and its digest.

@@ -21,7 +21,8 @@ values, transforms that shape them, and sinks that send them to lights over sACN
 Govee. rasl runs the graph at the rate the sinks ask for, serves a web dashboard while it runs, and
 applies your edits to the config without a restart.
 
-**Status.** rasl is early (version 0.1.0) and has no versioned releases. It is not published to PyPI.
+**Status.** rasl is early (0.x): releases come from the `alpha`, `beta` and `main` channels as container images
+(see [Container](#container)). It is not published to PyPI.
 Install it from a checkout with [uv](https://docs.astral.sh/uv/), or run the container image. The Python
 runtime in `src/rasl/` is the product. `js/` (a pnpm workspace, see [js/README.md](js/README.md)) and `v2/`
 (a Rust experiment) are other implementations, not needed to run rasl.
@@ -63,13 +64,15 @@ being installed. They are harmless.
 
 ### Container
 
-The image is built from `alpha` and pushed to `ghcr.io/mcurcio/rasl`, a public package. Each image is tagged
-`sha-<commit>` with the full commit hash that built it. There is no `latest` tag, so name a tag. The
-[package page](https://github.com/mcurcio/rasl/pkgs/container/rasl) lists the tags:
+The image is published to `ghcr.io/mcurcio/rasl`, a public package. `latest` is the newest stable release, and
+each release also has its version tag (`0.2.0`, or `0.2.0-alpha.1` for a prerelease). `alpha` and `beta` follow
+the prerelease channels, and every build of `alpha` is also tagged `sha-<commit>`. The
+[package page](https://github.com/mcurcio/rasl/pkgs/container/rasl) and the
+[releases](https://github.com/mcurcio/rasl/releases) list them:
 
 ```bash
 docker run -p 8080:8080 -p 5568:5568/udp -v "$PWD/rasl-config:/config" \
-    -e PUID=1000 -e PGID=1000 -e TZ=America/New_York ghcr.io/mcurcio/rasl:sha-<commit>
+    -e PUID=1000 -e PGID=1000 -e TZ=America/New_York ghcr.io/mcurcio/rasl:latest
 ```
 
 The config is `/config/rasl.conf` in the `/config` volume, here the `rasl-config` folder in the current
