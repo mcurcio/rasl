@@ -26,7 +26,6 @@ Report a security problem privately, not in an issue: see [SECURITY.md](SECURITY
 | `js/` | A JavaScript/TypeScript implementation as a pnpm workspace ([js/README.md](js/README.md)) |
 | `v2/` | A Rust experiment |
 | `docs/` | Reference documentation ([docs/README.md](docs/README.md) says which pages are current) |
-| `plans/`, `design.md`, `js/plans/`, `js/packages/config/plans/` | Design history, kept as source material. Planned work is tracked in issues, not by editing these files |
 | `virtual.conf`, `hyperhdr.conf`, `family_room.conf` | Sample configs from real setups. `virtual.conf` is the one the image smoke test uses. A test keeps all three loading |
 | `tools/logo.py` | Draws the logo in `docs/assets/`. Change the script and rerun it; do not edit the SVGs |
 | `.beads/` | The issue tracker the maintainers' agents use (`bd`); `issues.jsonl` is its shared copy |
@@ -189,12 +188,6 @@ the container image `ghcr.io/mcurcio/rasl:sha-<commit>`.
   rasl does not keep old names or compatibility paths.
 - The [pull request template](.github/pull_request_template.md) asks what changed, why, the impact on behaviour,
   and how to check it.
-
-## Design history
-
-The design documents in `plans/`, `design.md`, `js/plans/` and `js/packages/config/plans/` record earlier
-decisions. They stay in the repository as source material, but they are not kept up to date: planned work is
-tracked as issues.
 
 ## License
 

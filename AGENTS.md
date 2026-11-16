@@ -92,10 +92,10 @@ before grep or reading files.
 All planned work is tracked in beads (`bd`). Agents manage beads themselves, without being
 asked (owner, 2026-10-21: "I want to use beads, and want you to auto manage it").
 
-The plan documents (`plans/`, `js/plans/`, `js/packages/config/plans/`, `design.md`) stay in
-the repo as source material (owner, 2026-10-21: "don't delete the plans"). Their items were
-converted to beads; each bead's notes cite its source section. Track new and changed work in
-beads, not by editing the plans (owner, 2026-10-21: "so we can stop maintaining those files").
+The old plan documents (`plans/`, `js/plans/`, `js/packages/config/plans/`, `design.md`) were
+converted to beads and then deleted (owner, 2026-11-15: "plans and design go away"); older beads'
+notes still cite their sections, which git history keeps. Track all planned work in beads, and do
+not add plan or design documents to the repo.
 
 - **Before work:** `bd ready` to find work, `bd show <id>` for detail, `bd update <id> --claim`.
 - **During work:** file a bead for every follow-up, bug or open question you find
