@@ -19,6 +19,11 @@ on:
             - pyproject.toml
             - uv.lock
             - src/**
+            # The web UI the image builds in its web stage (Dockerfile)
+            - js/package.json
+            - js/pnpm-lock.yaml
+            - js/pnpm-workspace.yaml
+            - js/packages/web/**
             - .github/workflows/image.yml
     pull_request:
         paths:
@@ -28,6 +33,11 @@ on:
             - pyproject.toml
             - uv.lock
             - src/**
+            # The web UI the image builds in its web stage (Dockerfile)
+            - js/package.json
+            - js/pnpm-lock.yaml
+            - js/pnpm-workspace.yaml
+            - js/packages/web/**
             - .github/workflows/image.yml
     workflow_dispatch: {}
 
