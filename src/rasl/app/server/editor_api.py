@@ -30,15 +30,28 @@ from rasl.config.edit import (
     AddNode,
     ConfigEditor,
     Connect,
+    Detach,
     Disconnect,
     Edit,
     EditConflict,
     EditRefused,
     EditResult,
     RemoveNode,
+    RemoveSetting,
     RenameNode,
+    SetNodeValues,
+    SetSetting,
 )
-from rasl.config.view import ConfigView, NodeView, PortView, describe_config, node_types, preview_node
+from rasl.config.view import (
+    ConfigView,
+    NodeView,
+    PortView,
+    SettingView,
+    describe_config,
+    node_types,
+    payload_types,
+    preview_node,
+)
 from rasl.graph import ConnectError
 from rasl.graph import Endpoint as GraphEndpoint
 
@@ -76,6 +89,8 @@ class ConfigNode:
     type: str
     place: SourcePlace
     locked: Optional[str]
+    values: str
+    use: Optional[str]
     settings: list["Setting"]
     inputs: list[Port]
     outputs: list[Port]
@@ -83,11 +98,40 @@ class ConfigNode:
 
 
 @strawberry.type
+class Definition:
+    """Where a setting's one value comes from (``rasl.config.view.Definition``):
+    ``kind`` is ``variable`` (a ``@set`` line) or ``parameter`` (a ``@use`` argument)."""
+
+    kind: str
+    name: str
+    values: str
+    uses: int
+    locked: Optional[str]
+
+
+@strawberry.type
 class Setting:
-    """One line of a node's block: its key and its values as config text."""
+    """One line of a node's block (``rasl.config.view.SettingView``): its key, its
+    position among the node's lines of that key, its values after variables are filled
+    in and as written, and where they come from."""
 
     key: str
+    index: int
     values: str
+    written: str
+    locked: Optional[str]
+    definition: Optional[Definition]
+    has_block: bool
+
+
+@strawberry.type
+class PayloadType:
+    """A payload type and the types a port of it takes, as is or retyped
+    (``rasl.config.view.PayloadTypeView``): what the editor's connection hints use."""
+
+    name: str
+    components: Optional[int]
+    takes: list[str]
 
 
 @strawberry.type
@@ -286,6 +330,34 @@ class DisconnectInput:
     port: Optional[str] = None
 
 
+@strawberry.input
+class SetSettingInput:
+    """``rasl.config.edit.SetSetting``: ``scope`` is ``line`` or ``definition``."""
+
+    node: str
+    key: str
+    values: str
+    index: int = 0
+    scope: str = "line"
+
+
+@strawberry.input
+class RemoveSettingInput:
+    """``rasl.config.edit.RemoveSetting``."""
+
+    node: str
+    key: str
+    index: int = 0
+
+
+@strawberry.input
+class SetNodeValuesInput:
+    """``rasl.config.edit.SetNodeValues``."""
+
+    node: str
+    values: str
+
+
 @strawberry.input(one_of=True)
 class EditInput:
     """One edit of a batch: exactly one field is set."""
@@ -295,6 +367,10 @@ class EditInput:
     rename_node: Optional[RenameNodeInput] = strawberry.UNSET
     connect: Optional[ConnectInput] = strawberry.UNSET
     disconnect: Optional[DisconnectInput] = strawberry.UNSET
+    set_setting: Optional[SetSettingInput] = strawberry.UNSET
+    remove_setting: Optional[RemoveSettingInput] = strawberry.UNSET
+    set_node_values: Optional[SetNodeValuesInput] = strawberry.UNSET
+    detach: Optional[NodeRefInput] = strawberry.UNSET
 
 
 # -- conversions -----------------------------------------------------------------------
@@ -311,9 +387,19 @@ def _edit(edit: EditInput) -> Edit:
     if edit.connect:
         c = edit.connect
         return Connect(c.source, c.target, c.port, c.repeat, c.repeat_until)
-    assert edit.disconnect  # one_of: exactly one is set
-    d = edit.disconnect
-    return Disconnect(d.source, d.target, d.port)
+    if edit.disconnect:
+        d = edit.disconnect
+        return Disconnect(d.source, d.target, d.port)
+    if edit.set_setting:
+        s = edit.set_setting
+        return SetSetting(s.node, s.key, s.values, s.index, s.scope)
+    if edit.remove_setting:
+        r = edit.remove_setting
+        return RemoveSetting(r.node, r.key, r.index)
+    if edit.set_node_values:
+        return SetNodeValues(edit.set_node_values.node, edit.set_node_values.values)
+    assert edit.detach  # one_of: exactly one is set
+    return Detach(edit.detach.id)
 
 
 def _endpoint(end: GraphEndpoint) -> Endpoint:
@@ -361,13 +447,30 @@ def _port(port: PortView) -> Port:
     )
 
 
+def _setting(setting: SettingView) -> Setting:
+    d = setting.definition
+    return Setting(
+        key=setting.key,
+        index=setting.index,
+        values=setting.values,
+        written=setting.written,
+        locked=setting.locked,
+        definition=None
+        if d is None
+        else Definition(kind=d.kind, name=d.name, values=d.values, uses=d.uses, locked=d.locked),
+        has_block=setting.has_block,
+    )
+
+
 def _node(node: NodeView) -> ConfigNode:
     return ConfigNode(
         id=node.id,
         type=node.type,
         place=SourcePlace(path=node.place.path, line=node.place.line),
         locked=node.locked,
-        settings=[Setting(key=key, values=values) for key, values in node.settings],
+        values=node.values,
+        use=node.use,
+        settings=[_setting(setting) for setting in node.settings],
         inputs=[_port(p) for p in node.inputs],
         outputs=[_port(p) for p in node.outputs],
         error=node.error,
@@ -479,6 +582,12 @@ class EditorQuery:
         return [NodeType(name=t.name, aliases=list(t.aliases), summary=t.summary, schema=t.schema) for t in types]
 
     @strawberry.field
+    async def payload_types(self) -> list[PayloadType]:
+        """Every payload type, with the types a port of it takes (for connection hints)."""
+        views = await anyio.to_thread.run_sync(payload_types)
+        return [PayloadType(name=v.name, components=v.components, takes=list(v.takes)) for v in views]
+
+    @strawberry.field
     async def preview_node(
         self, type: str, values: str = "", settings: Optional[list[SettingInput]] = None
     ) -> ConfigNode:
@@ -489,8 +598,8 @@ class EditorQuery:
             view = await anyio.to_thread.run_sync(preview_node, type, values, pairs)
         except ConfigError as error:
             return ConfigNode(
-                id="preview", type=type, place=SourcePlace(path="", line=0), locked=None,
-                settings=[], inputs=[], outputs=[], error=error.message,
+                id="preview", type=type, place=SourcePlace(path="", line=0), locked=None, values=values,
+                use=None, settings=[], inputs=[], outputs=[], error=error.message,
             )
         return _node(view)
 

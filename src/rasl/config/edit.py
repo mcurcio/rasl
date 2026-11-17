@@ -13,7 +13,13 @@ Edits name what to do, not text:
   (owner, 2026-11-16: "remove the connections with it");
 - ``RenameNode``: the node's id and every ``connect`` line that reads it;
 - ``Connect`` / ``Disconnect``: a ``connect`` line in the receiving node's block, where
-  the config writes routing.
+  the config writes routing;
+- ``SetSetting`` / ``RemoveSetting``: a line of a node's block (rasl-w18), or what it
+  reads: its ``$variable``'s ``@set`` line, or the ``@use`` argument a snippet parameter
+  takes (rasl-6sr.7, owner 2026-11-16: "change $name (N uses)" or "only here");
+- ``SetNodeValues``: the values after a node's id (``node Color rgb srgb``);
+- ``Detach``: a node made by ``@use``, written out in place of the ``@use`` line, so its
+  lines can be edited one by one (rasl-6sr.7).
 
 Where a new node goes (owner, 2026-11-16, approved): in the block of the nodes the batch
 connects it to; after the last node it reads from, in the order the graph lists them;
@@ -151,7 +157,78 @@ class Disconnect:
     port: str | None = None
 
 
-Edit = AddNode | RemoveNode | RenameNode | Connect | Disconnect
+@dataclass(frozen=True)
+class SetSetting:
+    """Set a line of a node's block, ``<key> <values>;``, or what that line reads.
+
+    A line is known by its key and, for a key written more than once (``fill``), its
+    position among the node's lines of that key.
+
+    Attributes:
+        node: The node's id.
+        key: The line's name (``fps``).
+        values: Its new values, as config text.
+        index: Which line of that key (0 for the first). One past the last adds a line
+            (before the node's ``connect`` lines).
+        scope: ``"line"`` writes ``values`` on the line itself, replacing any
+            ``$variable`` it reads with the value ("only here"). ``"definition"`` writes
+            them where the line's one value comes from: the ``@set`` line of the
+            ``$variable`` (every use changes), or, for a snippet parameter, the ``@use``
+            line's argument.
+    """
+
+    node: str
+    key: str
+    values: str
+    index: int = 0
+    scope: str = "line"
+
+
+@dataclass(frozen=True)
+class RemoveSetting:
+    """Remove a line of a node's block.
+
+    Attributes:
+        node: The node's id.
+        key: The line's name.
+        index: Which line of that key (0 for the first).
+    """
+
+    node: str
+    key: str
+    index: int = 0
+
+
+@dataclass(frozen=True)
+class SetNodeValues:
+    """Set the values written after a node's id (``rgb`` in ``node Color c rgb``).
+
+    Attributes:
+        node: The node's id.
+        values: The new values, as config text; empty for none.
+    """
+
+    node: str
+    values: str
+
+
+@dataclass(frozen=True)
+class Detach:
+    """Write out every node a ``@use`` line makes, in place of that line.
+
+    The nodes keep their ids, settings and connections; the ``@use`` line goes, and the
+    ``@snippet`` stays. Comments inside the snippet are not copied.
+
+    Attributes:
+        node: The id of a node the ``@use`` line makes.
+    """
+
+    node: str
+
+
+Edit = (
+    AddNode | RemoveNode | RenameNode | Connect | Disconnect | SetSetting | RemoveSetting | SetNodeValues | Detach
+)
 """One edit of a batch."""
 
 
@@ -315,16 +392,7 @@ def lock_reason(directive: Directive) -> str | None:
     A line written in a ``@snippet`` is every ``@use`` of it; a line in a file read more
     than once is every read of it.
     """
-    statement = directive.written
-    parent = statement.parent
-    while parent is not None:
-        if parent.kind == "snippet":
-            return f"is written in @snippet {parent.name}"
-        parent = parent.parent
-    copies = len(statement.copies())
-    if copies != 1:
-        return f"is in a file read {copies} times"
-    return None
+    return statement_lock(directive.written)
 
 
 class _Batch:
@@ -362,6 +430,14 @@ class _Batch:
                 self.connect(edit)
             case Disconnect():
                 self.disconnect(edit)
+            case SetSetting():
+                self.set_setting(edit)
+            case RemoveSetting(node_id, key, index):
+                self.remove_setting(node_id, key, index)
+            case SetNodeValues(node_id, values):
+                self.set_node_values(node_id, values)
+            case Detach(node_id):
+                self.detach(node_id)
 
     # -- lookups ---------------------------------------------------------------------
 
@@ -489,6 +565,156 @@ class _Batch:
         raise self.refuse(
             f"Node '{edit.target}' has no line 'connect {' '.join(wanted)}'"
         )
+
+
+    def setting_lines(self, node_id: str, key: str) -> list[Directive]:
+        """The node's rendered lines named ``key``, in order (``connect`` is not a setting)."""
+        if key in ("connect", "edge"):
+            raise self.refuse("A connection is not a setting: use connect and disconnect")
+        return list(children(self.node(node_id), key))
+
+    def set_setting(self, edit: SetSetting) -> None:
+        lines = self.setting_lines(edit.node, edit.key)
+        values = config_text(edit.values)
+        try:
+            if edit.index == len(lines):
+                if edit.scope != "line":
+                    raise self.refuse(f"Node '{edit.node}' has no line '{edit.key}' to follow to a definition")
+                self.add_setting(edit.node, f"{edit.key} {edit.values};")
+            elif 0 <= edit.index < len(lines):
+                line = lines[edit.index]
+                if edit.scope == "line":
+                    self.editable(line, f"The line '{edit.key}' of node '{edit.node}'").set(values)
+                elif edit.scope == "definition":
+                    self.set_definition(edit.node, line, edit.values)
+                else:
+                    raise self.refuse(f"Unknown scope '{edit.scope}': 'line' or 'definition'")
+            else:
+                raise self.refuse(f"Node '{edit.node}' has {len(lines)} lines '{edit.key}', no line {edit.index + 1}")
+        except BadText as error:
+            raise self.refuse(edit_error(error, edit.values).message) from error
+
+    def add_setting(self, node_id: str, line: str) -> None:
+        """Add ``line`` to the node's block, before its ``connect`` lines."""
+        statement = self.editable(self.node(node_id), f"Node '{node_id}'")
+        if statement.block is None:
+            _add_block(statement, line)
+            return
+        connects = [s for s in statement.block if s.kind == "directive" and s.name in ("connect", "edge")]
+        if connects:
+            connects[0].insert_before(config_text(line))
+        else:
+            statement.block.add_statements(config_text(line))
+
+    def set_definition(self, node_id: str, line: Directive, values: str) -> None:
+        """Write ``values`` where the line's one value comes from (``SetSetting`` scope)."""
+        chain = line.values[0].chain if len(line.values) == 1 else ()
+        if not chain:
+            raise self.refuse(
+                f"The line '{line.name}' of node '{node_id}' does not read one $variable: set the line itself"
+            )
+        resolution = chain[0]
+        winner = resolution.winner
+        if winner is None or winner.kind == "override":
+            raise self.refuse(f"${resolution.reference.name} is not set in a file: set the line itself")
+        if winner.kind == "set":
+            set_line = winner.line
+            parent = set_line.parent
+            while parent is not None:
+                if parent.kind == "snippet":
+                    raise self.refuse(f"${winner.name} is set in @snippet {parent.name}; it is locked")
+                parent = parent.parent
+            if len(set_line.copies()) != 1:
+                raise self.refuse(f"${winner.name} is set in a file read {len(set_line.copies())} times; it is locked")
+            winner.set(config_text(values))
+            return
+        # A snippet parameter: its value is the @use line's argument at its position
+        use = self.use_line_of(resolution.copy.via)
+        names = [parameter.name for parameter in use.snippet.parameters] if use.snippet is not None else []
+        if winner.name not in names:
+            raise self.refuse(f"${winner.name} is not a parameter of @snippet {use.snippet_name}")
+        position = names.index(winner.name)
+        if position >= len(use.values):
+            raise self.refuse(f"@use {use.snippet_name} gives no value for ${winner.name}")
+        if len(values.split()) != 1:
+            raise self.refuse(f"${winner.name} takes one value from @use {use.snippet_name}")
+        use.values[position].set(config_text(values))
+
+    def use_line_of(self, via: Sequence[object]) -> Statement:
+        """The written ``@use`` line of the last use step in ``via`` (it must be editable)."""
+        steps = [step for step in via if getattr(getattr(step, "kind", None), "value", None) == "use"]
+        if not steps:
+            raise self.refuse("Not made by @use")
+        place = steps[-1].place  # type: ignore[attr-defined]
+        for document in self.graph.documents.values():
+            for statement in document.block.walk():
+                if (
+                    statement.kind == "use"
+                    and str(statement.place.resolved_path) == str(place.resolved_path)
+                    and statement.place.span.start.offset == place.span.start.offset
+                ):
+                    reason = statement_lock(statement)
+                    if reason is not None:
+                        raise self.refuse(f"The @use line {reason}; it is locked")
+                    return statement
+        raise self.refuse("The @use line that made this node was not found")
+
+    def remove_setting(self, node_id: str, key: str, index: int) -> None:
+        lines = self.setting_lines(node_id, key)
+        if not 0 <= index < len(lines):
+            raise self.refuse(f"Node '{node_id}' has {len(lines)} lines '{key}', no line {index + 1}")
+        self.editable(lines[index], f"The line '{key}' of node '{node_id}'").remove()
+
+    def set_node_values(self, node_id: str, values: str) -> None:
+        directive = self.node(node_id)
+        statement = self.editable(directive, f"Node '{node_id}'")
+        if len(directive.values) < 2:
+            raise self.refuse(f"Node '{node_id}' is written 'node {node_id} {{ type ...; }}': it has no values after its id")
+        head = " ".join(value.text for value in statement.values[:2])
+        text = f"{head} {values}".strip()
+        try:
+            statement.set(config_text(text))
+        except BadText as error:
+            raise self.refuse(edit_error(error, values).message) from error
+
+    def detach(self, node_id: str) -> None:
+        directive = self.node(node_id)
+        use = self.use_line_of(directive.origin.via)
+        made = [
+            d
+            for d in children(self.graph_block)
+            if d.origin.via and _same_place(d.origin.via[-1].place, use.place)
+        ]
+        use.replace_with_text(config_text("\n".join(_print(d) for d in made)))
+
+
+def statement_lock(statement: Statement) -> str | None:
+    """``lock_reason`` for a written statement."""
+    parent = statement.parent
+    while parent is not None:
+        if parent.kind == "snippet":
+            return f"is written in @snippet {parent.name}"
+        parent = parent.parent
+    copies = len(statement.copies())
+    return None if copies == 1 else f"is in a file read {copies} times"
+
+
+def _same_place(a: object, b: object) -> bool:
+    """Whether two knobly places start at the same offset of the same file."""
+    return str(getattr(a, "resolved_path")) == str(getattr(b, "resolved_path")) and (
+        getattr(a, "span").start.offset == getattr(b, "span").start.offset
+    )
+
+
+def _print(directive: Directive, indent: str = "") -> str:
+    """A rendered directive written out as config text (values in canonical form)."""
+    head = " ".join([directive.name, *(value.text for value in directive.values)])
+    if directive.block is None:
+        return f"{indent}{head};"
+    inner = [_print(child, indent + "    ") for child in directive.block]
+    if not inner:
+        return f"{indent}{head} {{}}"
+    return f"{indent}{head} {{\n" + "\n".join(inner) + f"\n{indent}}}"
 
 
 def _source_node(ref: str) -> str | None:

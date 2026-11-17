@@ -26,7 +26,7 @@ from rasl.config.document import (
     load_written,
     render_written,
 )
-from rasl.config.edit import lock_reason, version_of
+from rasl.config.edit import lock_reason, statement_lock, version_of
 from rasl.config.node_directive import _node_config, node_spec
 from rasl.graph.node import ensure_nodes_loaded, get_inputs, get_outputs
 
@@ -68,6 +68,50 @@ class Place:
 
 
 @dataclass(frozen=True)
+class Definition:
+    """Where a setting's one value comes from, when it reads one ``$variable``.
+
+    Attributes:
+        kind: ``"variable"`` for a ``@set`` line, ``"parameter"`` for a snippet parameter
+            (its value is the ``@use`` line's argument).
+        name: The variable's name, without ``$``.
+        values: Its values as written there.
+        uses: How many lines read it (for a parameter, 1: this ``@use``).
+        locked: Why the editor may not change it, or None when it may.
+    """
+
+    kind: str
+    name: str
+    values: str
+    uses: int
+    locked: str | None
+
+
+@dataclass(frozen=True)
+class SettingView:
+    """One line of a node's block other than ``connect``.
+
+    Attributes:
+        key: The line's name.
+        index: Its position among the node's lines of that key (0 for the first).
+        values: Its values after variables are filled in, in canonical config text.
+        written: Its values as the line writes them (``$rate``).
+        locked: Why the editor may not change the line itself, or None when it may.
+        definition: Where its value comes from when it reads one ``$variable``; else None.
+        has_block: True when the line has a block of its own (``ports { ... }``), which
+            the editor shows but does not edit.
+    """
+
+    key: str
+    index: int
+    values: str
+    written: str
+    locked: str | None
+    definition: Definition | None
+    has_block: bool
+
+
+@dataclass(frozen=True)
 class NodeView:
     """One node as written.
 
@@ -76,7 +120,10 @@ class NodeView:
         type: Its type name as written.
         place: Where its ``node`` line is.
         locked: Why the editor may not change its line, or None when it may.
-        settings: Its block's lines other than ``connect``, as (key, values) text.
+        values: The values written after its id (``srgb`` in ``node Color c srgb``).
+        use: The ``@snippet`` whose ``@use`` made it, or None; such a node can be
+            detached (``rasl.config.edit.Detach``).
+        settings: Its block's lines other than ``connect``.
         inputs: Its input ports; empty when it does not build.
         outputs: Its output ports; empty when it does not build.
         error: Why it does not build on its own, or None.
@@ -86,7 +133,9 @@ class NodeView:
     type: str
     place: Place
     locked: str | None
-    settings: tuple[tuple[str, str], ...]
+    values: str
+    use: str | None
+    settings: tuple[SettingView, ...]
     inputs: tuple[PortView, ...]
     outputs: tuple[PortView, ...]
     error: str | None
@@ -156,13 +205,11 @@ def _ports(group: Any) -> tuple[PortView, ...]:
     for port in group:
         spec = port.spec
         if hasattr(spec, "produces"):
-            types = (spec.type_name,)
+            resolved_out = spec.resolve_payload_types()
+            types = (type_name(resolved_out[0]),) if resolved_out else (spec.type_name,)
             components = spec.known_components
         else:
-            types = tuple(
-                getattr(t, "domain", None) or getattr(t, "__name__", str(t))
-                for t in spec.resolve_payload_types()
-            )
+            types = tuple(type_name(t) for t in spec.resolve_payload_types())
             resolved = spec.resolve_payload_types()
             widths = {getattr(t, "components", None) for t in resolved}
             only = widths.pop() if len(widths) == 1 else None
@@ -175,6 +222,55 @@ def _ports(group: Any) -> tuple[PortView, ...]:
                 max_count=spec.max_count if spec.fixed_count is None else spec.fixed_count,
                 components=components,
                 default=port.name == default,
+            )
+        )
+    return tuple(views)
+
+
+def _definition(line: Directive) -> Definition | None:
+    """Where ``line``'s one value comes from, when it reads one ``$variable``."""
+    if len(line.values) != 1 or not line.values[0].chain:
+        return None
+    resolution = line.values[0].chain[0]
+    winner = resolution.winner
+    if winner is None or winner.kind not in ("set", "parameter"):
+        return None
+    if winner.kind == "set":
+        return Definition(
+            kind="variable",
+            name=winner.name,
+            values=" ".join(value.text for value in winner.line.values),
+            uses=len(winner.references()),
+            locked=statement_lock(winner.line),
+        )
+    return Definition(
+        kind="parameter",
+        name=winner.name,
+        values=" ".join(value.text for value in resolution.values),
+        uses=1,
+        locked=None,
+    )
+
+
+def _settings(directive: Directive) -> tuple[SettingView, ...]:
+    """The node's block lines other than ``connect``, each with where its value comes from."""
+    seen: dict[str, int] = {}
+    views = []
+    for child in children(directive):
+        if child.name in ("connect", "edge"):
+            continue
+        index = seen.get(child.name, 0)
+        seen[child.name] = index + 1
+        written = child.written
+        views.append(
+            SettingView(
+                key=child.name,
+                index=index,
+                values=" ".join(value.text for value in child.values),
+                written=" ".join(value.text for value in written.values),
+                locked=lock_reason(child),
+                definition=_definition(child),
+                has_block=child.block is not None,
             )
         )
     return tuple(views)
@@ -210,17 +306,15 @@ def describe_config(path: str | Path) -> ConfigView:
             inputs, outputs = _ports(get_inputs(node)), _ports(get_outputs(node))
         except (ConfigError, ValueError, TypeError) as caught:
             error = getattr(caught, "message", None) or str(caught)
-        settings = tuple(
-            (child.name, " ".join(value.text for value in child.values))
-            for child in children(directive)
-            if child.name not in ("connect", "edge")
-        )
+        use_steps = [step for step in directive.origin.via if step.kind.value == "use"]
         view = NodeView(
             id=node_id,
             type=node_type,
             place=_place(directive),
             locked=lock_reason(directive),
-            settings=settings,
+            values=" ".join(value.text for value in directive.values[2:]),
+            use=use_steps[-1].name if use_steps else None,
+            settings=_settings(directive),
             inputs=inputs,
             outputs=outputs,
             error=error,
@@ -357,8 +451,62 @@ def preview_node(type_name: str, values: str = "", settings: tuple[tuple[str, st
         type=type_name,
         place=Place("", 0),
         locked=None,
-        settings=settings,
+        values=values,
+        use=None,
+        settings=_settings(directive),
         inputs=inputs,
         outputs=outputs,
         error=error,
     )
+
+
+@dataclass(frozen=True)
+class PayloadTypeView:
+    """A registered payload type, and what a port of that type takes.
+
+    Attributes:
+        name: The name ports list it by (``PortView.types``).
+        components: Columns per element it fixes, or None.
+        takes: The names of the types a port of this type takes from an output: as they
+            are (itself and its descendants) or retyped (its ancestors it coerces from,
+            ``FramePayload.coerces_from``). What the editor's connection hints use.
+    """
+
+    name: str
+    components: int | None
+    takes: tuple[str, ...]
+
+
+def type_name(cls: Any) -> str:
+    """The name a payload class is listed by: its domain when that is registered for it,
+    else its first registered name, else its domain or class name."""
+    from rasl.signal import get_payload_registry
+
+    registry = get_payload_registry()
+    domain = getattr(cls, "domain", None)
+    if domain is not None and registry.get(domain) is cls:
+        return domain
+    for name, registered in registry.items():
+        if registered is cls:
+            return name
+    return domain or getattr(cls, "__name__", str(cls))
+
+
+def payload_types() -> tuple[PayloadTypeView, ...]:
+    """Every registered payload type, with what a port of it takes, sorted by name."""
+    from rasl.signal import get_payload_registry
+
+    ensure_nodes_loaded()
+    registry = get_payload_registry()
+    views = []
+    for name, cls in sorted(registry.items()):
+        takes = tuple(
+            other_name
+            for other_name, other in sorted(registry.items())
+            if cls.is_compatible_with(other) or cls.coerces_from(other)
+        )
+        components = getattr(cls, "components", None)
+        views.append(
+            PayloadTypeView(name=name, components=components if isinstance(components, int) else None, takes=takes)
+        )
+    return tuple(views)

@@ -137,3 +137,28 @@ def test_without_a_watched_config_nothing_is_editable(config: Path) -> None:
     assert _gql(client, "{ configGraph { version } }")["configGraph"] is None
     outcome = _gql(client, APPLY, v="x", edits=[{"removeNode": {"id": "sink"}}])["applyEdits"]
     assert "--no-watch" in outcome["refused"]["message"]
+
+
+def test_settings_carry_where_their_value_comes_from(tmp_path: Path) -> None:
+    path = tmp_path / "rasl.conf"
+    path.write_text("@set $rate 2;\ngraph {\n    node ConsoleSink sink { fps $rate; }\n}\n")
+    client = Client(ConfigSession(path))
+    graph = _gql(client, "{ configGraph { version nodes { settings { key index values written definition { kind name uses } } } } }")
+    assert graph["configGraph"]["nodes"][0]["settings"] == [
+        {"key": "fps", "index": 0, "values": "2", "written": "$rate", "definition": {"kind": "variable", "name": "rate", "uses": 1}}
+    ]
+    outcome = _gql(
+        client,
+        APPLY,
+        v=graph["configGraph"]["version"],
+        edits=[{"setSetting": {"node": "sink", "key": "fps", "values": "4", "scope": "definition"}}],
+    )["applyEdits"]
+    assert outcome["ok"], outcome
+    assert path.read_text().startswith("@set $rate 4;")
+
+
+def test_payload_types_say_what_a_port_takes(client: Client) -> None:
+    types = {t["name"]: t for t in _gql(client, "{ payloadTypes { name components takes } }")["payloadTypes"]}
+    assert "matrix" in types["bool"]["takes"]
+    assert types["color:hsbk"]["components"] == 4
+    assert "color:hsl" not in types["color:hsbk"]["takes"]
