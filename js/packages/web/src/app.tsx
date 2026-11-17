@@ -9,6 +9,7 @@ import {
   type FinalConnectionState,
   MarkerType,
   type Node,
+  type NodeChange,
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
@@ -110,6 +111,25 @@ function Editor(): ReactElement {
   const [selection, setSelection] = useState<Selection>({});
   const [dialog, setDialog] = useState<{ from: { node: string; port: string } | null } | null>(null);
   const [positions, setPositions] = useState<Positions>(new Map());
+  // The graph shape the view was last laid out and fitted for: the canvas says
+  // data-layout="ready" when it matches the shape now shown (tests wait for it)
+  const [fittedShape, setFittedShape] = useState<string | null>(null);
+  const positionsShape = useRef<string | null>(null);
+  // Each node's measured size, as React Flow reports it. The nodes are rebuilt from the
+  // graph on every render, so the size is passed back with them: without it React Flow
+  // keeps a rebuilt node hidden until it measures it again, which it may never do.
+  const [measured, setMeasured] = useState<ReadonlyMap<string, { width: number; height: number }>>(new Map());
+  const onNodesChange = useCallback((changes: NodeChange[]): void => {
+    const sizes = changes.flatMap((c) =>
+      c.type === "dimensions" && c.dimensions ? [[c.id, c.dimensions] as const] : [],
+    );
+    if (sizes.length === 0) return;
+    setMeasured((current) => {
+      const next = new Map(current);
+      for (const [id, size] of sizes) next.set(id, size);
+      return next;
+    });
+  }, []);
   const [saved, setSaved] = useState<readonly string[]>([]);
   const flow = useReactFlow();
   const versionRef = useRef<string | null>(null);
@@ -166,6 +186,7 @@ function Editor(): ReactElement {
     layout(staged).then(
       (p) => {
         if (!current) return;
+        positionsShape.current = shape;
         setPositions(p);
       },
       () => undefined,
@@ -178,7 +199,10 @@ function Editor(): ReactElement {
   // Fit the view to each new layout, once it is drawn and measured
   useEffect(() => {
     if (positions.size === 0) return undefined;
-    const timer = window.setTimeout(() => void flow.fitView({ padding: 0.12, duration: 200 }), 60);
+    const laidOut = positionsShape.current;
+    const timer = window.setTimeout(() => {
+      void flow.fitView({ padding: 0.12, duration: 200 }).then(() => setFittedShape(laidOut));
+    }, 60);
     return () => window.clearTimeout(timer);
   }, [positions, flow]);
 
@@ -332,6 +356,7 @@ function Editor(): ReactElement {
         id: node.id,
         type: "card",
         position: positions.get(node.id) ?? { x: 0, y: 0 },
+        measured: measured.get(node.id),
         selected: selection.node === node.id,
         draggable: false,
         connectable: graph?.editable === true && node.status !== "removed",
@@ -342,7 +367,7 @@ function Editor(): ReactElement {
           hints: hints?.get(node.id) ?? null,
         } satisfies NodeCardData,
       })),
-    [staged, positions, selection, metrics, problems, graph, hints],
+    [staged, positions, measured, selection, metrics, problems, graph, hints],
   );
 
   const flowEdges: Edge[] = useMemo(() => {
@@ -396,12 +421,17 @@ function Editor(): ReactElement {
         <div className="banner warning">The config does not build: {graph.error.message}</div>
       ) : null}
       <main className="layout">
-        <section className="canvas" onDoubleClick={onDoubleClick}>
+        <section
+          className="canvas"
+          data-layout={staged && fittedShape === shape ? "ready" : "pending"}
+          onDoubleClick={onDoubleClick}
+        >
           <ReactFlow
             nodes={flowNodes}
             edges={flowEdges}
             nodeTypes={NODE_TYPES}
             onConnect={onConnect}
+            onNodesChange={onNodesChange}
             onConnectEnd={onConnectEnd}
             onConnectStart={(_, start) => {
               if (start.nodeId && start.handleId && start.handleType) {

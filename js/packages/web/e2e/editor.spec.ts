@@ -15,8 +15,12 @@ async function runningNodes(page: Page): Promise<string[]> {
   return body.data.graph.nodes.map((n) => n.id);
 }
 
-/** Wait until the canvas stops moving (the view fits itself to each new layout). */
+/**
+ * Wait until the page has laid out and fitted the graph it now shows (the canvas's
+ * data-layout), and the view has stopped moving.
+ */
 async function settle(page: Page): Promise<void> {
+  await expect(page.locator(".canvas")).toHaveAttribute("data-layout", "ready");
   const viewport = page.locator(".react-flow__viewport");
   let last = "";
   await expect
