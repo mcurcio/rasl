@@ -110,7 +110,9 @@ class ComposeNode(BaseNode):
         self._payload_cls = self._resolve_payload_cls(self._output_type)
 
         # The output carries the configured type, so connections are checked against it
-        self.outputs = PortGroup.outputs(out=OutputPortSpec(self._payload_cls))
+        self.outputs = PortGroup.outputs(
+            out=OutputPortSpec(self._payload_cls, components=self._num_ports)
+        )
 
         # Override class-level inputs with instance-specific ports
         self.inputs = PortGroup.inputs(

@@ -6,4 +6,8 @@
 !LICENSE
 !src/
 !docker/
+# The web UI's sources, built in the image's web stage
+!js/
+js/**/node_modules
+js/**/dist
 **/__pycache__

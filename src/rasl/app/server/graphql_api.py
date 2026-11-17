@@ -1,6 +1,8 @@
-"""GraphQL schema for the web server: the running graph, per-node metrics and server health.
+"""GraphQL schema for the web server: the running graph, per-node metrics and server health,
+and the graph editor's view of the config files and its edits (``editor_api``).
 
-Read-only. Resolvers read the ``AppState`` carried in the request context.
+Resolvers read the ``AppState`` carried in the request context. The only writes are the
+editor's mutations, which change the config files, never the running graph.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ import strawberry
 from strawberry.fastapi import BaseContext
 from strawberry.types import Info
 
+from rasl.app.server.editor_api import EditorMutation, EditorQuery, EditorSubscription
 from rasl.graph.node import get_inputs, get_outputs
 from rasl.runtime.monitor import NodeMonitor
 
@@ -223,8 +226,9 @@ def _graph_from_plan(plan: Any) -> Graph:
 
 
 @strawberry.type
-class Query:
-    """Root query type: read-only views of the server, the graph and node metrics."""
+class Query(EditorQuery):
+    """Root query type: views of the server, the running graph, node metrics, and the
+    config files as written (the editor's, from ``EditorQuery``)."""
     @strawberry.field
     def health(self, info: Info[RASLContext, None]) -> Health:
         """Server health: ok, degraded or stalled, and the facts behind it."""
@@ -297,8 +301,8 @@ class Query:
 
 
 @strawberry.type
-class Subscription:
-    """Root subscription type: live node metrics."""
+class Subscription(EditorSubscription):
+    """Root subscription type: live node metrics, and changes to the config files."""
     @strawberry.subscription
     async def metrics_stream(
         self, info: Info[RASLContext, None], interval_ms: int = 1000
@@ -317,4 +321,9 @@ class Subscription:
             await anyio.sleep(max(interval_ms, 50) / 1000)
 
 
-schema = strawberry.Schema(query=Query, subscription=Subscription)
+@strawberry.type
+class Mutation(EditorMutation):
+    """Root mutation type: the graph editor's edits to the config files."""
+
+
+schema = strawberry.Schema(query=Query, mutation=Mutation, subscription=Subscription)

@@ -9,6 +9,7 @@ Config files are written in knobly, rasl's config language
 - ``rasl.config.build``: a rendered config as an ExecutionPlan
 - ``rasl.config.reload``: a config session, and working out a plan update
 - ``rasl.config.watch``: reloading when the files change
+- ``rasl.config.edit``: graph edits (add, remove, rename, connect) written to the files
 
 Example:
     >>> from rasl.config import load_config

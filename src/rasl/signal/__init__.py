@@ -10,7 +10,7 @@ Color payloads build on these and live in ``rasl.color``.
 
 from rasl.signal.frame import EMPTY_METADATA, Frame, Metadata
 from rasl.signal.matrix import BoolPayload, MatrixPayload
-from rasl.signal.payload import FramePayload, PayloadDescriptor
+from rasl.signal.payload import FramePayload, PayloadCoercionError, PayloadDescriptor
 from rasl.signal.registry import get_payload_registry, get_payload_type, list_payload_types, payload
 
 __all__ = [
@@ -20,6 +20,7 @@ __all__ = [
     "FramePayload",
     "MatrixPayload",
     "Metadata",
+    "PayloadCoercionError",
     "PayloadDescriptor",
     "get_payload_registry",
     "get_payload_type",

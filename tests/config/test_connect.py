@@ -5,7 +5,7 @@ import pytest
 from rasl.config.build import parse_config
 from rasl.config.connect import parse_port_ref
 from rasl.config.document import ConfigError
-from rasl.graph import Edge, Slice
+from rasl.graph import ConnectProblem, Edge, Endpoint, Slice
 
 
 class TestParsePortWithSlice:
@@ -177,9 +177,10 @@ class TestRepeatWithoutSlices:
 
 
 class TestConnectErrorsArePlaced:
-    """A connection the graph refuses is reported on the node that asks for it."""
+    """A connection the graph refuses is reported on the connect line that asks for it
+    (owner, 2026-11-16), with the graph's ConnectError naming both ends."""
 
-    def test_a_slice_out_of_range_is_a_config_error_on_the_connecting_node(self):
+    def test_a_slice_out_of_range_is_a_config_error_on_its_connect_line(self):
         config = """
         graph {
             node cron minute * * * * *;
@@ -194,9 +195,51 @@ class TestConnectErrorsArePlaced:
             match=r"Node 'sink': Slice \[0:4\] is out of range for port minute.out, which has 1 elements",
         ) as caught:
             parse_config(config)
-        assert caught.value.line == 4
+        assert caught.value.line == 6
 
-    def test_an_unknown_source_node_is_a_config_error_on_the_connecting_node(self):
+    def test_two_connections_into_one_port_are_a_config_error_on_its_connect_line(self):
+        config = """
+        graph {
+            node cron minute * * * * *;
+            node cron hour 0 * * * *;
+            node ConsoleSink sink {
+                fps 1;
+                connect minute;
+                connect hour;
+            }
+        }
+        """
+        with pytest.raises(
+            ConfigError, match=r"Node 'sink': Overlapping connections into sink\.\w+: hour\.out writes"
+        ) as caught:
+            parse_config(config)
+        assert caught.value.line == 8
+        connection = caught.value.connection
+        assert connection is not None
+        assert connection.problem is ConnectProblem.OVERLAP
+        assert connection.source == Endpoint("hour", "out", None)
+        assert connection.target == Endpoint("sink", "dmx", None)
+        assert connection.other == Endpoint("minute", "out", None)
+        assert (connection.rows, connection.other_rows) == ((0, 1), (0, 1))
+
+    def test_a_repeat_of_a_source_of_unknown_length_is_a_config_error(self):
+        config = """
+        graph {
+            node Waveform hue {
+                output_channels 4;
+            }
+            node ConsoleSink sink {
+                fps 1;
+                connect hue[2~] dmx[0~] {
+                    repeat 3;
+                }
+            }
+        }
+        """
+        with pytest.raises(ConfigError, match=r"Node 'sink': repeat 3 needs the length of hue\[2:\]"):
+            parse_config(config)
+
+    def test_an_unknown_source_node_is_a_config_error_on_its_connect_line(self):
         config = """
         graph {
             node ConsoleSink sink {
@@ -207,7 +250,7 @@ class TestConnectErrorsArePlaced:
         """
         with pytest.raises(ConfigError, match="Node 'sink': Unknown source node 'nowhere'") as caught:
             parse_config(config)
-        assert caught.value.line == 3
+        assert caught.value.line == 5
 
     def test_an_unknown_source_port_is_a_config_error_naming_the_ports(self):
         config = """
@@ -225,7 +268,7 @@ class TestConnectErrorsArePlaced:
             ConfigError, match="Node 'sink': Node 'hue' has no output port 'nope'. Available: "
         ) as caught:
             parse_config(config)
-        assert caught.value.line == 6
+        assert caught.value.line == 8
 
     def test_a_missing_default_port_says_which_node(self):
         config = """
@@ -240,7 +283,7 @@ class TestConnectErrorsArePlaced:
         """
         with pytest.raises(ConfigError, match="Node 'calm': No default port") as caught:
             parse_config(config)
-        assert caught.value.line == 6
+        assert caught.value.line == 7
 
     def test_a_sacn_source_defaults_to_its_merged_channels(self):
         config = """

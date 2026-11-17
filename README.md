@@ -36,8 +36,8 @@ runtime in `src/rasl/` is the product. `js/` (a pnpm workspace, see [js/README.m
 - **Outputs and inputs.** Send over sACN, DDP, LIFX and the Govee LAN API; receive sACN; print frames to the
   terminal for testing.
 - **Live reload.** Save the config and only the nodes you changed restart. A broken edit is never applied.
-- **Web dashboard and API.** A graph view at `/`, a GraphQL API at `/graphql`, and `GET /health` for
-  monitors.
+- **Web UI and API.** A graph editor at `/`: wire ports and add or remove nodes, and the changes are written
+  to the config file (comments kept) when you save. A GraphQL API at `/graphql`, and `GET /health` for monitors.
 - **Container image.** `ghcr.io/mcurcio/rasl`, with a health check, a seeded starter config and
   `PUID`/`PGID` support.
 - **Pluggable nodes.** Other packages can add node types through the `rasl.nodes` entry-point group, the
@@ -289,12 +289,15 @@ Without `--api-port` or a `ui` block, no web server runs.
 
 When the web server runs, it serves:
 
-- **`/`**: the dashboard: the graph, and for the selected node its details, metrics and connections. It loads
-  two scripts in the browser, cytoscape from cdn.jsdelivr.net and graphql-ws from unpkg.com, so the browser
-  needs internet access.
-- **`/graphql`**: a GraphQL API. Open it in a browser for the GraphiQL editor. Queries are `health`, `graph`,
-  `metrics` and `node(nodeId)`; the subscription `metricsStream(intervalMs)` runs over the
-  graphql-transport-ws protocol. There are no mutations.
+- **`/`**: the graph editor: the graph as the config file writes it, with each node's ports and live health.
+  Drag from an output to an input to connect them (the ports that take the wire light up), drop a wire on
+  empty canvas (or press ⌘K) to add a node, select and press Delete to remove, and edit a node's settings in
+  the inspector, at a `$variable`'s definition or only on its line. Changes queue, drawn dashed, with the diff they make to the file and any
+  error; **Save** writes the file and the running graph reloads it. Editing needs a watched config (no
+  `--no-watch`). The page is built from `js/packages/web` and needs no internet access.
+- **`/graphql`**: a GraphQL API. Open it in a browser for the GraphiQL editor. It reads the running graph, its
+  metrics and health, and the config as written; its mutations are the editor's edits to the config files
+  ([docs/web-api.md](docs/web-api.md)). Subscriptions run over the graphql-transport-ws protocol.
 - **`GET /health`**: JSON with `status`, uptime, tick count, time since the last tick, disabled nodes and the
   result of the last reload. `status` is one of:
 

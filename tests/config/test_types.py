@@ -20,7 +20,8 @@ def _graph(*nodes: str) -> str:
 
 
 class TestKinds:
-    def test_a_plain_matrix_does_not_feed_a_color_input(self) -> None:
+    def test_a_plain_matrix_does_not_feed_a_generic_color_input(self) -> None:
+        # The generic ColorPayload has no model to give bare data: nothing coerces into it
         with pytest.raises(ConfigError, match="wave.out emits MatrixPayload, but bulbs.color does not accept it"):
             parse_config(_graph(WAVE, LIFX.format(source="wave")))
 
@@ -28,14 +29,15 @@ class TestKinds:
         # Nodes convert colors on arrival, so the model does not have to match
         parse_config(_graph(WAVE, "node Color hsl hsl { connect wave; }", LIFX.format(source="hsl")))
 
-    def test_a_plain_matrix_does_not_feed_a_bool_input(self) -> None:
+    def test_a_plain_matrix_feeds_a_bool_input_retyped(self) -> None:
+        # Owner, 2026-11-16: a general type coerces to a more specific one implicitly
         config = _graph(
             WAVE,
             COLOR,
             "node Crossfade fade { connect rgb input0; connect rgb input1; connect wave[0~1] selector; }",
         )
-        with pytest.raises(ConfigError, match="does not accept it"):
-            parse_config(config)
+        plan = parse_config(config)
+        assert plan.input_programs[("fade", "selector")].buffer_type is BoolPayload
 
     def test_a_typed_literal_and_compose_declare_their_type(self) -> None:
         plan = parse_config(

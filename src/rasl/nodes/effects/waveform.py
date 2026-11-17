@@ -135,7 +135,7 @@ class WaveformNode(BaseNode):
         phase=InputPortSpec(MatrixPayload),  # Per-channel phase offsets [0, 1]
         speed=InputPortSpec(MatrixPayload),  # Per-channel speed multipliers
     )
-    outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
+    outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload, components=1))
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)

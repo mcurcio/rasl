@@ -8,7 +8,8 @@ Claude Code reads `CLAUDE.md` and not `AGENTS.md`. Edit this file; `CLAUDE.md` f
 
 - `src/rasl/`, `tests/`: Python runtime (Python 3.11, `uv`; `pyproject.toml`).
 - `js/`: pnpm workspace (`js/packages/*`: engine, config, color, lighting, server, ui, govee,
-  lifx). Node version in `js/.nvmrc`. Style guide: `js/STYLE.md`.
+  lifx, web). Node version in `js/.nvmrc`. Style guide: `js/STYLE.md`. `web` (`@rasl/web`) is the Python
+  runtime's web UI: `pnpm build` writes it into `src/rasl/app/ui/` (git-ignored), which the server serves.
 - `v2/`: Rust experiment.
 - `docs/`: reference documentation.
 
@@ -35,7 +36,9 @@ what it does, its units and shapes, what it returns and raises. Do not restate t
 
 CI (`.github/workflows/ci.yml`, owner 2026-11-15: "add ... GHA CI") runs on pull requests and on
 pushes to `alpha`, `beta` and `main`: the Python checks above plus `uv run lint-imports` on Python
-3.11 and 3.13, and `pnpm install`, `build`, `typecheck` and `test` in `js/`. It publishes nothing.
+3.11 and 3.13, `pnpm install`, `build`, `typecheck` and `test` in `js/`, and the graph editor's
+browser tests (`pnpm --filter @rasl/web e2e`: Playwright in Chromium against a running rasl). It
+publishes nothing.
 `pnpm lint` and `pnpm format:check` are not in CI because they fail today (`rasl-t57`).
 
 `.github/workflows/image.yml` builds the Python runtime's container image (`Dockerfile`; its

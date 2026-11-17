@@ -1,0 +1,4 @@
+# Playwright: the config file a run edits, and its results
+e2e/.run/
+test-results/
+playwright-report/

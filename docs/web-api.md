@@ -49,25 +49,52 @@ The container image passes `--api-host 0.0.0.0 --api-port $RASL_PORT`
 ## Security
 
 The server has no authentication and no access control. Anyone who can reach the port can read the graph (node
-names, types and ports), the metrics, and the last config error, which quotes lines of the config file. It binds `127.0.0.1` by default. Bind another address only on a trusted network, or put the server behind
+names, types and ports), the metrics, and the last config error, which quotes lines of the config file. When the
+config is watched, they can also **change the config files** through the graph editor's mutations
+([Graph editor](#graph-editor)); the deployment puts the server behind the cluster's Keycloak sign-in for that
+(`rasl-6sr.8`). It binds `127.0.0.1` by default. Bind another address only on a trusted network, or put the server behind
 a proxy that checks who is signing in. [SECURITY.md](../SECURITY.md) says more.
 
 ## Routes
 
 | Route | What it serves |
 |---|---|
-| `GET /` | The dashboard. |
+| `GET /` | The web UI: the graph editor. |
 | `GET /health` | The health report as JSON. |
 | `/graphql` | GraphQL: `POST` or `GET` for queries, WebSocket for the subscription, and the GraphiQL editor in a browser. |
 
 ## The dashboard: `GET /`
 
-`GET /` serves a single-page app (`src/rasl/app/ui/`: `index.html`, `app.js`, `styles.css`). It draws the graph,
-and for the node you select it shows its type, ports, connections and metrics. Metrics update once a second
-over the `metricsStream` subscription. The page uses only the GraphQL API below.
+`GET /` serves the graph editor, a single-page app built from `js/packages/web` (`@rasl/web`, TypeScript, React
+and React Flow) into `src/rasl/app/ui/`. Those built files are not committed: `pnpm build` in `js/` writes them,
+and the container image builds them. The page uses only the GraphQL API below and loads nothing from the
+internet.
 
-The page loads two scripts from public CDNs, cytoscape from `cdn.jsdelivr.net` and graphql-ws from `unpkg.com`,
-so the browser needs internet access. The server itself does not.
+It draws the graph as the config files write it ([Graph editor](#graph-editor)), laid out automatically, with
+each node's ports, a health dot from `metricsStream`, and for the selection where it is written, its settings and
+metrics. Editing:
+
+- **Connect**: drag from an output port to an input port. While the wire is dragged, the ports that take it
+  (as it is, or retyped to a more specific type) light up and the rest dim; a drop on a port that cannot take it
+  is refused (`payloadTypes`).
+- **Add a node**: double-click the canvas, press ⌘K, or drop a wire on empty canvas (the new node is then fed by
+  it). Pick a type, give it an id and settings; its ports are shown before it is added (`previewNode`).
+- **Remove or rename**: select a node or a connection and press Delete, or use the inspector. Removing a node
+  removes its connections.
+- Changes **queue** (owner, 2026-11-16: saved on purpose): queued nodes and connections are drawn dashed,
+  removed ones struck through. The queue is checked as it changes (`previewEdits`): the diff to each file, and
+  the error, with the ports of a refused connection marked. **Save** (`applyEdits`) writes the files; the
+  running graph follows by its reload. ⌘Z drops the last queued change.
+- **Settings**: the inspector edits a node's lines (and the values after its id), adds one (suggesting the keys
+  of the type's schema), or removes one. A line that reads one `$variable` offers where to write the new value:
+  at the `@set` line (every use changes; the count is shown) or only on this line, which writes the value in place
+  of `$name`. A node made by `@use` shows the snippet; its parameters are set as the `@use` line's arguments, and
+  **Detach** writes the snippet's nodes out in place of the `@use` line so each line can be edited (rasl-6sr.7).
+- When the files change on disk while changes are queued, the page says so and checks them again.
+
+For development, `pnpm --filter @rasl/web dev`
+in `js/` serves the page with hot reload and forwards `/graphql` to a running rasl (`RASL_API`, default
+`http://127.0.0.1:8080`).
 
 ## Health: `GET /health`
 
@@ -131,7 +158,9 @@ The status returns to `ok` at the next reload that succeeds.
 
 ## GraphQL: `/graphql`
 
-The API is read-only: it has queries and one subscription, and no mutations. Field names are camelCase.
+The API reads the running graph, its metrics and health, and, for the graph editor, the config files as written.
+Its only writes are the editor's mutations, which change the config files ([Graph editor](#graph-editor)). Field
+names are camelCase.
 
 - **Queries** go as `POST` with a JSON body `{"query": "...", "variables": {...}}`, or as `GET` with the query
   in the `query` parameter.
@@ -146,10 +175,20 @@ type Query {
   graph: Graph!
   metrics: MetricsSnapshot!
   node(nodeId: String!): Node
+  configGraph: ConfigGraph
+  nodeTypes: [NodeType!]!
+  previewNode(type: String!, values: String! = "", settings: [SettingInput!] = null): ConfigNode!
+  payloadTypes: [PayloadType!]!
+}
+
+type Mutation {
+  previewEdits(baseVersion: String!, edits: [EditInput!]!): EditOutcome!
+  applyEdits(baseVersion: String!, edits: [EditInput!]!): EditOutcome!
 }
 
 type Subscription {
   metricsStream(intervalMs: Int! = 1000): MetricsSnapshot!
+  configChanged(intervalMs: Int! = 1000): ConfigChange!
 }
 ```
 
@@ -423,6 +462,38 @@ curl -sS -H 'content-type: application/json' -d '{"query":"{ health { nope } }"}
 ```json
 {"data": null, "errors": [{"message": "Cannot query field 'nope' on type 'Health'.", "locations": [{"line": 1, "column": 12}]}]}
 ```
+
+## Graph editor
+
+The editor changes the config files, never the running graph (`src/rasl/config/edit.py`, `view.py`;
+`src/rasl/app/server/editor_api.py`). A saved edit reaches the running graph by the watcher's reload, as an edit in
+a text editor does. Without a watched config (`--no-watch`), `configGraph` is null and every edit is refused.
+
+| Field | What it does |
+|---|---|
+| `configGraph` | The graph as the files write it: each node (type, file and line, settings, ports, `locked` reason) and each `connect` line (source and port as written, resolved ports, `repeat`, file and line, `locked`), the files' `version`, and `error` when the config does not build. A node is built on its own to show its ports, so one broken node does not hide the others. |
+| `payloadTypes` | Every payload type, its fixed width, and the types a port of it takes, as they are or retyped: what the editor's connection hints use. |
+| `nodeTypes` | Every node type, by the name a `node` line uses, with its aliases, a one-line summary and the JSON Schema of its settings. |
+| `previewNode(type, values, settings)` | A node not in the config yet, built (never started) to show its ports, which can depend on its settings. |
+| `previewEdits(baseVersion, edits)` | What a batch would change (a unified diff per file) and whether the result builds. Writes nothing. |
+| `applyEdits(baseVersion, edits)` | The same, then saves the files when the result builds. |
+| `configChanged(intervalMs)` | The files' version, then each new version or reload outcome. |
+
+An edit is one of `addNode {type, id, values, settings}`, `removeNode {id}` (its `connect` lines go with it),
+`renameNode {id, newId}` (every `connect` line that reads it follows), `connect {source, target, port, repeat,
+repeatUntil}`, `disconnect {source, target, port}`, `setSetting {node, key, values, index, scope}`,
+`removeSetting {node, key, index}`, `setNodeValues {node, values}` and `detach {id}`; sources and ports are written
+in config notation (`hue.out[0~3]`). A setting line is known by its key and, for a key written more than once
+(`fill`), its `index` among them; `setSetting` with `index` one past the last adds a line before the node's
+`connect` lines. Its `scope` is `line` (write the values on the line, replacing any `$variable` it reads) or
+`definition` (write them where its one value comes from: the `@set` line, or the `@use` argument of a snippet
+parameter). `detach` replaces a `@use` line with the nodes it makes, written out. A new node goes after the last node the batch connects it from, else before the first node it
+feeds, else at the end of the `graph` block. Comments and layout are kept.
+
+An `EditOutcome` is exactly one of: `ok` (`saved` lists the files written; empty for a preview), `error` (the
+edited config does not build: placed in the edited text, with `connection` naming both ports for a refused
+connection), `refused` (an edit cannot be made: an unknown node, a taken id, a line in a `@snippet` or in a file
+read twice), or `conflict` (the files changed since `baseVersion`: read `configGraph` again).
 
 ## Subscriptions over WebSocket
 

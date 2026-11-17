@@ -10,7 +10,7 @@ from numpy.typing import NDArray
 from rasl.color.convert.dispatch import convert as _convert_color
 from rasl.color.models import MODEL_COMPONENTS
 from rasl.color.models import normalize_model as _normalize_color_model
-from rasl.signal import MatrixPayload, PayloadDescriptor, payload
+from rasl.signal import FramePayload, MatrixPayload, PayloadCoercionError, PayloadDescriptor, payload
 
 
 @payload("color")
@@ -48,6 +48,36 @@ class ColorPayload(MatrixPayload):
         super().__init__(arr)
         object.__setattr__(self, "_model", normalized)
         object.__setattr__(self, "_encoding", encoding)
+
+    @classmethod
+    def coerces_from(cls, other: type) -> bool:
+        """The general rule (``FramePayload.coerces_from``), for a type with a model.
+
+        The generic ``ColorPayload`` has no model to give bare data, so nothing coerces
+        into it; a concrete color type (``model_name`` set) takes any of its ancestors.
+        """
+        return cls.model_name is not None and super().coerces_from(other)
+
+    @classmethod
+    def coerce(cls, payload: "FramePayload") -> "FramePayload":
+        """A matrix, or a generic color of this type's model, as this type.
+
+        Raises:
+            PayloadCoercionError: If it is a color of another model (crossing color
+                spaces takes a Color node), or the general rule refuses it.
+        """
+        if isinstance(payload, ColorPayload) and not isinstance(payload, cls):
+            if payload.model != cls.model_name:
+                raise PayloadCoercionError(
+                    f"{type(payload).__name__} of model {payload.model} cannot be made a "
+                    f"{cls.__name__} ({cls.model_name}): convert it with a Color node"
+                )
+        return super().coerce(payload)
+
+    @classmethod
+    def _from_data(cls, data: "NDArray[np.float32]") -> "ColorPayload":
+        """This concrete color type built from bare data (its own model)."""
+        return cls(data)  # type: ignore[call-arg]
 
     @property
     def model(self) -> str:

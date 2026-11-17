@@ -312,7 +312,8 @@ class _Ported:
 
 class TestConnectValidation:
     """What GraphBuilder.connect refuses (owner, 2026-11-14: slices out of
-    range and unknown type names are load errors)."""
+    range and unknown type names are load errors; 2026-11-16: duplicate edges,
+    overlapping destinations and fixed-count mismatches too)."""
 
     @staticmethod
     def _builder(source: _Ported, target: _Ported) -> GraphBuilder:
@@ -361,8 +362,14 @@ class TestConnectValidation:
             _Ported("b", inp=InputPortSpec(MatrixPayload, count=3)),
         )
         builder.connect("a", "out", "b", "in", Slice(509, 512), Slice(0, 3))
+        assert len(builder.edges) == 1
+
+        builder = self._builder(
+            _Ported("a", out=OutputPortSpec(MatrixPayload, count=512)),
+            _Ported("b", inp=InputPortSpec(MatrixPayload, count=3)),
+        )
         builder.connect("a", "out", "b", "in", Slice(511, None), Slice(2, None))
-        assert len(builder.edges) == 2
+        assert len(builder.edges) == 1
 
     def test_a_slice_on_an_unbounded_port_cannot_be_checked(self) -> None:
         from rasl.graph import Slice
@@ -385,3 +392,226 @@ class TestConnectValidation:
         builder = self._builder(_Ported("a", out=OutputPortSpec("matrix")), _Ported("b", inp=InputPortSpec("matrix")))
         builder.connect("a", "out", "b", "in")
         assert len(builder.edges) == 1
+
+
+class TestConnectCountsAndOverlaps:
+    """Owner, 2026-11-16: duplicate edges, overlapping destinations and a count
+    mismatch between fixed ports are load errors."""
+
+    @staticmethod
+    def _builder(*nodes: _Ported) -> GraphBuilder:
+        builder = GraphBuilder()
+        for node in nodes:
+            builder.add_node(node)
+        return builder
+
+    def test_a_fixed_output_into_a_fixed_input_of_another_count_is_refused(self) -> None:
+        builder = self._builder(
+            _Ported("a", out=OutputPortSpec(MatrixPayload, count=512)),
+            _Ported("b", inp=InputPortSpec(MatrixPayload, count=3)),
+        )
+        with pytest.raises(ValueError, match=r"Count mismatch: a\.out supplies 512 elements, but b\.in takes 3"):
+            builder.connect("a", "out", "b", "in")
+        assert builder.edges == []
+
+    def test_slices_of_different_lengths_are_refused(self) -> None:
+        from rasl.graph import Slice
+
+        builder = self._builder(_Ported("a"), _Ported("b"))
+        with pytest.raises(ValueError, match=r"a\.out\[0~4\] supplies 4 elements, but b\.in\[0~3\] takes 3"):
+            builder.connect("a", "out", "b", "in", Slice(0, 4), Slice(0, 3))
+
+    def test_repeat_counts_toward_the_rows_supplied(self) -> None:
+        from rasl.graph import Slice
+
+        def nodes() -> GraphBuilder:
+            return self._builder(
+                _Ported("a", out=OutputPortSpec(MatrixPayload, count=1)),
+                _Ported("b", inp=InputPortSpec(MatrixPayload, count=3)),
+            )
+
+        builder = nodes()
+        builder.connect("a", "out", "b", "in", repeat=3)
+        assert len(builder.edges) == 1
+        with pytest.raises(ValueError, match=r"a\.out supplies 3 elements \(repeated 3 times\), but b\.in\[1~\] takes 2"):
+            nodes().connect("a", "out", "b", "in", None, Slice(1, None), repeat=3)
+
+    def test_a_variable_side_is_not_compared(self) -> None:
+        builder = self._builder(_Ported("a"), _Ported("b", inp=InputPortSpec(MatrixPayload, count=3)))
+        builder.connect("a", "out", "b", "in")
+        assert len(builder.edges) == 1
+
+    def test_the_same_edge_twice_is_refused(self) -> None:
+        builder = self._builder(_Ported("a"), _Ported("b"))
+        builder.connect("a", "out", "b", "in")
+        with pytest.raises(ValueError, match=r"Duplicate connection: a\.out is already connected to b\.in"):
+            builder.connect("a", "out", "b", "in")
+        assert len(builder.edges) == 1
+
+    def test_two_unsliced_edges_into_one_port_overlap(self) -> None:
+        builder = self._builder(_Ported("a"), _Ported("c"), _Ported("b"))
+        builder.connect("a", "out", "b", "in")
+        with pytest.raises(
+            ValueError,
+            match=r"Overlapping connections into b\.in: c\.out writes rows \[0~\], which a\.out already writes \(rows \[0~\]\)",
+        ):
+            builder.connect("c", "out", "b", "in")
+
+    def test_overlapping_target_slices_are_refused(self) -> None:
+        from rasl.graph import Slice
+
+        builder = self._builder(_Ported("a"), _Ported("c"), _Ported("b"))
+        builder.connect("a", "out", "b", "in", None, Slice(0, 50))
+        with pytest.raises(ValueError, match=r"c\.out writes rows \[40~\], which a\.out already writes \(rows \[0~50\]\)"):
+            builder.connect("c", "out", "b", "in", None, Slice(40, None))
+
+    def test_adjacent_target_slices_connect(self) -> None:
+        from rasl.graph import Slice
+
+        builder = self._builder(_Ported("a"), _Ported("c"), _Ported("b"))
+        builder.connect("a", "out", "b", "in", None, Slice(0, 50))
+        builder.connect("c", "out", "b", "in", None, Slice(50, None))
+        assert len(builder.edges) == 2
+
+    def test_an_unsliced_fixed_source_ends_where_its_rows_end(self) -> None:
+        from rasl.graph import Slice
+
+        builder = self._builder(
+            _Ported("a", out=OutputPortSpec(MatrixPayload, count=10)), _Ported("c"), _Ported("b")
+        )
+        builder.connect("a", "out", "b", "in")
+        builder.connect("c", "out", "b", "in", None, Slice(10, None))
+        assert len(builder.edges) == 2
+
+    def test_repeat_until_ends_the_rows_written(self) -> None:
+        from rasl.graph import Slice
+
+        builder = self._builder(_Ported("a"), _Ported("c"), _Ported("b"))
+        builder.connect("a", "out", "b", "in", repeat_until=30)
+        with pytest.raises(ValueError, match=r"rows \[29~\], which a\.out already writes \(rows \[0~30\]\)"):
+            builder.connect("c", "out", "b", "in", None, Slice(29, None))
+        builder.connect("c", "out", "b", "in", None, Slice(30, None))
+        assert len(builder.edges) == 2
+
+
+class TestConnectErrorsNameTheirPorts:
+    """Every connect error is a ConnectError with both ends (owner, 2026-11-16: errors
+    carry the connect ports), and still the built-in exception it was."""
+
+    def test_a_count_mismatch_carries_both_ends_and_both_counts(self) -> None:
+        from rasl.graph import ConnectError, ConnectProblem, Endpoint
+
+        builder = GraphBuilder()
+        builder.add_node(_Ported("a", out=OutputPortSpec(MatrixPayload, count=512)))
+        builder.add_node(_Ported("b", inp=InputPortSpec(MatrixPayload, count=3)))
+        with pytest.raises(ValueError) as caught:
+            builder.connect("a", "out", "b", "in")
+        error = caught.value
+        assert isinstance(error, ConnectError)
+        assert error.problem is ConnectProblem.COUNT
+        assert (error.source, error.target) == (Endpoint("a", "out"), Endpoint("b", "in"))
+        assert (error.supplied, error.takes) == (512, 3)
+
+    def test_an_unknown_node_is_a_key_error_that_prints_plainly(self) -> None:
+        from rasl.graph import ConnectError, ConnectProblem
+
+        builder = GraphBuilder()
+        builder.add_node(_Ported("b"))
+        with pytest.raises(KeyError) as caught:
+            builder.connect("a", "out", "b", "in")
+        assert isinstance(caught.value, ConnectError)
+        assert caught.value.problem is ConnectProblem.UNKNOWN_NODE
+        assert str(caught.value) == "Unknown source node 'a'"
+
+
+class TestMatrixIntoColor:
+    """Owner, 2026-11-16: a more general type feeds a port of a more specific type of its
+    inheritance chain, retyped (a matrix into a color or a bool port); a component
+    mismatch is refused at load when the width is known, or fails on the first frame."""
+
+    @staticmethod
+    def _builder(out: OutputPortSpec, inp: InputPortSpec) -> GraphBuilder:
+        builder = GraphBuilder()
+        builder.add_node(_Ported("a", out=out))
+        builder.add_node(_Ported("b", inp=inp))
+        return builder
+
+    def test_a_matrix_of_the_colors_width_connects(self) -> None:
+        from rasl.color.payloads import HsbkColorPayload
+
+        builder = self._builder(OutputPortSpec(MatrixPayload, components=4), InputPortSpec(HsbkColorPayload))
+        builder.connect("a", "out", "b", "in")
+        assert len(builder.edges) == 1
+
+    def test_a_known_width_that_differs_is_refused_at_load(self) -> None:
+        from rasl.color.payloads import HsbkColorPayload
+        from rasl.graph import ConnectProblem, ConnectTypeError
+
+        builder = self._builder(OutputPortSpec(MatrixPayload, components=1), InputPortSpec(HsbkColorPayload))
+        with pytest.raises(ConnectTypeError, match=r"a\.out emits 1 columns, but b\.in takes HsbkColorPayload \(4 components\)") as caught:
+            builder.connect("a", "out", "b", "in")
+        assert caught.value.problem is ConnectProblem.COMPONENTS
+        assert (caught.value.supplied, caught.value.takes) == (1, 4)
+
+    def test_another_color_type_still_needs_a_color_node(self) -> None:
+        from rasl.color.payloads import HsbkColorPayload, RgbColorPayload
+        from rasl.graph import ConnectProblem, ConnectTypeError
+
+        builder = self._builder(OutputPortSpec(RgbColorPayload), InputPortSpec(HsbkColorPayload))
+        with pytest.raises(ConnectTypeError) as caught:
+            builder.connect("a", "out", "b", "in")
+        assert caught.value.problem is ConnectProblem.TYPE
+
+    def test_an_unknown_width_is_checked_on_the_first_frame(self) -> None:
+        import numpy as np
+
+        from rasl.color.payloads import HsbkColorPayload
+        from rasl.graph import CoercionError
+        from rasl.signal import Frame
+
+        builder = self._builder(OutputPortSpec(MatrixPayload), InputPortSpec(HsbkColorPayload))
+        builder.connect("a", "out", "b", "in")
+        program = builder.build().input_programs[("b", "in")]
+
+        def frames(columns: int):
+            frame = Frame(topic="t", timestamp=0.0, payload=MatrixPayload(np.zeros((2, columns), dtype=np.float32)))
+            return lambda *_: frame
+
+        delivered = program.populate(0, frames(4), lambda *_: np.zeros((2, 4), dtype=np.float32))
+        assert isinstance(delivered.payload, HsbkColorPayload)
+        with pytest.raises(CoercionError, match=r"a\.out into b\.in: MatrixPayload of 1 columns cannot be made a HsbkColorPayload \(4 components\)") as caught:
+            program.populate(0, frames(1), lambda *_: np.zeros((2, 4), dtype=np.float32))
+        assert (caught.value.supplied, caught.value.takes) == (1, 4)
+
+    def test_a_generic_color_of_another_model_fails_on_its_first_frame(self) -> None:
+        import numpy as np
+
+        from rasl.color import ColorPayload
+        from rasl.color.payloads import RgbColorPayload
+        from rasl.graph import CoercionError
+        from rasl.signal import Frame
+
+        builder = self._builder(OutputPortSpec(ColorPayload), InputPortSpec(RgbColorPayload))
+        builder.connect("a", "out", "b", "in")
+        program = builder.build().input_programs[("b", "in")]
+
+        def frames(model: str):
+            frame = Frame(topic="t", timestamp=0.0, payload=ColorPayload(np.zeros((2, 3), dtype=np.float32), model))
+            return lambda *_: frame
+
+        assert isinstance(program.populate(0, frames("srgb"), None).payload, RgbColorPayload)
+        with pytest.raises(CoercionError, match="model hsl cannot be made a RgbColorPayload"):
+            program.populate(0, frames("hsl"), None)
+
+    def test_a_matrix_feeds_a_bool_port_as_a_mask(self) -> None:
+        import numpy as np
+
+        from rasl.signal import BoolPayload, Frame
+
+        builder = self._builder(OutputPortSpec(MatrixPayload), InputPortSpec(BoolPayload))
+        builder.connect("a", "out", "b", "in")
+        program = builder.build().input_programs[("b", "in")]
+        frame = Frame(topic="t", timestamp=0.0, payload=MatrixPayload(np.array([[0.0], [0.4]], dtype=np.float32)))
+        delivered = program.populate(0, lambda *_: frame, None)
+        assert isinstance(delivered.payload, BoolPayload)
+        assert delivered.payload.data.tolist() == [[0.0], [1.0]]

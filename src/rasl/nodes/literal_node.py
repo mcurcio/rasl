@@ -173,7 +173,12 @@ class LiteralNode(BaseNode):
             ) from e
         
         # The output carries the literal's own type, so connections are checked against it
-        self.outputs = PortGroup.outputs(out=OutputPortSpec(type(self._payload)))
+        self.outputs = PortGroup.outputs(
+            out=OutputPortSpec(
+                type(self._payload),
+                components=int(self._payload.data.shape[1]) if hasattr(self._payload, "data") else None,
+            )
+        )
 
         self._topic = f"literal.{self.id}"
     

@@ -16,6 +16,15 @@ ARG PYTHON_VERSION=3.11
 
 FROM ghcr.io/astral-sh/uv:0.11.32 AS uv
 
+# The web UI (js/packages/web, @rasl/web) is TypeScript built with Vite into the Python
+# package's src/rasl/app/ui, which the server serves at GET /. The built files are not
+# committed, so the image builds them here.
+FROM node:24-slim AS web
+WORKDIR /repo/js
+RUN corepack enable
+COPY js ./
+RUN pnpm install --frozen-lockfile --filter @rasl/web... && pnpm --filter @rasl/web build
+
 FROM python:${PYTHON_VERSION}-slim-bookworm AS build
 COPY --from=uv /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 \
@@ -27,6 +36,7 @@ WORKDIR /src
 COPY pyproject.toml uv.lock README.md LICENSE ./
 RUN uv sync --locked --no-dev --no-install-project
 COPY src ./src
+COPY --from=web /repo/src/rasl/app/ui ./src/rasl/app/ui
 RUN uv sync --locked --no-dev --no-editable
 
 FROM python:${PYTHON_VERSION}-slim-bookworm

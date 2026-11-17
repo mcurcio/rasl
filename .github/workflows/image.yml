@@ -100,6 +100,8 @@ jobs:
                   docker run -d --name smoke -p 8080:8080 -v "$PWD/virtual.conf:/config/rasl.conf:ro" \
                       rasl:smoke /config/rasl.conf --api-host 0.0.0.0 --api-port 8080
                   wait_ui 8080 || { docker logs smoke; exit 1; }
+                  # The web UI is built into the image (Dockerfile web stage)
+                  curl -fsS http://127.0.0.1:8080/ | grep -q 'id="root"'
                   curl -fsS -H 'content-type: application/json' -d '{"query":"{health{status}}"}' \
                       http://127.0.0.1:8080/graphql | grep -q '"status": "ok"'
                   test "$(uid_of smoke)" = 1000

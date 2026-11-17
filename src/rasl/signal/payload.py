@@ -13,6 +13,20 @@ import numpy as np
 from numpy.typing import NDArray
 
 
+class PayloadCoercionError(ValueError):
+    """A payload that cannot be retyped as the more specific type a port takes.
+
+    Attributes:
+        supplied: For a width mismatch, the columns the payload has; else None.
+        takes: For a width mismatch, the components the type takes; else None.
+    """
+
+    def __init__(self, message: str, *, supplied: int | None = None, takes: int | None = None) -> None:
+        super().__init__(message)
+        self.supplied = supplied
+        self.takes = takes
+
+
 @dataclass(frozen=True)
 class PayloadDescriptor:
     """Introspection metadata for any payload."""
@@ -61,6 +75,30 @@ class FramePayload:
             rows = count if arr is None or arr.ndim != 2 else max(count, arr.shape[0])
             return np.zeros((rows, components), dtype=np.float32)
         return arr
+
+    @classmethod
+    def coerces_from(cls, other: Type[FramePayload]) -> bool:
+        """Whether a port of this type takes ``other`` by retyping it, with no converter node.
+
+        Owner, 2026-11-16: "all types have an inheritance chain and should be allowed to
+        coerce a more general type to a more specific type implicitly". So ``cls`` takes
+        any strict ancestor of itself (a ``MatrixPayload`` into a ``BoolPayload`` or an
+        ``RgbColorPayload`` port). A type that cannot be made from a general payload
+        says so by overriding this.
+        """
+        return other is not cls and issubclass(cls, other)
+
+    @classmethod
+    def coerce(cls, payload: FramePayload) -> FramePayload:
+        """``payload`` as this type: unchanged when it already is one, else retyped.
+
+        Raises:
+            PayloadCoercionError: If ``payload`` cannot be this type (a type outside the
+                chain, a matrix of the wrong width, a color of another model).
+        """
+        if isinstance(payload, cls):
+            return payload
+        raise PayloadCoercionError(f"{type(payload).__name__} cannot be made a {cls.__name__}")
 
     @classmethod
     def is_compatible_with(cls, other: Type[FramePayload]) -> bool:
