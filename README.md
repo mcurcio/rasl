@@ -290,8 +290,9 @@ Without `--api-port` or a `ui` block, no web server runs.
 When the web server runs, it serves:
 
 - **`/`**: the graph editor: the graph as the config file writes it, with each node's ports and live health.
-  Drag from an output to an input to connect them, drop a wire on empty canvas (or press ⌘K) to add a node,
-  select and press Delete to remove. Changes queue, drawn dashed, with the diff they make to the file and any
+  Drag from an output to an input to connect them (the ports that take the wire light up), drop a wire on
+  empty canvas (or press ⌘K) to add a node, select and press Delete to remove, and edit a node's settings in
+  the inspector, at a `$variable`'s definition or only on its line. Changes queue, drawn dashed, with the diff they make to the file and any
   error; **Save** writes the file and the running graph reloads it. Editing needs a watched config (no
   `--no-watch`). The page is built from `js/packages/web` and needs no internet access.
 - **`/graphql`**: a GraphQL API. Open it in a browser for the GraphiQL editor. It reads the running graph, its

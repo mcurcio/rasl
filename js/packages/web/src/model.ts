@@ -1,9 +1,15 @@
 // The graph the editor shows: the config as written with the queued edits laid over it.
 // Pure functions only; the components render what these return.
-import type { ConfigEdge, ConfigGraph, ConfigNode, Edit, Port, Setting } from "./api";
+import type { ConfigEdge, ConfigGraph, ConfigNode, Edit, PayloadType, Port, SettingLine } from "./api";
 
 /** How a node or connection differs from the saved files. */
-export const Statuses = { Saved: "saved", Added: "added", Removed: "removed", Renamed: "renamed" } as const;
+export const Statuses = {
+  Saved: "saved",
+  Added: "added",
+  Removed: "removed",
+  Renamed: "renamed",
+  Changed: "changed",
+} as const;
 export type Status = (typeof Statuses)[keyof typeof Statuses];
 
 export type ViewNode = {
@@ -13,10 +19,19 @@ export type ViewNode = {
   readonly renamedFrom: string | null;
   readonly inputs: readonly Port[];
   readonly outputs: readonly Port[];
-  readonly settings: readonly Setting[];
+  readonly values: string;
+  readonly use: string | null;
+  readonly settings: readonly ViewSetting[];
   readonly locked: string | null;
   readonly error: string | null;
   readonly place: ConfigNode["place"] | null;
+};
+
+/** A node's setting line, with any queued change to it. */
+export type ViewSetting = SettingLine & {
+  /** Set when a queued edit changes it: the values queued, and where they are written. */
+  readonly queued: { readonly values: string; readonly scope: "line" | "definition" } | null;
+  readonly removed: boolean;
 };
 
 export type ViewEdge = {
@@ -89,7 +104,9 @@ export function stage(
     renamedFrom: null,
     inputs: n.inputs,
     outputs: n.outputs,
-    settings: n.settings,
+    values: n.values,
+    use: n.use,
+    settings: n.settings.map((setting) => ({ ...setting, queued: null, removed: false })),
     locked: n.locked,
     error: n.error,
     place: n.place,
@@ -120,7 +137,19 @@ export function stage(
         renamedFrom: null,
         inputs: preview?.inputs ?? [],
         outputs: preview?.outputs ?? [],
-        settings,
+        values: edit.addNode.values,
+        use: null,
+        settings: settings.map((setting, i) => ({
+          key: setting.key,
+          index: settings.slice(0, i).filter((s) => s.key === setting.key).length,
+          values: setting.values,
+          written: setting.values,
+          locked: null,
+          definition: null,
+          hasBlock: false,
+          queued: null,
+          removed: false,
+        })),
         locked: null,
         error: preview?.error ?? null,
         place: null,
@@ -172,13 +201,73 @@ export function stage(
         locked: null,
         place: null,
       });
-    } else {
+    } else if ("disconnect" in edit) {
       const { source, target, port } = edit.disconnect;
       const key = edgeKey(target, source, port);
       edges = edges.map((e) => (e.key === key ? { ...e, status: Statuses.Removed } : e));
+    } else if ("setSetting" in edit) {
+      const { node, key, values, index, scope } = edit.setSetting;
+      nodes = nodes.map((n) => {
+        if (n.id !== node) return n;
+        const exists = n.settings.some((s) => s.key === key && s.index === index);
+        const settings: ViewSetting[] = exists
+          ? n.settings.map((s) => (s.key === key && s.index === index ? { ...s, queued: { values, scope } } : s))
+          : [
+              ...n.settings,
+              {
+                key,
+                index,
+                values,
+                written: values,
+                locked: null,
+                definition: null,
+                hasBlock: false,
+                queued: { values, scope },
+                removed: false,
+              },
+            ];
+        return { ...n, settings, status: changed(n.status) };
+      });
+    } else if ("removeSetting" in edit) {
+      const { node, key, index } = edit.removeSetting;
+      nodes = nodes.map((n) =>
+        n.id === node
+          ? {
+              ...n,
+              settings: n.settings.map((s) => (s.key === key && s.index === index ? { ...s, removed: true } : s)),
+              status: changed(n.status),
+            }
+          : n,
+      );
+    } else if ("setNodeValues" in edit) {
+      const { node, values } = edit.setNodeValues;
+      nodes = nodes.map((n) => (n.id === node ? { ...n, values, status: changed(n.status) } : n));
+    } else {
+      const { id } = edit.detach;
+      nodes = nodes.map((n) => (n.id === id ? { ...n, use: null, locked: null, status: changed(n.status) } : n));
     }
   }
   return { nodes, edges };
+}
+
+function changed(status: Status): Status {
+  return status === Statuses.Saved ? Statuses.Changed : status;
+}
+
+/**
+ * Whether ``input`` takes what ``output`` emits: one of its types takes the output's type,
+ * as it is or retyped, with the same width when both are known. A port of a type the
+ * server did not list is not judged here (the server checks every edit).
+ */
+export function accepts(output: Port, input: Port, types: ReadonlyMap<string, PayloadType>): boolean {
+  const emitted = output.types[0];
+  if (emitted === undefined || input.types.length === 0) return true;
+  return input.types.some((name) => {
+    const type = types.get(name);
+    if (type === undefined) return true;
+    if (!type.takes.includes(emitted)) return false;
+    return type.components === null || output.components === null || type.components === output.components;
+  });
 }
 
 /**
@@ -197,6 +286,15 @@ export function queue(edits: readonly Edit[], edit: Edit): readonly Edit[] {
           !("connect" in e && (e.connect.target === id || parseRef(e.connect.source)?.node === id)),
       );
     }
+  }
+  if ("setSetting" in edit) {
+    // A later value for the same line replaces the queued one
+    const { node, key, index } = edit.setSetting;
+    const kept = edits.filter(
+      (e) =>
+        !("setSetting" in e && e.setSetting.node === node && e.setSetting.key === key && e.setSetting.index === index),
+    );
+    return [...kept, edit];
   }
   if ("disconnect" in edit) {
     const { source, target, port } = edit.disconnect;
@@ -236,6 +334,16 @@ export function describe(edit: Edit): string {
     const c = edit.connect;
     return `connect ${c.source} → ${c.target}${c.port ? `.${c.port}` : ""}${c.repeat ? ` ×${c.repeat}` : ""}`;
   }
-  const d = edit.disconnect;
-  return `disconnect ${d.source} → ${d.target}${d.port ? `.${d.port}` : ""}`;
+  if ("disconnect" in edit) {
+    const d = edit.disconnect;
+    return `disconnect ${d.source} → ${d.target}${d.port ? `.${d.port}` : ""}`;
+  }
+  if ("setSetting" in edit) {
+    const s = edit.setSetting;
+    const where = s.scope === "definition" ? " (definition)" : "";
+    return `set ${s.node}.${s.key}${s.index > 0 ? `[${s.index}]` : ""} ${s.values}${where}`;
+  }
+  if ("removeSetting" in edit) return `unset ${edit.removeSetting.node}.${edit.removeSetting.key}`;
+  if ("setNodeValues" in edit) return `set ${edit.setNodeValues.node} values ${edit.setNodeValues.values || "(none)"}`;
+  return `detach ${edit.detach.id} from its @use`;
 }

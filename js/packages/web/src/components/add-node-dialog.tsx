@@ -65,6 +65,8 @@ export function AddNodeDialog({ types, takenIds, from, onAdd, onClose }: AddNode
           type: type.name,
           place: { path: "", line: 0 },
           locked: null,
+          values: "",
+          use: null,
           settings: [],
           inputs: [],
           outputs: [],

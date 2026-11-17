@@ -23,8 +23,10 @@ import {
   type EditOutcome,
   fetchConfigGraph,
   fetchNodeTypes,
+  fetchPayloadTypes,
   type NodeMetrics,
   type NodeType,
+  type PayloadType,
   previewEdits,
   subscribe,
 } from "./api";
@@ -33,11 +35,46 @@ import { Inspector } from "./components/inspector";
 import { NodeCard, type NodeCardData } from "./components/node-card";
 import { PendingPanel } from "./components/pending-panel";
 import { layout, type Positions } from "./layout";
-import { connectEdit, queue, stage, type StagedGraph, type ViewEdge } from "./model";
+import { accepts, connectEdit, queue, stage, type StagedGraph, type ViewEdge, type ViewNode } from "./model";
 
 const NODE_TYPES = { card: NodeCard };
 
 type Selection = { readonly node?: string; readonly edge?: string };
+
+/** The end a wire is being dragged from. */
+type Dragging = { readonly node: string; readonly handle: string; readonly side: "source" | "target" };
+
+function portOf(node: ViewNode | undefined, handle: string): ViewNode["inputs"][number] | undefined {
+  if (!node) return undefined;
+  const [side, name] = [handle.slice(0, handle.indexOf(":")), handle.slice(handle.indexOf(":") + 1)];
+  return (side === "in" ? node.inputs : node.outputs).find((p) => p.name === name);
+}
+
+/** For a dragged wire, whether each handle on the other side takes it, by node. */
+function connectionHints(
+  graph: StagedGraph,
+  dragging: Dragging,
+  types: ReadonlyMap<string, PayloadType>,
+): ReadonlyMap<string, ReadonlyMap<string, boolean>> {
+  const from = portOf(
+    graph.nodes.find((n) => n.id === dragging.node),
+    dragging.handle,
+  );
+  const hints = new Map<string, Map<string, boolean>>();
+  if (!from) return hints;
+  for (const node of graph.nodes) {
+    const marks = new Map<string, boolean>();
+    if (dragging.side === "source") {
+      for (const input of node.inputs)
+        marks.set(`in:${input.name}`, node.id !== dragging.node && accepts(from, input, types));
+    } else {
+      for (const output of node.outputs)
+        marks.set(`out:${output.name}`, node.id !== dragging.node && accepts(output, from, types));
+    }
+    hints.set(node.id, marks);
+  }
+  return hints;
+}
 
 function problemPorts(outcome: EditOutcome | null): ReadonlyMap<string, ReadonlySet<string>> {
   const ports = new Map<string, Set<string>>();
@@ -60,6 +97,8 @@ function Editor(): ReactElement {
   const [graph, setGraph] = useState<ConfigGraph | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [types, setTypes] = useState<readonly NodeType[]>([]);
+  const [payloadTypes, setPayloadTypes] = useState<ReadonlyMap<string, PayloadType>>(new Map());
+  const [dragging, setDragging] = useState<Dragging | null>(null);
   const [edits, setEdits] = useState<readonly Edit[]>([]);
   const [previews, setPreviews] = useState<ReadonlyMap<string, ConfigNode>>(new Map());
   const [outcome, setOutcome] = useState<EditOutcome | null>(null);
@@ -95,6 +134,10 @@ function Editor(): ReactElement {
   useEffect(() => {
     void load();
     fetchNodeTypes().then(setTypes, (e: unknown) => setLoadError(String(e)));
+    fetchPayloadTypes().then(
+      (list) => setPayloadTypes(new Map(list.map((t) => [t.name, t]))),
+      (e: unknown) => setLoadError(String(e)),
+    );
     return subscribe({
       onConfigChange: (version, ok, error) => {
         setReloadError(ok === false ? error : null);
@@ -229,6 +272,7 @@ function Editor(): ReactElement {
   );
 
   const onConnectEnd = useCallback((_: unknown, state: FinalConnectionState): void => {
+    setDragging(null);
     if (state.isValid || !state.fromNode || !state.fromHandle?.id || state.fromHandle.type !== "source") return;
     setDialog({ from: { node: state.fromNode.id, port: state.fromHandle.id.replace(/^out:/, "") } });
   }, []);
@@ -261,6 +305,26 @@ function Editor(): ReactElement {
   }, [removeSelection, dialog]);
 
   const problems = useMemo(() => problemPorts(outcome), [outcome]);
+  const hints = useMemo(
+    () => (staged && dragging ? connectionHints(staged, dragging, payloadTypes) : null),
+    [staged, dragging, payloadTypes],
+  );
+
+  const isValidConnection = useCallback(
+    (connection: Edge | Connection): boolean => {
+      if (!staged || !connection.sourceHandle || !connection.targetHandle) return true;
+      const output = portOf(
+        staged.nodes.find((n) => n.id === connection.source),
+        connection.sourceHandle,
+      );
+      const input = portOf(
+        staged.nodes.find((n) => n.id === connection.target),
+        connection.targetHandle,
+      );
+      return output === undefined || input === undefined || accepts(output, input, payloadTypes);
+    },
+    [staged, payloadTypes],
+  );
 
   const flowNodes: Node[] = useMemo(
     () =>
@@ -275,9 +339,10 @@ function Editor(): ReactElement {
           node,
           metrics: metrics.get(node.renamedFrom ?? node.id),
           problemPorts: problems.get(node.id) ?? new Set(),
+          hints: hints?.get(node.id) ?? null,
         } satisfies NodeCardData,
       })),
-    [staged, positions, selection, metrics, problems, graph],
+    [staged, positions, selection, metrics, problems, graph, hints],
   );
 
   const flowEdges: Edge[] = useMemo(() => {
@@ -338,6 +403,12 @@ function Editor(): ReactElement {
             nodeTypes={NODE_TYPES}
             onConnect={onConnect}
             onConnectEnd={onConnectEnd}
+            onConnectStart={(_, start) => {
+              if (start.nodeId && start.handleId && start.handleType) {
+                setDragging({ node: start.nodeId, handle: start.handleId, side: start.handleType });
+              }
+            }}
+            isValidConnection={isValidConnection}
             onNodeClick={(_, node) => setSelection({ node: node.id })}
             onEdgeClick={(_, edge) => setSelection({ edge: edge.id })}
             onPaneClick={() => setSelection({})}
@@ -360,6 +431,22 @@ function Editor(): ReactElement {
             onRename={(id, newId) => push({ renameNode: { id, newId } })}
             onRemove={(id) => push({ removeNode: { id } })}
             onDisconnect={(edge) => push({ disconnect: { source: edge.source, target: edge.target, port: edge.port } })}
+            schema={
+              types.find((t) => t.name === selectedNode?.type || t.aliases.includes(selectedNode?.type ?? ""))
+                ?.schema ?? null
+            }
+            onSetSetting={(key, index, values, scope) => {
+              if (selectedNode) push({ setSetting: { node: selectedNode.id, key, index, values, scope } });
+            }}
+            onRemoveSetting={(key, index) => {
+              if (selectedNode) push({ removeSetting: { node: selectedNode.id, key, index } });
+            }}
+            onSetValues={(values) => {
+              if (selectedNode) push({ setNodeValues: { node: selectedNode.id, values } });
+            }}
+            onDetach={() => {
+              if (selectedNode) push({ detach: { id: selectedNode.id } });
+            }}
           />
           {editable ? (
             <PendingPanel

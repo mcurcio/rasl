@@ -65,3 +65,38 @@ jobs:
             - name: Test
               run: pnpm test
             # Not run yet: `pnpm lint` (37 errors) and `pnpm format:check` fail on alpha (rasl-t57)
+
+    web-editor:
+        # The graph editor in Chromium against a running rasl (js/packages/web/e2e): edits made
+        # in the page are written to the config file and the running graph reloads them.
+        name: Web editor (browser)
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: js
+        steps:
+            - uses: actions/checkout@v4
+            - uses: astral-sh/setup-uv@v6
+              with:
+                  version: "0.11.32"
+                  python-version: "3.11"
+                  enable-cache: true
+            - name: Install the Python runtime
+              working-directory: .
+              run: uv sync --locked
+            - uses: pnpm/action-setup@v4
+              with:
+                  package_json_file: js/package.json
+            - uses: actions/setup-node@v4
+              with:
+                  node-version-file: js/.nvmrc
+                  cache: pnpm
+                  cache-dependency-path: js/pnpm-lock.yaml
+            - name: Install
+              run: pnpm install --frozen-lockfile
+            - name: Build the page
+              run: pnpm --filter @rasl/web build
+            - name: Install Chromium
+              run: pnpm --filter @rasl/web exec playwright install --with-deps chromium
+            - name: Browser tests
+              run: pnpm --filter @rasl/web e2e

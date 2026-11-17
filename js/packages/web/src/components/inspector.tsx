@@ -1,9 +1,10 @@
 // The selected node or connection: where it is written, its settings and ports, its metrics,
 // and the edits that apply to it (rename, remove, disconnect).
-import { Fragment, type ReactElement, useEffect, useState } from "react";
+import { type ReactElement, useEffect, useState } from "react";
 
-import type { NodeMetrics } from "../api";
+import type { JsonSchema, NodeMetrics, SettingScope } from "../api";
 import type { ViewEdge, ViewNode } from "../model";
+import { SettingsEditor } from "./settings-editor";
 
 export type InspectorProps = {
   readonly node: ViewNode | null;
@@ -13,6 +14,11 @@ export type InspectorProps = {
   readonly onRename: (id: string, newId: string) => void;
   readonly onRemove: (id: string) => void;
   readonly onDisconnect: (edge: ViewEdge) => void;
+  readonly schema: JsonSchema | null;
+  readonly onSetSetting: (key: string, index: number, values: string, scope: SettingScope) => void;
+  readonly onRemoveSetting: (key: string, index: number) => void;
+  readonly onSetValues: (values: string) => void;
+  readonly onDetach: () => void;
 };
 
 function Place({ place }: { readonly place: { readonly path: string; readonly line: number } | null }): ReactElement {
@@ -27,6 +33,11 @@ export function Inspector({
   onRename,
   onRemove,
   onDisconnect,
+  schema,
+  onSetSetting,
+  onRemoveSetting,
+  onSetValues,
+  onDetach,
 }: InspectorProps): ReactElement {
   const [newId, setNewId] = useState(node?.id ?? "");
   useEffect(() => setNewId(node?.id ?? ""), [node?.id]);
@@ -99,20 +110,27 @@ export function Inspector({
       </div>
       {node.locked ? <p className="muted">Locked: {node.locked}.</p> : null}
       {node.error ? <p className="field-error">{node.error}</p> : null}
-      <div className="section-title">Settings</div>
-      {node.settings.length === 0 ? (
-        <p className="muted">None.</p>
-      ) : (
-        <div className="kv">
-          {node.settings.map((s, i) => (
-            <Fragment key={`${s.key}:${i}`}>
-              <span>{s.key}</span>
-              <span className="mono">{s.values}</span>
-            </Fragment>
-          ))}
+      {node.use ? (
+        <div className="use-note">
+          <span className="muted small">
+            Made by <span className="mono">@use {node.use}</span>: its lines are the snippet&apos;s. Set a
+            parameter&apos;s argument below, or detach it to edit every line.
+          </span>
+          <button className="button" disabled={!editable || node.status === "removed"} onClick={onDetach}>
+            Detach
+          </button>
         </div>
-      )}
-      <p className="muted small">Settings are edited in the file for now (rasl-w18).</p>
+      ) : null}
+      <div className="section-title">Settings</div>
+      <SettingsEditor
+        node={node}
+        schema={schema}
+        editable={canEdit}
+        definitionsEditable={editable && node.status !== "removed"}
+        onSet={onSetSetting}
+        onRemove={onRemoveSetting}
+        onSetValues={onSetValues}
+      />
       {metrics ? (
         <>
           <div className="section-title">Metrics</div>

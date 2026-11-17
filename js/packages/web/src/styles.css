@@ -476,3 +476,75 @@ body,
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* Settings editor */
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.setting {
+  display: grid;
+  grid-template-columns: 110px 1fr auto auto;
+  gap: 6px;
+  align-items: center;
+  font-size: 13px;
+}
+.setting.add {
+  grid-template-columns: 110px 1fr auto;
+}
+.setting.queued .input {
+  border-color: var(--added);
+}
+.setting.removed .setting-key,
+.setting.removed .input {
+  text-decoration: line-through;
+  opacity: 0.5;
+}
+.setting-key {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.setting-source {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: center;
+}
+.scope {
+  display: inline-flex;
+  gap: 10px;
+}
+.scope label {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.use-note {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 6px 0;
+}
+.node-card.status-changed {
+  border-color: var(--warn);
+}
+.badge-changed {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+/* Connection hints while a wire is dragged */
+.react-flow__handle.hint-ok {
+  background: var(--added);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--added) 35%, transparent);
+}
+.react-flow__handle.hint-no {
+  background: var(--muted);
+  opacity: 0.3;
+}

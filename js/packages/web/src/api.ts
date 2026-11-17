@@ -12,12 +12,33 @@ export type Port = {
 
 export type SourcePlace = { readonly path: string; readonly line: number };
 
+export type Definition = {
+  /** "variable": a @set line; "parameter": the @use line's argument. */
+  readonly kind: string;
+  readonly name: string;
+  readonly values: string;
+  readonly uses: number;
+  readonly locked: string | null;
+};
+
+export type SettingLine = {
+  readonly key: string;
+  readonly index: number;
+  readonly values: string;
+  readonly written: string;
+  readonly locked: string | null;
+  readonly definition: Definition | null;
+  readonly hasBlock: boolean;
+};
+
 export type ConfigNode = {
   readonly id: string;
   readonly type: string;
   readonly place: SourcePlace;
   readonly locked: string | null;
-  readonly settings: readonly { readonly key: string; readonly values: string }[];
+  readonly values: string;
+  readonly use: string | null;
+  readonly settings: readonly SettingLine[];
   readonly inputs: readonly Port[];
   readonly outputs: readonly Port[];
   readonly error: string | null;
@@ -87,6 +108,16 @@ export type JsonSchema = {
 
 export type Setting = { readonly key: string; readonly values: string };
 
+export type PayloadType = {
+  readonly name: string;
+  readonly components: number | null;
+  /** The types a port of this type takes from an output, as they are or retyped. */
+  readonly takes: readonly string[];
+};
+
+/** "line" writes the value on the line; "definition" where it comes from ($variable, @use). */
+export type SettingScope = "line" | "definition";
+
 /** One edit, as the API takes it: exactly one key. */
 export type Edit =
   | {
@@ -108,7 +139,19 @@ export type Edit =
         readonly repeatUntil: number | null;
       };
     }
-  | { readonly disconnect: { readonly source: string; readonly target: string; readonly port: string | null } };
+  | { readonly disconnect: { readonly source: string; readonly target: string; readonly port: string | null } }
+  | {
+      readonly setSetting: {
+        readonly node: string;
+        readonly key: string;
+        readonly values: string;
+        readonly index: number;
+        readonly scope: SettingScope;
+      };
+    }
+  | { readonly removeSetting: { readonly node: string; readonly key: string; readonly index: number } }
+  | { readonly setNodeValues: { readonly node: string; readonly values: string } }
+  | { readonly detach: { readonly id: string } };
 
 export type EditOutcome = {
   readonly ok: boolean;
@@ -149,7 +192,8 @@ const PORT = "name types minCount maxCount components default";
 const PROBLEM = `message formatted path line column connection {
   problem supplied takes
   source { node port sliceStart sliceEnd } target { node port sliceStart sliceEnd } other { node port sliceStart sliceEnd } }`;
-const NODE = `id type place { path line } locked settings { key values } inputs { ${PORT} } outputs { ${PORT} } error`;
+const SETTING = "key index values written locked hasBlock definition { kind name values uses locked }";
+const NODE = `id type place { path line } locked values use settings { ${SETTING} } inputs { ${PORT} } outputs { ${PORT} } error`;
 
 export async function fetchConfigGraph(): Promise<ConfigGraph | null> {
   const data = await request<{ configGraph: ConfigGraph | null }>(`{ configGraph {
@@ -163,6 +207,11 @@ export async function fetchConfigGraph(): Promise<ConfigGraph | null> {
 export async function fetchNodeTypes(): Promise<readonly NodeType[]> {
   const data = await request<{ nodeTypes: NodeType[] }>("{ nodeTypes { name aliases summary schema } }");
   return data.nodeTypes;
+}
+
+export async function fetchPayloadTypes(): Promise<readonly PayloadType[]> {
+  const data = await request<{ payloadTypes: PayloadType[] }>("{ payloadTypes { name components takes } }");
+  return data.payloadTypes;
 }
 
 export async function previewNode(type: string, values: string, settings: readonly Setting[]): Promise<ConfigNode> {

@@ -20,5 +20,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // e2e/ holds the Playwright browser tests (pnpm e2e)
+    include: ["src/**/*.test.ts"],
   },
 });

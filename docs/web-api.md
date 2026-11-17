@@ -74,7 +74,9 @@ It draws the graph as the config files write it ([Graph editor](#graph-editor)),
 each node's ports, a health dot from `metricsStream`, and for the selection where it is written, its settings and
 metrics. Editing:
 
-- **Connect**: drag from an output port to an input port.
+- **Connect**: drag from an output port to an input port. While the wire is dragged, the ports that take it
+  (as it is, or retyped to a more specific type) light up and the rest dim; a drop on a port that cannot take it
+  is refused (`payloadTypes`).
 - **Add a node**: double-click the canvas, press ⌘K, or drop a wire on empty canvas (the new node is then fed by
   it). Pick a type, give it an id and settings; its ports are shown before it is added (`previewNode`).
 - **Remove or rename**: select a node or a connection and press Delete, or use the inspector. Removing a node
@@ -83,9 +85,14 @@ metrics. Editing:
   removed ones struck through. The queue is checked as it changes (`previewEdits`): the diff to each file, and
   the error, with the ports of a refused connection marked. **Save** (`applyEdits`) writes the files; the
   running graph follows by its reload. ⌘Z drops the last queued change.
+- **Settings**: the inspector edits a node's lines (and the values after its id), adds one (suggesting the keys
+  of the type's schema), or removes one. A line that reads one `$variable` offers where to write the new value:
+  at the `@set` line (every use changes; the count is shown) or only on this line, which writes the value in place
+  of `$name`. A node made by `@use` shows the snippet; its parameters are set as the `@use` line's arguments, and
+  **Detach** writes the snippet's nodes out in place of the `@use` line so each line can be edited (rasl-6sr.7).
 - When the files change on disk while changes are queued, the page says so and checks them again.
 
-Node settings are not edited from the page yet (`rasl-w18`). For development, `pnpm --filter @rasl/web dev`
+For development, `pnpm --filter @rasl/web dev`
 in `js/` serves the page with hot reload and forwards `/graphql` to a running rasl (`RASL_API`, default
 `http://127.0.0.1:8080`).
 
@@ -171,6 +178,7 @@ type Query {
   configGraph: ConfigGraph
   nodeTypes: [NodeType!]!
   previewNode(type: String!, values: String! = "", settings: [SettingInput!] = null): ConfigNode!
+  payloadTypes: [PayloadType!]!
 }
 
 type Mutation {
@@ -464,6 +472,7 @@ a text editor does. Without a watched config (`--no-watch`), `configGraph` is nu
 | Field | What it does |
 |---|---|
 | `configGraph` | The graph as the files write it: each node (type, file and line, settings, ports, `locked` reason) and each `connect` line (source and port as written, resolved ports, `repeat`, file and line, `locked`), the files' `version`, and `error` when the config does not build. A node is built on its own to show its ports, so one broken node does not hide the others. |
+| `payloadTypes` | Every payload type, its fixed width, and the types a port of it takes, as they are or retyped: what the editor's connection hints use. |
 | `nodeTypes` | Every node type, by the name a `node` line uses, with its aliases, a one-line summary and the JSON Schema of its settings. |
 | `previewNode(type, values, settings)` | A node not in the config yet, built (never started) to show its ports, which can depend on its settings. |
 | `previewEdits(baseVersion, edits)` | What a batch would change (a unified diff per file) and whether the result builds. Writes nothing. |
@@ -472,8 +481,13 @@ a text editor does. Without a watched config (`--no-watch`), `configGraph` is nu
 
 An edit is one of `addNode {type, id, values, settings}`, `removeNode {id}` (its `connect` lines go with it),
 `renameNode {id, newId}` (every `connect` line that reads it follows), `connect {source, target, port, repeat,
-repeatUntil}` and `disconnect {source, target, port}`; sources and ports are written in config notation
-(`hue.out[0~3]`). A new node goes after the last node the batch connects it from, else before the first node it
+repeatUntil}`, `disconnect {source, target, port}`, `setSetting {node, key, values, index, scope}`,
+`removeSetting {node, key, index}`, `setNodeValues {node, values}` and `detach {id}`; sources and ports are written
+in config notation (`hue.out[0~3]`). A setting line is known by its key and, for a key written more than once
+(`fill`), its `index` among them; `setSetting` with `index` one past the last adds a line before the node's
+`connect` lines. Its `scope` is `line` (write the values on the line, replacing any `$variable` it reads) or
+`definition` (write them where its one value comes from: the `@set` line, or the `@use` argument of a snippet
+parameter). `detach` replaces a `@use` line with the nodes it makes, written out. A new node goes after the last node the batch connects it from, else before the first node it
 feeds, else at the end of the `graph` block. Comments and layout are kept.
 
 An `EditOutcome` is exactly one of: `ok` (`saved` lists the files written; empty for a preview), `error` (the

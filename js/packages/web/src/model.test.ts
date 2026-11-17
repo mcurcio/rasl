@@ -1,7 +1,7 @@
 import { describe as group, expect, it } from "vitest";
 
 import type { ConfigGraph, Edit, Port } from "./api";
-import { connectEdit, nextId, parseRef, queue, stage, Statuses } from "./model";
+import { accepts, connectEdit, nextId, parseRef, queue, stage, Statuses } from "./model";
 
 const port = (name: string, isDefault = true): Port => ({
   name,
@@ -23,6 +23,8 @@ const BASE: ConfigGraph = {
       type: "Waveform",
       place: { path: "rasl.conf", line: 2 },
       locked: null,
+      values: "",
+      use: null,
       settings: [],
       inputs: [],
       outputs: [port("out")],
@@ -33,6 +35,8 @@ const BASE: ConfigGraph = {
       type: "ConsoleSink",
       place: { path: "rasl.conf", line: 3 },
       locked: null,
+      values: "",
+      use: null,
       settings: [],
       inputs: [port("dmx")],
       outputs: [],
@@ -116,5 +120,56 @@ group("connectEdit", () => {
 group("nextId", () => {
   it("numbers the snake-cased type past taken ids", () => {
     expect(nextId("ConsoleSink", new Set(["console_sink_1"]))).toBe("console_sink_2");
+  });
+});
+
+group("settings", () => {
+  it("stages a queued value on its line and marks the node changed", () => {
+    const base: ConfigGraph = {
+      ...BASE,
+      nodes: [
+        {
+          ...BASE.nodes[0]!,
+          settings: [
+            { key: "fps", index: 0, values: "30", written: "$rate", locked: null, definition: null, hasBlock: false },
+          ],
+        },
+        BASE.nodes[1]!,
+      ],
+    };
+    const staged = stage(
+      base,
+      [{ setSetting: { node: "wave", key: "fps", values: "60", index: 0, scope: "definition" } }],
+      new Map(),
+    );
+    const wave = staged.nodes[0]!;
+    expect(wave.status).toBe(Statuses.Changed);
+    expect(wave.settings[0]?.queued).toEqual({ values: "60", scope: "definition" });
+  });
+
+  it("keeps only the last queued value for a line", () => {
+    const first: Edit = { setSetting: { node: "wave", key: "fps", values: "1", index: 0, scope: "line" } };
+    const second: Edit = { setSetting: { node: "wave", key: "fps", values: "2", index: 0, scope: "line" } };
+    expect(queue([first], second)).toEqual([second]);
+  });
+});
+
+group("accepts", () => {
+  const types = new Map([
+    ["matrix", { name: "matrix", components: null, takes: ["matrix", "bool", "color:hsbk"] }],
+    ["bool", { name: "bool", components: null, takes: ["bool", "matrix"] }],
+    ["color:hsbk", { name: "color:hsbk", components: 4, takes: ["color:hsbk", "matrix"] }],
+  ]);
+  const out = (type: string, components: number | null = null): Port => ({ ...port("out"), types: [type], components });
+  const input = (type: string): Port => ({ ...port("in"), types: [type] });
+
+  it("takes a more general type retyped, and a known width only when it matches", () => {
+    expect(accepts(out("matrix"), input("bool"), types)).toBe(true);
+    expect(accepts(out("matrix", 4), input("color:hsbk"), types)).toBe(true);
+    expect(accepts(out("matrix", 1), input("color:hsbk"), types)).toBe(false);
+  });
+
+  it("refuses a type outside the chain", () => {
+    expect(accepts(out("color:hsbk"), input("bool"), types)).toBe(false);
   });
 });

@@ -10,7 +10,22 @@ export type NodeCardData = {
   readonly node: ViewNode;
   readonly metrics: NodeMetrics | undefined;
   readonly problemPorts: ReadonlySet<string>;
+  /** While a wire is dragged: for each handle on the other side, whether it takes the wire. */
+  readonly hints: ReadonlyMap<string, boolean> | null;
 };
+
+function handleClass(
+  handle: string,
+  problems: ReadonlySet<string>,
+  hints: ReadonlyMap<string, boolean> | null,
+): string {
+  const classes = [];
+  if (problems.has(handle)) classes.push("handle-problem");
+  const hint = hints?.get(handle);
+  if (hint === true) classes.push("hint-ok");
+  if (hint === false) classes.push("hint-no");
+  return classes.join(" ");
+}
 
 function health(metrics: NodeMetrics | undefined): string {
   if (!metrics) return "idle";
@@ -26,7 +41,7 @@ function portLabel(port: Port): string {
 }
 
 export function NodeCard({ data, selected }: NodeProps & { data: NodeCardData }): ReactElement {
-  const { node, metrics, problemPorts } = data;
+  const { node, metrics, problemPorts, hints } = data;
   const rows = Math.max(node.inputs.length, node.outputs.length, 1);
   return (
     <div
@@ -52,7 +67,7 @@ export function NodeCard({ data, selected }: NodeProps & { data: NodeCardData })
               id={`in:${port.name}`}
               type="target"
               position={Position.Left}
-              className={problemPorts.has(`in:${port.name}`) ? "handle-problem" : undefined}
+              className={handleClass(`in:${port.name}`, problemPorts, hints)}
             />
             <span className="port-name">{port.name}</span>
             <span className="port-type">{portLabel(port)}</span>
@@ -66,7 +81,7 @@ export function NodeCard({ data, selected }: NodeProps & { data: NodeCardData })
               id={`out:${port.name}`}
               type="source"
               position={Position.Right}
-              className={problemPorts.has(`out:${port.name}`) ? "handle-problem" : undefined}
+              className={handleClass(`out:${port.name}`, problemPorts, hints)}
             />
           </div>
         ))}
