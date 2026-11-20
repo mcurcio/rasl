@@ -32,6 +32,8 @@ class NodeRuntime:
     """The tick time this node last ran at (its start time before its first run)."""
     background: List[anyio.CancelScope] = field(default_factory=list)
     """One scope per background task the node started; cancelled when it is stopped."""
+    stopped: bool = False
+    """Set once the node is stopped, so stopping it again does nothing."""
 
 
 class NodeHost:
@@ -151,7 +153,8 @@ class NodeHost:
         in a plan update would go on writing frames under its successor's id.
         """
         runtime = self.runtimes.get(node_id)
-        if runtime:
+        if runtime and not runtime.stopped:
+            runtime.stopped = True
             with anyio.CancelScope(shield=True):
                 with contextlib.suppress(Exception):
                     await runtime.node.stop(runtime.ctx)
@@ -164,6 +167,9 @@ class NodeHost:
                         output_port._on_write = None
 
     async def stop_all(self, plan: ExecutionPlan) -> None:
-        """Stop every node, downstream first."""
+        """Stop every node, downstream first, then any started node ``plan`` does not
+        name (one a plan update stopped partway through had not removed yet)."""
         for node_id in reversed(plan.topological_order):
+            await self.stop(node_id)
+        for node_id in [n for n in self.runtimes if n not in plan.nodes]:
             await self.stop(node_id)

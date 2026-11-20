@@ -73,6 +73,8 @@ class Resources(Protocol):
 
         Raises:
             Exception: Whatever ``open`` raises. Every caller waiting on that open gets
-                it, and the next ``acquire`` tries to open again.
+                it, and the next ``acquire`` tries to open again. If the opener is
+                cancelled instead, the callers waiting on it are not: one of them opens
+                the resource itself.
         """
         ...

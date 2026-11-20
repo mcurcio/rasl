@@ -52,6 +52,7 @@ class Runtime:
         timing: Tick latency, pull durations and dropped ticks.
         scheduler: The tick timing loop.
         executor: The pull machinery and the frames between nodes.
+        resources: The resources nodes share, such as sockets; closed when the runtime stops.
     """
 
     def __init__(self, plan: ExecutionPlan, *, max_consecutive_errors: Optional[int] = None) -> None:
