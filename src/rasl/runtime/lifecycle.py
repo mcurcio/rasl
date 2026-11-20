@@ -13,7 +13,7 @@ import anyio
 import structlog
 
 from rasl.graph import ExecutionPlan
-from rasl.graph.node import Node, NodeContext, get_inputs, get_outputs
+from rasl.graph.node import Node, NodeContext, Resources, get_inputs, get_outputs
 from rasl.graph.ports import InputPort, OutputPort, PortGroup
 from rasl.signal import Frame
 
@@ -46,15 +46,18 @@ class NodeHost:
         *,
         on_push_write: Callable[[OutputPort], None],
         inject: Callable[[str, str, Frame], None],
+        resources: Resources,
     ) -> None:
         """
         Args:
             on_push_write: Called when a push source writes an output port.
             inject: Called with (node id, port, frame) when a node injects a frame.
+            resources: The shared resources every node's context hands out.
         """
         self.runtimes: Dict[str, NodeRuntime] = {}
         self._on_push_write = on_push_write
         self._inject = inject
+        self._resources = resources
         self._task_group: Optional[anyio.abc.TaskGroup] = None
 
     def attach(self, task_group: anyio.abc.TaskGroup) -> None:
@@ -122,6 +125,7 @@ class NodeHost:
         ctx = NodeContext(
             node_id=node_id,
             logger=node_logger,
+            resources=self._resources,
             _start_background=_start_background,
             _inject=_inject,
         )

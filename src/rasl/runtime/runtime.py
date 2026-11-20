@@ -14,7 +14,7 @@ and it is the one place a new plan is swapped in (``request_update``).
 from __future__ import annotations
 
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import anyio
 import structlog
@@ -26,6 +26,7 @@ from rasl.runtime.executor import Executor
 from rasl.runtime.lifecycle import NodeHost, NodeRuntime
 from rasl.runtime.monitor import NodeMonitor
 from rasl.runtime.plan_update import PlanUpdate
+from rasl.runtime.resources import ResourceRegistry
 from rasl.runtime.scheduler import Scheduler
 from rasl.runtime.timing import find_rate_drivers, find_undriven
 
@@ -68,9 +69,11 @@ class Runtime:
         self.monitor = NodeMonitor()
         self.timing = TimingStats()
         self.scheduler = Scheduler(self.timing)
+        self.resources = ResourceRegistry()
         self._host = NodeHost(
             on_push_write=lambda port: self.executor.on_push_write(port),
             inject=lambda node_id, port, frame: self.executor.store_pushed(node_id, port, frame),
+            resources=self.resources,
         )
         self.executor = Executor(
             self._host.runtimes,
@@ -160,36 +163,10 @@ class Runtime:
                 logger.error("plan_update_failed", error=str(e))
                 return
 
-            # Stop what goes away: removed nodes, and old objects of replaced ones
-            stopping = set(update.removed) | set(update.restarted)
-            for node_id in reversed(old_plan.topological_order):
-                if node_id in stopping:
-                    await self._host.stop(node_id)
-                    self._host.runtimes.pop(node_id, None)
-
-            # Nothing computed or measured for the old plan may leak into the new one
-            self.executor.forget(stopping)
-            self.timing.forget(stopping)
-            self.monitor.forget(stopping)
-            self.timing.set_rates(self._rate_drivers)
-
-            # Nodes that take new settings without a restart; a node disabled for
-            # failing gets another chance with them
-            self.executor.disabled -= set(update.updated)
-            self.monitor.end_streak(set(update.updated))
-            for node_id, config in update.updated.items():
-                try:
-                    self._plan.nodes[node_id].update_config(config)
-                except Exception as e:
-                    logger.error("node_update_failed", node_id=node_id, error=str(e))
-
-            self._host.bind_ports(self._plan)
-            for node_id in self._plan.topological_order:
-                if node_id not in self._host.runtimes:
-                    try:
-                        await self._host.start(self._plan, node_id)
-                    except Exception as e:
-                        logger.error("node_start_failed", node_id=node_id, error=str(e))
+            # A resource the stopped nodes release and the started ones take up again
+            # stays open across the swap
+            async with self.resources.deferring_close():
+                await self._swap_nodes(update, old_plan)
 
             logger.info(
                 "plan_updated",
@@ -204,6 +181,41 @@ class Runtime:
             self._pending_update = None
             self.scheduler.rearm()
             done.set()
+
+    async def _swap_nodes(self, update: PlanUpdate, old_plan: ExecutionPlan) -> Set[str]:
+        """Stop the nodes ``update`` removes or restarts, apply new settings, and start
+        the nodes the new plan adds. Returns the ids of the nodes stopped."""
+        # Stop what goes away: removed nodes, and old objects of replaced ones
+        stopping = set(update.removed) | set(update.restarted)
+        for node_id in reversed(old_plan.topological_order):
+            if node_id in stopping:
+                await self._host.stop(node_id)
+                self._host.runtimes.pop(node_id, None)
+
+        # Nothing computed or measured for the old plan may leak into the new one
+        self.executor.forget(stopping)
+        self.timing.forget(stopping)
+        self.monitor.forget(stopping)
+        self.timing.set_rates(self._rate_drivers)
+
+        # Nodes that take new settings without a restart; a node disabled for
+        # failing gets another chance with them
+        self.executor.disabled -= set(update.updated)
+        self.monitor.end_streak(set(update.updated))
+        for node_id, config in update.updated.items():
+            try:
+                self._plan.nodes[node_id].update_config(config)
+            except Exception as e:
+                logger.error("node_update_failed", node_id=node_id, error=str(e))
+
+        self._host.bind_ports(self._plan)
+        for node_id in self._plan.topological_order:
+            if node_id not in self._host.runtimes:
+                try:
+                    await self._host.start(self._plan, node_id)
+                except Exception as e:
+                    logger.error("node_start_failed", node_id=node_id, error=str(e))
+        return stopping
 
     def enable_profiling(self, enabled: bool = True) -> None:
         """Enable detailed profiling of populate() and node execution."""
@@ -258,3 +270,4 @@ class Runtime:
         finally:
             self.scheduler.stop()
             await self._host.stop_all(self._plan)
+            await self.resources.close_all()

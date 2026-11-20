@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional, Tuple
 
 if TYPE_CHECKING:
+    from rasl.graph.node.resources import Resources
     from rasl.signal import Frame
 
 
@@ -34,6 +35,8 @@ class NodeContext:
     Attributes:
         node_id: Unique identifier of the node this context belongs to.
         logger: Structured logger instance bound to this node.
+        resources: Shared resources, opened by the first node to ask and closed
+            after the last one releases them.
 
     Example:
         >>> async def start(self, ctx: NodeContext):
@@ -51,6 +54,9 @@ class NodeContext:
 
     logger: Any
     """Structured logger instance bound to this node instance."""
+
+    resources: "Resources"
+    """Resources this node shares with others, such as a socket (``rasl.graph.node.resources``)."""
 
     _start_background: StartTaskCallable
     """Internal callback for spawning background async tasks."""

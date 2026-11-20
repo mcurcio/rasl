@@ -3,7 +3,8 @@
 - ``BaseNode``: the class nodes extend; ``Node``: the protocol the graph needs
 - ``BaseNodeConfig`` and the ``Source``/``Transform``/``Sink`` bases: a node's
   settings are a nested ``Config`` class built on one of them
-- ``NodeContext``: what a node is handed at ``start`` and ``stop``
+- ``NodeContext``: what a node is handed at ``start`` and ``stop``; ``Resources``,
+  ``ResourceKey`` and ``Lease``: resources nodes share through it
 - ``TickContext`` and ``pull_rate``: what ``pull`` is told, and how a sink
   declares the rate it drives
 - the node registry: ``@node("Name")`` and lookups by type name
@@ -23,15 +24,19 @@ from rasl.graph.node.registry import (
     node,
     reset_registries,
 )
+from rasl.graph.node.resources import Lease, ResourceKey, Resources
 from rasl.graph.node.tick import TickContext, pull_rate
 
 __all__ = [
     "BaseNode",
     "BaseNodeConfig",
     "InjectCallable",
+    "Lease",
     "Node",
     "NodeContext",
     "NodeRegistryError",
+    "ResourceKey",
+    "Resources",
     "SinkNodeConfig",
     "SourceNodeConfig",
     "StartTaskCallable",
