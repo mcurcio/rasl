@@ -1,10 +1,18 @@
 """Unit tests for the configuration loader."""
 
 import pytest
+from pydantic import BaseModel, ConfigDict, Field
 
 from rasl.config.build import parse_config
 from rasl.config.document import ConfigError
-from rasl.graph.node import BaseNode, SinkNodeConfig, TickContext, get_outputs, node, pull_rate
+from rasl.graph.node import (
+    BaseNode,
+    SinkNodeConfig,
+    TickContext,
+    TransformNodeConfig,
+    node,
+    pull_rate,
+)
 from rasl.graph.ports import InputPortSpec, PortGroup
 from rasl.signal import MatrixPayload
 
@@ -77,17 +85,16 @@ class TestParseConfig:
         assert node._max_channels == 24
         assert node._as_bytes is True
 
-    def test_parse_sacn_sink_requires_target_host(self):
-        """Test that SacnSink requires target_host."""
+    def test_parse_sacn_universe_requires_a_universe(self):
+        """SacnUniverse has no default universe."""
         config = """
         graph {
-            node SacnSink sink {
-                input_port universe0;
-                target_universe 0;
+            node SacnUniverse u {
+                channels 3;
             }
         }
         """
-        with pytest.raises(ConfigError, match="target_host"):
+        with pytest.raises(ConfigError, match="universe"):
             parse_config(config)
 
     def test_parse_connections(self):
@@ -269,17 +276,37 @@ class TestValuesAfterTheNodeName:
         assert "every" in plan.nodes
 
 
+class _Zone(BaseModel):
+    """One repeated block of _ZonesNode."""
+
+    model_config = ConfigDict(extra="forbid")
+    id: int
+    size: int = 1
+
+
+@node("TestZones")
+class _ZonesNode(BaseNode):
+    """A node whose ``zone`` blocks fill a list field; never runs."""
+
+    class Config(TransformNodeConfig):
+        """Configuration for _ZonesNode."""
+
+        zones: list[_Zone] = Field(default_factory=list, alias="zone")
+
+    def __init__(self, config: Config) -> None:
+        super().__init__(config)
+        self.zones = config.zones
+
+    async def pull(self, tick: TickContext) -> None:
+        """Do nothing."""
+
+
 class TestRepeatedBlocks:
     def test_one_block_fills_a_list_field_like_several_do(self):
-        one = parse_config(
-            "graph {\n    node SacnSource s { universe { id 1; channels 10; } }\n}\n"
-        )
-        two = parse_config(
-            "graph {\n    node SacnSource s { universe { id 1; channels 10; } universe { id 2; } }\n}\n"
-        )
-        # One output port per universe, beside the merged channels
-        assert set(get_outputs(one.nodes["s"]).names) == {"universe_1", "channels"}
-        assert set(get_outputs(two.nodes["s"]).names) == {"universe_1", "universe_2", "channels"}
+        one = parse_config("graph {\n    node TestZones s { zone { id 1; size 10; } }\n}\n")
+        two = parse_config("graph {\n    node TestZones s { zone { id 1; size 10; } zone { id 2; } }\n}\n")
+        assert [(z.id, z.size) for z in one.nodes["s"].zones] == [(1, 10)]
+        assert [(z.id, z.size) for z in two.nodes["s"].zones] == [(1, 10), (2, 1)]
 
 
 class _RateConfig(SinkNodeConfig):

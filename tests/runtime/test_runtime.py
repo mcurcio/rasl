@@ -422,3 +422,100 @@ class TestMonitorOnUpdates:
         assert monitor.get_stats("a") is None
         b = monitor.get_stats("b")
         assert b is not None and b.consecutive_failures == 0 and b.failure_count == 2
+
+
+class TestNonMatrixPayloads:
+    async def test_a_counter_reaches_its_reader_through_a_passthrough_untouched(self) -> None:
+        from rasl.signal import RollingCounter
+
+        class Counter(BaseNode):
+            def __init__(self) -> None:
+                self.id = "count"
+                self.inputs = PortGroup.inputs()
+                self.outputs = PortGroup.outputs(out=OutputPortSpec(RollingCounter))
+                self.written: list[RollingCounter] = []
+
+            async def pull(self, tick: TickContext) -> None:
+                counter = RollingCounter(len(self.written))
+                self.written.append(counter)
+                self.outputs.out.write(Frame(topic="count", timestamp=0.0, payload=counter))
+
+        class Reader(BaseNode):
+            def __init__(self) -> None:
+                self.id = "reader"
+                self.inputs = PortGroup.inputs(**{"in": InputPortSpec(RollingCounter)})
+                self.outputs = PortGroup.outputs()
+                self.read: list[object] = []
+
+            @pull_rate(lambda self: 50.0)
+            async def pull(self, tick: TickContext) -> None:
+                frame = self.inputs.get("in").read()
+                self.read.append(None if frame is None else frame.payload)
+
+        counter, reader = Counter(), Reader()
+        await _run(Runtime(_plan([counter, reader], [("count", "reader")])), 0.15)
+        assert reader.read and len(reader.read) == len(counter.written)
+        assert all(got is sent for got, sent in zip(reader.read, counter.written))
+
+
+class TestEndOfTick:
+    """A shared resource with end_tick acts once per tick, after that tick's pulls."""
+
+    async def test_end_tick_runs_after_every_due_pull_of_each_tick(self) -> None:
+        from rasl.graph.node import ResourceKey
+
+        log: list[str] = []
+
+        class Recorder:
+            def end_tick(self, tick: TickContext) -> None:
+                log.append(f"end {round(tick.t, 6)}")
+
+        class Holder(Sink):
+            async def start(self, ctx) -> None:
+                async def _open():
+                    return Recorder()
+
+                async def _close(value):
+                    return None
+
+                self._lease = await ctx.resources.acquire(ResourceKey("test.recorder"), _open, _close)
+
+            @pull_rate(lambda self: self.hz)
+            async def pull(self, tick: TickContext) -> None:
+                log.append(f"pull {self.id} {round(tick.t, 6)}")
+
+        a, b = Holder("a", 20), Holder("b", 20)
+        await _run(Runtime(_plan([a, b])), 0.12)
+        assert log[:6] == ["pull a 0.0", "pull b 0.0", "end 0.0", "pull a 0.05", "pull b 0.05", "end 0.05"]
+
+
+class TestPushedOutputs:
+    """An input fed by a pushed output reads it as last written; its writer is not pulled."""
+
+    async def test_a_reader_of_a_pushed_output_does_not_pull_its_writer(self) -> None:
+        class Writer(Probe):
+            """Pushes on 'live' outside pull; is a rate driver of its own at 5 Hz."""
+
+            def __init__(self, node_id: str) -> None:
+                super().__init__(node_id)
+                self.outputs = PortGroup.outputs(
+                    out=OutputPortSpec(MatrixPayload), live=OutputPortSpec(MatrixPayload, pushed=True)
+                )
+
+            @pull_rate(5)
+            async def pull(self, tick: TickContext) -> None:
+                self.ticks.append(tick)
+
+        src, writer, reader = Probe("src"), Writer("w"), Sink("r", 50)
+        builder = GraphBuilder()
+        for n in (src, writer, reader):
+            builder.add_node(n)
+        builder.connect("src", "out", "w", "in")
+        builder.connect("w", "live", "r", "in")
+        plan = builder.build()
+        runtime = Runtime(plan)
+        assert runtime._undriven == []  # w delivers by push; src feeds w, a driver
+        await _run(runtime, 0.5)
+        # w runs at its own 5 Hz (0, 0.2, 0.4), not at the reader's 50 Hz
+        assert [round(t.t, 6) for t in writer.ticks] == [0.0, 0.2, 0.4]
+        assert len(reader.ticks) >= 20

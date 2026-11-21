@@ -77,6 +77,7 @@ class Executor:
         self._plan: Optional[ExecutionPlan] = None
         self._back_edges: Set[Tuple[str, str, str, str]] = set()
         self._incoming: Dict[str, List[Edge]] = defaultdict(list)
+        self._pushed_edges: Set[Edge] = set()
         self._input_programs_by_node: Dict[str, List[InputPortProgram]] = defaultdict(list)
 
     def set_plan(self, plan: ExecutionPlan) -> None:
@@ -89,9 +90,12 @@ class Executor:
 
         # Build reverse adjacency: target_node -> list of incoming edges
         self._incoming = defaultdict(list)
+        self._pushed_edges = set()
         for edges in plan.adjacency.values():
             for edge in edges:
                 self._incoming[edge.target].append(edge)
+                if plan.is_pushed(edge):
+                    self._pushed_edges.add(edge)
 
         self._input_programs_by_node = defaultdict(list)
         for (target_node_id, _), program in plan.input_programs.items():
@@ -265,8 +269,9 @@ class Executor:
             return
 
         # First, pull all upstream nodes (non back-edge), so frames exist in cache.
+        # A pushed output is read as last written: its node is not pulled for it.
         for edge in self._incoming[node_id]:
-            if self._is_back_edge(edge):
+            if self._is_back_edge(edge) or edge in self._pushed_edges:
                 continue
             await self._pull_node(edge.source, tick)
 

@@ -7,7 +7,8 @@ nodes/
 │   ├── waveform.py     - WaveformNode (sine, triangle, attack_decay)
 │   ├── seeded_random.py - SeededRandomNode (deterministic per-channel random)
 │   ├── twinkle.py      - TwinkleEffectNode (TwinkleFOX-style modulation)
-│   └── math.py         - MathNode (element-wise operations)
+│   ├── math.py         - MathNode (element-wise operations)
+│   └── reshape.py      - ReshapeNode (regroup values into rows of N)
 ├── color/              - Color processing nodes
 │   ├── convert.py      - Color conversion utilities
 │   ├── color_node.py   - ColorNode (universal color converter)
@@ -17,7 +18,7 @@ nodes/
     └── sine_source.py  - SineSourceNode (test waveform)
 
 Protocol nodes are in rasl.devices:
-    - rasl.devices.sacn: SacnSourceNode, SacnSinkNode
+    - rasl.devices.sacn: SacnUniverseNode
     - rasl.devices.ddp: DdpSinkNode
 
 Nodes are registered via the @node decorator and discovered by the
@@ -29,15 +30,14 @@ Transform and Sink bases) are in rasl.graph.node.
 Example configuration::
 
     graph {
-        node SacnSource sacnSource {
-            universes 1 2;
-        }
-        node Color toOklch oklch { connect sacnSource; }  # convert to OKLCH
+        node SacnUniverse sacnIn { universe 1; channels 510; }
+        node Reshape pixels { components 3; connect sacnIn; }
+        node Color toOklch oklch { connect pixels; }      # convert to OKLCH
         node Color toRgb rgb { connect toOklch; }         # and back to RGB
-        node SacnSink sacnSink0 {
-            input_port universe0;
-            target_host "10.0.60.30";
-            target_universe 0;
+        node SacnUniverse sacnOut {
+            universe 0;
+            target "10.0.60.30";
+            connect toRgb;
         }
     }
 """
@@ -53,6 +53,7 @@ from rasl.nodes.effects.math import MathNode
 from rasl.nodes.effects.matrix_multiply import MatrixMultiplyNode
 from rasl.nodes.effects.random_map import RandomMapNode
 from rasl.nodes.effects.range_map import RangeMapNode
+from rasl.nodes.effects.reshape import ReshapeNode
 from rasl.nodes.effects.seeded_random import SeededRandomNode
 from rasl.nodes.effects.smooth import SmoothNode
 from rasl.nodes.effects.twinkle import TwinkleEffectNode
@@ -70,6 +71,7 @@ __all__ = [
     "MatrixMultiplyNode",
     "RandomMapNode",
     "RangeMapNode",
+    "ReshapeNode",
     "SeededRandomNode",
     "SineSourceNode",
     "SmoothNode",

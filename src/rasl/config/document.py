@@ -9,7 +9,8 @@ adds when it reads one:
   any problem knobly finds raises ``ConfigError``.
 - ``arg_text`` / ``arg_texts``: a directive's values as the strings rasl's parsers take.
 - ``scalar``: a value as the Python value a node's config model validates.
-- ``config_error``: a ``ConfigError`` placed on a directive, a value or the whole config.
+- ``config_error``: a ``ConfigError`` placed on a directive, a value or the whole config;
+  ``config_warning``: a warning placed the same way, logged
 - ``load_written`` / ``render_written`` / ``save_written`` / ``config_text``: the config as
   written, for a program that edits the files (``rasl.config.edit``): load it, edit its
   statements, render it to check, and save it back with comments and layout kept.
@@ -145,6 +146,20 @@ def config_error(
     """
     error: DiagnosticError = at.error(message, code=code)
     return ConfigError.from_diagnostics((error.diagnostic,), tree.graph, connection)
+
+
+def config_warning(at: Rendered | Directive | Value, message: str, *, code: str, tree: Rendered) -> None:
+    """Log a warning placed on ``at``, in the form of the config's own warnings
+    (``config.warning``); loading goes on.
+
+    Args:
+        at: What the warning is about.
+        message: Description of the problem.
+        code: rasl's code for it, ``rasl/<name>``.
+        tree: The rendered config ``at`` belongs to (for the source line shown).
+    """
+    diagnostic = at.error(message, code=code).diagnostic
+    logger.warning("config.warning", detail=written.format_diagnostic(diagnostic, tree.graph))
 
 
 def _render(graph: written.DocumentGraph) -> Rendered:

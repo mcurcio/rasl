@@ -6,6 +6,9 @@ from rasl.config.build import parse_config
 from rasl.config.connect import parse_port_ref
 from rasl.config.document import ConfigError
 from rasl.graph import ConnectProblem, Edge, Endpoint, Slice
+from rasl.graph.node import BaseNode, SinkNodeConfig, SourceNodeConfig, TickContext, node
+from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
+from rasl.signal import MatrixPayload, RollingCounter
 
 
 class TestParsePortWithSlice:
@@ -285,11 +288,11 @@ class TestConnectErrorsArePlaced:
             parse_config(config)
         assert caught.value.line == 7
 
-    def test_a_sacn_source_defaults_to_its_merged_channels(self):
+    def test_a_sacn_universe_defaults_to_its_dmx_output(self):
         config = """
         graph {
-            node SacnSource input {
-                universes 1 2;
+            node SacnUniverse input {
+                universe 1;
             }
             node ConsoleSink sink {
                 fps 1;
@@ -298,4 +301,70 @@ class TestConnectErrorsArePlaced:
         }
         """
         edge = parse_config(config).adjacency["input"][0]
-        assert edge.source_port == "channels"
+        assert edge.source_port == "dmx"
+
+
+@node("TestCounterSource")
+class _CounterSource(BaseNode):
+    """Declares a RollingCounter output; never runs."""
+
+    Config = SourceNodeConfig
+    outputs = PortGroup.outputs(out=OutputPortSpec(RollingCounter))
+
+    async def pull(self, tick: TickContext) -> None:
+        """Do nothing."""
+
+
+@node("TestMatrixOrCounterSink")
+class _MatrixOrCounterSink(BaseNode):
+    """Takes a matrix or a counter on ``dmx``; never runs."""
+
+    Config = SinkNodeConfig
+    inputs = PortGroup.inputs(dmx=InputPortSpec((MatrixPayload, RollingCounter)))
+
+    async def pull(self, tick: TickContext) -> None:
+        """Do nothing."""
+
+
+class TestNotSliceableIsPlaced:
+    """Owner, 2026-11-20 (Q13): a slice, a repeat or a second connection of a payload
+    that is not a matrix is refused at load, on its connect line."""
+
+    def test_a_sliced_counter_is_a_config_error_on_its_connect_line(self):
+        config = """
+        graph {
+            node TestCounterSource count;
+            node TestMatrixOrCounterSink sink {
+                connect count dmx[0~1];
+            }
+        }
+        """
+        with pytest.raises(ConfigError, match=r"rasl/connect: Node 'sink': Not sliceable: count\.out emits RollingCounter") as caught:
+            parse_config(config)
+        assert caught.value.line == 5
+        assert caught.value.connection is not None
+        assert caught.value.connection.problem is ConnectProblem.NOT_SLICEABLE
+
+    def test_a_second_connection_beside_a_counter_is_a_config_error(self):
+        config = """
+        graph {
+            node TestCounterSource count;
+            node cron minute * * * * *;
+            node TestMatrixOrCounterSink sink {
+                connect count;
+                connect minute dmx[4~5];
+            }
+        }
+        """
+        with pytest.raises(ConfigError, match="cannot share sink.dmx") as caught:
+            parse_config(config)
+        assert caught.value.line == 7
+        assert caught.value.connection.problem is ConnectProblem.NOT_SLICEABLE
+
+    def test_one_unsliced_counter_loads(self):
+        parse_config("""
+        graph {
+            node TestCounterSource count;
+            node TestMatrixOrCounterSink sink { connect count; }
+        }
+        """)

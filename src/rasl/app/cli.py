@@ -196,7 +196,7 @@ def main(args: Optional[list[str]] = None) -> int:
             # The graph still loads (it can be inspected); these just never run
             print(
                 "Warning: nothing pulls these nodes, so they will never run "
-                "(no sink that declares a rate is downstream of them): "
+                "(no node that drives the graph at a rate is downstream of them): "
                 + ", ".join(undriven),
                 file=sys.stderr,
             )

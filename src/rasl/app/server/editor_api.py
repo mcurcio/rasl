@@ -164,6 +164,8 @@ class ConnectionProblem(Enum):
     DUPLICATE = "duplicate"
     OVERLAP = "overlap"
     COMPONENTS = "components"
+    NOT_SLICEABLE = "not-sliceable"
+    MULTIPLE = "multiple"
 
 
 @strawberry.type

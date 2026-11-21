@@ -12,6 +12,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+import structlog
+
 from rasl.config.connect import parse_connect_directive, resolve_connections
 from rasl.config.document import (
     ConfigError,
@@ -19,6 +21,7 @@ from rasl.config.document import (
     Rendered,
     children,
     config_error,
+    config_warning,
     load_document,
     parse_document,
 )
@@ -26,6 +29,8 @@ from rasl.config.node_directive import _node_config, node_spec
 from rasl.graph import ConnectError, ExecutionPlan, GraphBuilder, PortTypeError
 from rasl.graph.node import ensure_nodes_loaded
 from rasl.runtime import pull_rate_of
+
+logger = structlog.get_logger()
 
 
 def graph_directive(tree: Rendered) -> Directive:
@@ -114,12 +119,42 @@ def build_plan(
     # A node's rate comes from its settings: check it here, on the node's line
     for node_id, node in plan.nodes.items():
         try:
-            pull_rate_of(node_id, node)
+            pull_rate_of(node_id, node, plan.wiring(node_id))
         except ValueError as e:
             raise config_error(
                 node_directives[node_id], str(e), code="rasl/rate", tree=tree
             ) from e
+    _log_plan_warnings(plan, node_directives, tree)
     return plan, configs
+
+
+def _log_plan_warnings(plan: ExecutionPlan, node_directives: dict[str, Directive], tree: Rendered) -> None:
+    """Log each node class's ``plan_warnings`` on its node's line, as ``config.warning``."""
+    by_class: dict[type, list[str]] = {}
+    for node_id, node in plan.nodes.items():
+        by_class.setdefault(type(node), []).append(node_id)
+    for node_class, node_ids in by_class.items():
+        finder = getattr(node_class, "plan_warnings", None)
+        if finder is None:
+            continue
+        # A warning hook must never stop a valid config from loading
+        try:
+            found = list(finder(plan, node_ids))
+        except Exception as e:
+            logger.error("plan_warnings_failed", node_class=node_class.__name__, error=repr(e))
+            continue
+        for warning in found:
+            try:
+                node_id, code, message = warning
+                config_warning(node_directives[node_id], message, code=code, tree=tree)
+            except Exception as e:
+                logger.error(
+                    "plan_warnings_failed",
+                    node_class=node_class.__name__,
+                    warning=repr(warning),
+                    error=repr(e),
+                    expected="PlanWarning(node_id of one of its nodes, 'rasl/<name>', message)",
+                )
 
 
 def _connect_error(line: Directive, node_id: str, error: Exception, tree: Rendered) -> ConfigError:

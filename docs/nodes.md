@@ -45,12 +45,12 @@ Value types used below:
 | `metadata` | map of strings | empty | Key-value metadata attached to the node's frames: `metadata { room den; zone 2; }`, or `metadata "room=den" "zone=2";`. Both forms may be used together; a key given twice is an error. |
 | `max_consecutive_errors` | int, 0 or more | the `runtime` block's (10) | Disable this node after this many failed pulls in a row; 0 means never. |
 
-Source nodes (`Waveform`, `SineSource`, `SeededRandom`, `literal`, `cron`, `SacnSource`) also accept `fps`
+Source nodes (`Waveform`, `SineSource`, `SeededRandom`, `literal`, `cron`) also accept `fps`
 (a frequency from 0.1 to 1000 Hz, unset by default). Only `SineSource` uses it; the other sources run at
 the rate the sinks set.
 
-`ConsoleSink`, `SacnSink`, `DdpSink` and `GoveeLight` take `input_port`, which renames their input port.
-Their defaults are `dmx`, `input`, `input` and `light`. The name matters only when a `connect` line names
+`ConsoleSink`, `DdpSink` and `GoveeLight` take `input_port`, which renames their input port.
+Their defaults are `dmx`, `input` and `light`. The name matters only when a `connect` line names
 the port.
 
 ### Connecting to a node with more than one input
@@ -141,28 +141,79 @@ node cron night 0 22;                          # 22:00 to 22:00:59
 node cron evening { schedule "0 22-23 * * *"; }
 ```
 
-### SacnSource
+### SacnUniverse
 
-Receives sACN universes. It has one output per universe, `universe_<N>`, and `channels` with all of them
-merged. `channels` is the default: `connect input;` takes it, and `connect input.universe_1;` takes one universe.
+One sACN (E1.31) universe, in either direction or both. It receives the universe when any of its outputs is
+connected, and sends it when its `dmx` input is; with nothing connected it opens nothing.
 
-SacnSource receives unicast sACN only: it does not join multicast groups. Configure the sender to unicast
-to rasl's address. In a container, see the note under [Container](../README.md#container).
+| Output | Type | Meaning |
+|---|---|---|
+| `dmx` (default) | matrix, `channels` rows of 1 column | Each DMX slot / 255 (0 to 1). A packet with fewer slots leaves the rest at 0. |
+| `count` | counter | Advances once per data packet accepted, identical data included. Wraps at 65536. |
+| `terminated` | bool, 1 element | 1 once the source ends its stream (and no other source is live), 0 again when data arrives. |
+
+It makes no policy of its own: grouping channels into pixels is `Reshape`, joining universes is `connect`
+ranges, and what to do when a stream stops is wiring downstream: `count` stops advancing and `terminated`
+turns 1. No built-in node reads a `count` yet; the nodes that will (detecting a count that stops) are planned
+(bead rasl-2lg.6).
+
+Every SacnUniverse on the same `bind` and `port` shares one socket. It joins the universe's multicast
+group (239.255.hi.lo) and takes unicast too; universe 0 has no group and is unicast only. If the join fails (as
+on a Docker bridge network) rasl logs a warning and receives unicast only. Packets rasl sent itself are dropped.
+Of several sources on one universe, the one with the highest priority wins; at equal priority the first seen
+holds it until it ends its stream or is silent for 2.5 s.
 
 | Setting | Type | Default | Meaning |
 |---|---|---|---|
-| `universes` | list of ints | unset | Universe numbers to listen to. |
-| `universe` | block, repeated | none | One universe with options: `id` (required) and `channels` (number of RGB elements to emit). A block wins over the same number in `universes`. |
-| `bind_address` | string | `0.0.0.0` | Network interface to listen on. |
-| `bind_port` | int | `5568` | UDP port to listen on. |
+| `universe` | int, 0 to 63999 | required | Universe number. |
+| `channels` | int, 1 to 512 | `512` | Rows on the `dmx` output, and slots in each packet sent. |
+| `bind` | string | `0.0.0.0` | Local address. Receiving: the interface multicast groups are joined on (on Linux the socket still takes unicast on every interface). Sending: the address packets leave from, and the interface multicast goes out on. |
+| `port` | int | `5568` | UDP port to receive on. |
+| `target` | string | unset | Send to this IP address by unicast; unset sends to the universe's multicast group. Required to send universe 0. |
+| `fps` | frequency, 1 to 1000 Hz | `40hz` | Packets sent per second; the node drives the graph at this rate while sending. |
+| `priority` | int, 0 to 200 | `100` | sACN priority of packets sent. |
+| `source_name` | string | `RASL` | sACN source name of packets sent (63 bytes at most). |
+| `ttl` | int | `8` | Time to live of multicast packets sent. |
+| `send_port` | int | `0` | Local UDP port to send from (0 picks one). |
+| `sync` | int, 0 to 63999 | `0` | Synchronization universe of packets sent; 0 for none. |
 
-It needs at least one universe, from `universes` or one or more `universe` blocks.
+**Sending.** `fps` times a second the node sends its input's latest frame as one packet: values row by
+row, clipped to 0..1, times 255 (truncated), cut or padded to `channels` slots. Nothing is sent before the
+first frame. Nodes sending on the same `bind` and `send_port` share one socket, under one sACN
+source id (CID) per rasl. When no node sends a universe any more, three stream-terminated packets go out; a
+live reload that keeps the universe sends none. Two nodes sending the same universe to the same place load
+with a warning: their packets interleave.
+Its outputs are pushed: a node reading them gets the latest frame without pulling the SacnUniverse, so a node
+wired both ways still sends at its own `fps`.
+
+**Synchronization.** Universes sent with the same `sync` change together on receivers that support
+E1.31 synchronization: after each tick in which they sent data, rasl sends one synchronization packet for
+that universe (to its multicast group, or to each `target`). Give them equal rates, or whole multiples
+(40 and 20 Hz); other rates rarely share a tick and load with a warning. When receiving, data that names a
+synchronization universe is held until its source's synchronization packet releases it, all universes at
+once; if the source has sent none in the last 2.5 s, data is delivered as it arrives. The receiver joins the
+synchronization universe's multicast group the first time data names it.
+
+A live reload restarts the node when its wiring changes, since what it opens follows its wiring.
+
+Receive two universes as one run of RGB pixels:
 
 ```nginx
-node SacnSource input {
-    universe { id 1; channels 170; }
-    universe { id 2; }
+node SacnUniverse u1 { universe 1; channels 432; }
+node SacnUniverse u2 { universe 2; channels 24; }
+node Reshape pixels {                # 152 RGB pixels: 144 from universe 1, then 8 from universe 2
+    components 3;
+    connect u1 input[0~432];
+    connect u2 input[432~456];
 }
+```
+
+Send 340 RGB pixels across two universes that change together (510 channels each):
+
+```nginx
+node Waveform pattern { output_channels 1020; }
+node SacnUniverse wall_1 { universe 10; channels 510; sync 99; connect pattern[0~510]; }
+node SacnUniverse wall_2 { universe 11; channels 510; sync 99; connect pattern[510~1020]; }
 ```
 
 ## Transforms
@@ -254,6 +305,27 @@ Rescales each component from its own `[min, max]` range to 0 to 1.
 node RangeMap rm { ranges [0, 1] [0, 1] [0, 1]; connect rnd; }
 ```
 
+### Reshape
+
+Regroups a matrix's values into rows of `components`, reading and writing row by row: 510 single
+channels become 170 RGB triplets with `components 3`, and 170 triplets become 510 channels with
+`components 1`. Nothing is reordered. The input is `input` and the output `output`, a plain matrix of
+`components` columns.
+
+The input's total values (rows × columns) must be a multiple of `components`. When every source's rows
+and width are known at load, a total that is not is refused there, on the `connect` line: 512 channels
+into `components 3` fails, 510 loads. Several sources joined into the input by target slices count the
+frame the input receives, gaps included. Otherwise the node fails on the frame that breaks the rule.
+
+| Setting | Type | Default | Meaning |
+|---|---|---|---|
+| `components` | int, at least 1 | required | Values per output row. Changing it restarts the node. |
+
+```nginx
+node SacnUniverse dmx { universe 1; channels 510; }   # 510 channels: a multiple of 3
+node Reshape rgb { components 3; connect dmx; }       # 170 RGB pixels
+```
+
 ### RandomMap
 
 Maps input channels to output channels at random.
@@ -310,8 +382,9 @@ node Crossfade fade {
 
 ## Sinks
 
-Each sink declares a pull rate: `fps`, or `min_interval_ms` for `SacnSink`. rasl runs a sink, and the
-nodes it reads from, at that rate. A node that no sink reads from never runs.
+Each sink declares a pull rate, `fps`. rasl runs a sink, and the nodes it reads from, at that rate. A node
+that no sink reads from never runs. A `SacnUniverse` with its `dmx` input connected is a sink too: see
+[SacnUniverse](#sacnuniverse) under Sources.
 
 ### ConsoleSink
 
@@ -325,29 +398,6 @@ Prints frames to the log, for testing.
 | `include_metadata` | bool | `true` | Include frame metadata in the log line. |
 | `label` | string | the node id | Label in the log line. |
 | `input_port` | string | `dmx` | Name of the input port. |
-
-### SacnSink
-
-Sends one sACN universe, unicast, to one host.
-
-| Setting | Type | Default | Meaning |
-|---|---|---|---|
-| `target_host` | string | required | IP address to send to. |
-| `target_universe` | int | `0` | sACN universe number. |
-| `min_interval_ms` | int | `25` | Minimum milliseconds between packets. It sets the pull rate: 1000 / `min_interval_ms` per second (40 at the default). |
-| `source_name` | string | `RASL` | sACN source name. |
-| `priority` | int | `100` | sACN priority. |
-| `bind_address` | string | `0.0.0.0` | Local address to send from. |
-| `bind_port` | int | `0` | Local port to send from (0 picks one). |
-| `input_port` | string | `input` | Name of the input port. |
-
-```nginx
-node SacnSink output {
-    target_host "192.168.1.80";
-    target_universe 1;
-    connect input.universe_1;
-}
-```
 
 ### DdpSink
 

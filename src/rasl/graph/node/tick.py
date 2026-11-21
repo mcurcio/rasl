@@ -7,7 +7,10 @@ and the pull_rate decorator for declaring sink frame rates.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar
+
+if TYPE_CHECKING:
+    from rasl.graph.node.wiring import Wiring
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -38,18 +41,26 @@ class TickContext:
     """Monotonic wall clock time for this tick."""
 
 
-def pull_rate(hz: float | Callable[[Any], float]) -> Callable[[F], F]:
+def pull_rate(
+    hz: float | Callable[[Any], Optional[float]] | Callable[[Any, "Wiring"], Optional[float]],
+    *,
+    wiring: bool = False,
+) -> Callable[[F], F]:
     """Decorator declaring that a node drives the scheduler at a specific rate.
 
     Apply to a node's pull() method to indicate it should be invoked at
     the specified frequency. Only sinks typically use this decorator.
 
     Args:
-        hz: Frequency in Hz, or callable taking `self` returning Hz.
-            Use callable for config-driven rates.
+        hz: Frequency in Hz, or a callable returning Hz: taking ``self``, or
+            ``(self, wiring)`` when ``wiring`` is set. A callable may return None:
+            this instance does not drive the scheduler (it runs only when a
+            driver downstream of it pulls).
+        wiring: Pass the callable the node's ``Wiring`` in the plan, for a rate
+            that depends on which ports are connected.
 
     Returns:
-        Decorator that marks the method with _pull_rate_hz attribute.
+        Decorator that marks the method with ``_pull_rate_hz`` and ``_pull_rate_wiring``.
 
     Example:
         @pull_rate(30)  # Fixed 30 Hz
@@ -57,10 +68,14 @@ def pull_rate(hz: float | Callable[[Any], float]) -> Callable[[F], F]:
 
         @pull_rate(lambda self: self._config_fps)  # Config-driven
         async def pull(self, tick: TickContext) -> None: ...
+
+        @pull_rate(lambda self, w: self._fps if "dmx" in w.inputs else None, wiring=True)
+        async def pull(self, tick: TickContext) -> None: ...  # drives only when fed
     """
 
     def decorator(method: F) -> F:
         method._pull_rate_hz = hz  # type: ignore[attr-defined]
+        method._pull_rate_wiring = wiring  # type: ignore[attr-defined]
         return method
 
     return decorator

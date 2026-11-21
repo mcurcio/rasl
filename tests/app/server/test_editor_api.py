@@ -88,10 +88,10 @@ def test_node_types_and_a_preview(client: Client) -> None:
     assert "Waveform" in names and "WaveformNode" not in names
     preview = _gql(
         client,
-        '{ previewNode(type: "SacnSource", settings: [{key: "universes", values: "1 2"}]) '
+        '{ previewNode(type: "SacnUniverse", settings: [{key: "universe", values: "1"}]) '
         "{ outputs { name } error } }",
     )["previewNode"]
-    assert preview == {"outputs": [{"name": "universe_1"}, {"name": "universe_2"}, {"name": "channels"}], "error": None}
+    assert preview == {"outputs": [{"name": "dmx"}, {"name": "count"}, {"name": "terminated"}], "error": None}
 
 
 def test_an_applied_batch_is_saved(client: Client, config: Path) -> None:
@@ -162,3 +162,30 @@ def test_payload_types_say_what_a_port_takes(client: Client) -> None:
     assert "matrix" in types["bool"]["takes"]
     assert types["color:hsbk"]["components"] == 4
     assert "color:hsl" not in types["color:hsbk"]["takes"]
+
+
+def test_the_connection_problems_mirror_the_graphs() -> None:
+    from rasl.app.server.editor_api import ConnectionProblem
+    from rasl.graph import ConnectProblem
+
+    assert {p.name: p.value for p in ConnectionProblem} == {p.name: p.value for p in ConnectProblem}
+    assert {"MULTIPLE", "NOT_SLICEABLE"} <= set(ConnectionProblem.__members__)
+
+
+def test_a_counter_port_takes_only_counters(client: Client) -> None:
+    types = {t["name"]: t for t in _gql(client, "{ payloadTypes { name takes } }")["payloadTypes"]}
+    assert types["counter"]["takes"] == ["counter"]
+    assert "counter" not in types["matrix"]["takes"]
+
+
+def test_a_reshape_preview_shows_its_ports(client: Client) -> None:
+    preview = _gql(
+        client,
+        '{ previewNode(type: "Reshape", settings: [{key: "components", values: "3"}]) '
+        "{ inputs { name } outputs { name components } error } }",
+    )["previewNode"]
+    assert preview == {
+        "inputs": [{"name": "input"}],
+        "outputs": [{"name": "output", "components": 3}],
+        "error": None,
+    }
