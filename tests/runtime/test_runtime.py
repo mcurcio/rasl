@@ -660,6 +660,27 @@ class Reader(BaseNode):
 class TestPortPublishing:
     """When frames become visible, and how long they stay unchanged (rasl-pd0.12)."""
 
+    def test_a_node_without_its_own_pull_has_every_output_pushed(self) -> None:
+        from rasl.graph.node import has_own_pull
+        from rasl.nodes.debug.sine_source import SineSourceNode
+
+        assert not has_own_pull(PushSource()) and has_own_pull(Reader())
+        sine = SineSourceNode(SineSourceNode.Config(id="sine"))
+        assert not has_own_pull(sine)
+        runtime = Runtime(_plan([PushSource(), Reader()], [("src", "reader")]))
+        assert [key for _, key in runtime.executor._pushed_outputs] == [("src", "out")]
+        assert runtime.executor._pulled_outputs["src"] == ()
+
+    async def test_a_push_is_published_when_the_tick_starts_before_anything_is_pulled(self) -> None:
+        src, reader = PushSource(), Reader()
+        runtime = Runtime(_plan([src, reader], [("src", "reader")]))
+        async with _ticking(runtime):
+            src.push(1.0)
+            runtime.executor.begin_tick()
+            assert np.asarray(runtime.executor.latest[("src", "out")].payload).ravel().tolist() == [1.0, 1.0]
+            src.push(2.0)  # mid-tick: not visible until the next tick starts
+            assert np.asarray(runtime.executor.latest[("src", "out")].payload).ravel().tolist() == [1.0, 1.0]
+
     async def test_pushes_during_a_pull_do_not_change_the_frame_it_read(self) -> None:
         src, reader = PushSource(), Reader()
         async with _ticking(Runtime(_plan([src, reader], [("src", "reader")]))) as ticker:
@@ -791,12 +812,21 @@ class TestDebugFrames:
             stats = runtime.monitor.get_stats("fwd")
             assert (stats.failure_count if stats else 0) == failures
 
-    async def test_reading_a_recycled_frame_fails(self) -> None:
+    async def test_reading_a_recycled_frame_fails_and_computed_nan_does_not(self) -> None:
         from rasl.graph.ports import FrameLifetimeError
 
-        runtime = Runtime(_plan([PushSource(), Reader()], [("src", "reader")]), debug_frames=True)
-        runtime.executor.latest[("src", "out")] = Frame(
-            topic="t", timestamp=0.0, payload=MatrixPayload(np.full((2, 1), np.nan, dtype=np.float32))
-        )
-        with pytest.raises(FrameLifetimeError, match="src.out"):
-            runtime.executor._resolve("src", "out", True, 0)
+        src = PushSource()
+        runtime = Runtime(_plan([src, Reader()], [("src", "reader")]), debug_frames=True)
+        async with _ticking(runtime):
+            src.push(1.0)
+            runtime.executor.begin_tick()
+            old = runtime.executor.latest[("src", "out")]
+            src.push(2.0)
+            runtime.executor.begin_tick()
+            src.push(3.0)  # the fill after the next publish recycles old's buffer
+            runtime.executor.latest[("src", "out")] = old  # as a stale holder would hand it on
+            with pytest.raises(FrameLifetimeError, match="src.out"):
+                runtime.executor._resolve("src", "out", True, 0)
+            computed = Frame(topic="t", timestamp=0.0, payload=MatrixPayload(np.full((2, 1), np.nan, dtype=np.float32)))
+            runtime.executor.latest[("src", "out")] = computed
+            assert runtime.executor._resolve("src", "out", True, 0) is computed

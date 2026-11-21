@@ -76,3 +76,16 @@ async def test_color_node_rgb_is_srgb() -> None:
             np.testing.assert_allclose(out.data, pixels, atol=1e-6)
         else:
             np.testing.assert_allclose(out.data, [[1.0, 0.214, 0.0508]], atol=1e-3)
+
+
+async def test_color_node_does_not_pass_on_its_inputs_array() -> None:
+    node = ColorNode(ColorNode.Config(id="color", model="srgb"))
+    for payload in (
+        RgbColorPayload(np.full((2, 3), 0.5, dtype=np.float32)),  # already the target type
+        MatrixPayload(np.full((2, 3), 0.5, dtype=np.float32)),  # wrapped, not converted
+    ):
+        node.inputs.color._write(_frame(payload))
+        await node.pull(_tick())
+        out = node.outputs.color._publish()
+        assert np.asarray(out.payload).tolist() == np.asarray(payload).tolist()
+        assert not np.shares_memory(np.asarray(out.payload), np.asarray(payload))

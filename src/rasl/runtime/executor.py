@@ -10,7 +10,7 @@ import structlog
 
 from rasl.graph import Edge, ExecutionPlan, InputPortProgram
 from rasl.graph.errors import CoercionError
-from rasl.graph.node import TickContext, get_outputs
+from rasl.graph.node import TickContext, get_outputs, has_own_pull
 from rasl.graph.ports import FrameLifetimeError, OutputPort, has_stale_data
 from rasl.runtime.diagnostics import TickTrace, TimingStats
 from rasl.runtime.lifecycle import NodeRuntime
@@ -39,7 +39,7 @@ class Executor:
 
     Frames become visible when the executor publishes them: a pulled output at
     the end of its node's pull, a pushed output (``OutputPortSpec.pushed``, or
-    any output of a node with no ``pull``) at the start of each tick, so every
+    any output of a node with no ``pull`` of its own) at the start of each tick, so every
     reader in a tick sees the same pushed frame (rasl-pd0.12).
 
     Attributes:
@@ -115,7 +115,7 @@ class Executor:
         pulled: Dict[str, Tuple[Tuple[OutputPort, Tuple[str, str]], ...]] = {}
         pushed: List[Tuple[OutputPort, Tuple[str, str]]] = []
         for node_id, node in plan.nodes.items():
-            pull_less = not hasattr(node, "pull")
+            pull_less = not has_own_pull(node)
             own: List[Tuple[OutputPort, Tuple[str, str]]] = []
             for port in get_outputs(node):
                 if not isinstance(port, OutputPort):

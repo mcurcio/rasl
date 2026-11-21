@@ -269,7 +269,7 @@ slower; use it while developing a node.
 A source can also produce frames outside ticks, for data that arrives on its own schedule, such as packets from
 the network. In `start`, launch a background task with `ctx.start_background(func, *args)`, and write to an output
 port from that task whenever data arrives, with `write` or `acquire` and `commit`. An output is pushed when its
-node has no `pull` (`SineSource`), or when it is declared `OutputPortSpec(..., pushed=True)`. What a pushed output
+node has no `pull` of its own (`SineSource`), or when it is declared `OutputPortSpec(..., pushed=True)`. What a pushed output
 produced is published at the start of the next tick, so every reader in a tick sees the same frame, and a source
 may write any number of times between ticks; it never causes a tick. Do not `await` between `acquire` and
 `commit`: a tick that starts in between keeps the previous frame.

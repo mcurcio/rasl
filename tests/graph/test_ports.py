@@ -230,6 +230,14 @@ class TestOutputPortBuffers:
         assert port.previous is None
         assert committed.ravel().tolist() == [1.0, 1.0, 1.0]
 
+    def test_a_commit_not_over_the_acquired_buffer_publishes_without_a_swap(self) -> None:
+        port = self._port()
+        frame, published = self._commit(port, 1.0)
+        port.commit(frame)  # again, with no acquire: its data is the front buffer
+        assert port._publish() is frame
+        assert port.previous is None
+        assert not np.shares_memory(port.acquire(3), published)
+
     def test_clear_drops_what_was_not_published(self) -> None:
         port = self._port()
         self._commit(port, 1.0, publish=False)
@@ -284,6 +292,17 @@ class TestDebugFrameBuffers:
         with pytest.raises(FrameLifetimeError, match="detach"):
             forwarder.write(frame)
         forwarder.write(frame.detach())
+
+    def test_committing_a_copy_is_allowed(self) -> None:
+        from rasl.graph.ports import DebugFrameBuffers
+        from rasl.signal import BoolPayload
+
+        port = PortGroup.outputs(out=OutputPortSpec(BoolPayload)).out
+        port._buffers = DebugFrameBuffers()
+        view = port.acquire(2)
+        view[:] = 1.0
+        port.commit(Frame(topic="t", timestamp=0.0, payload=BoolPayload(view)))  # BoolPayload copies
+        assert port._publish() is not None
 
     def test_committing_a_frame_not_built_on_the_latest_acquire_fails(self) -> None:
         from rasl.graph.ports import FrameLifetimeError

@@ -234,3 +234,11 @@ class BaseNode(ABC):
             ValueError: If connection requirements are not satisfied.
         """
         pass
+
+
+def has_own_pull(node: object) -> bool:
+    """Whether ``node`` does work when pulled: it has a ``pull`` that is not ``BaseNode``'s
+    no-op. A node without one is a pure push source: every output it has is pushed, and
+    published at the start of each tick (rasl-pd0.12)."""
+    pull = getattr(type(node), "pull", None)
+    return pull is not None and pull is not BaseNode.pull

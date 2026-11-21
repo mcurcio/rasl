@@ -158,7 +158,7 @@ class TwinkleEffectNode(BaseNode):
         if data.ndim == 1:
             data = data.reshape(-1, 1)
         if data.ndim != 2:
-            self.outputs.out.write(frame)
+            self.outputs.out.write(frame.detach())  # passed on: not this node's data
             return
 
         num_pixels = data.shape[0]

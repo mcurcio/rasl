@@ -66,10 +66,17 @@ class FrameBuffers:
         return back[:size].reshape(count, components)
 
     def commit(self, frame: "Frame") -> None:
-        """Mark the back array complete, with ``frame`` (a view of it) to publish."""
+        """Mark the back array complete, with ``frame`` (a view of it) to publish.
+
+        A frame that does not view the back array (a copy, or a commit with no
+        ``acquire``) is published like a written one, without a swap, so the buffers never
+        swap over data that was not committed.
+        """
+        back = self._back
+        data = getattr(frame.payload, "data", None)
         self._pending = frame
         self._ready = True
-        self._swap = True
+        self._swap = back is not None and isinstance(data, np.ndarray) and np.may_share_memory(data, back)
 
     def write(self, frame: "Frame") -> None:
         """Set ``frame``, which owns its data, to publish; no array is involved."""
@@ -118,12 +125,20 @@ class FrameBuffers:
 _ALLOCATED: Dict[int, "weakref.ReferenceType[np.ndarray]"] = {}
 """Every array a ``DebugFrameBuffers`` handed out, by id (debug runs only)."""
 
+_POISONED: Dict[int, "weakref.ReferenceType[np.ndarray]"] = {}
+"""Every array a ``DebugFrameBuffers`` recycled and filled with NaN, by id (debug runs only)."""
 
-def _forget(key: int) -> Callable[["weakref.ReferenceType[np.ndarray]"], None]:
+
+def _forget(registry: Dict[int, "weakref.ReferenceType[np.ndarray]"], key: int) -> Callable[["weakref.ReferenceType[np.ndarray]"], None]:
     def drop(_: "weakref.ReferenceType[np.ndarray]") -> None:
-        _ALLOCATED.pop(key, None)
+        registry.pop(key, None)
 
     return drop
+
+
+def _registered(registry: Dict[int, "weakref.ReferenceType[np.ndarray]"], array: object) -> bool:
+    ref = registry.get(id(array))
+    return ref is not None and ref() is array
 
 
 def _owner(array: object) -> object:
@@ -135,9 +150,7 @@ def _owner(array: object) -> object:
 
 def _port_owned(array: object) -> bool:
     """Whether ``array``'s memory belongs to an array some ``DebugFrameBuffers`` allocated."""
-    owner = _owner(array)
-    ref = _ALLOCATED.get(id(owner))
-    return ref is not None and ref() is owner
+    return _registered(_ALLOCATED, _owner(array))
 
 
 def _data(frame: "Frame") -> object:
@@ -150,7 +163,9 @@ class DebugFrameBuffers(FrameBuffers):
     - Every ``acquire`` hands out a fresh array, and the array it replaces is filled with
       NaN, so a holder of a frame past its lifetime reads NaN, not new plausible data (the
       runtime's debug read check then raises).
-    - ``commit`` raises unless the frame views the array of the latest ``acquire``.
+    - ``commit`` raises for a frame over another array a port's buffers own (a view
+      kept from an earlier ``acquire``). A frame over its own data (a copy, as a payload
+      type that normalises makes) is allowed: nothing recycles it.
     - ``write`` raises for a frame whose data a port's buffers own: a node forwarding a
       frame it did not build must ``detach()`` it. A frame built over a node's own reused
       array cannot be recognised.
@@ -162,20 +177,24 @@ class DebugFrameBuffers(FrameBuffers):
         """A fresh array every time, registered as port-owned."""
         owner = FramePayload.ensure_buffer(None, count=max(size, 1), components=1)
         key = id(owner)
-        _ALLOCATED[key] = weakref.ref(owner, _forget(key))
+        _ALLOCATED[key] = weakref.ref(owner, _forget(_ALLOCATED, key))
         return owner.reshape(-1)
 
     def acquire(self, count: int, components: int) -> np.ndarray:
         """A view of a fresh array; the array it replaces is poisoned with NaN."""
         if self._back is not None:
             self._back.fill(np.nan)
+            owner = _owner(self._back)
+            if isinstance(owner, np.ndarray):
+                key = id(owner)
+                _POISONED[key] = weakref.ref(owner, _forget(_POISONED, key))
         self._back = self._grow(None, count * components)
         return super().acquire(count, components)
 
     def commit(self, frame: "Frame") -> None:
-        """Commit, after checking ``frame`` views the latest ``acquire``'s array."""
-        back = self._back
-        if back is None or _owner(_data(frame)) is not _owner(back):
+        """Commit, after checking ``frame`` is not over an array of an earlier ``acquire``."""
+        owner = _owner(_data(frame))
+        if _registered(_ALLOCATED, owner) and (self._back is None or owner is not _owner(self._back)):
             raise FrameLifetimeError(
                 "commit() needs a frame built on the view the latest acquire() returned"
             )
@@ -192,7 +211,6 @@ class DebugFrameBuffers(FrameBuffers):
 
 
 def has_stale_data(frame: "Frame") -> bool:
-    """Whether ``frame``'s data holds NaN, as an array a ``DebugFrameBuffers`` has
-    recycled does (values are otherwise within [0, 1])."""
-    data = _data(frame)
-    return isinstance(data, np.ndarray) and data.dtype.kind == "f" and bool(np.isnan(data).any())
+    """Whether ``frame``'s data is over an array a ``DebugFrameBuffers`` has recycled (and
+    filled with NaN). NaN a node computed itself does not count."""
+    return _registered(_POISONED, _owner(_data(frame)))

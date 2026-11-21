@@ -10,7 +10,7 @@
 - the node registry: ``@node("Name")`` and lookups by type name
 """
 
-from rasl.graph.node.base import BaseNode, PlanWarning
+from rasl.graph.node.base import BaseNode, PlanWarning, has_own_pull
 from rasl.graph.node.config import BaseNodeConfig, SinkNodeConfig, SourceNodeConfig, TransformNodeConfig
 from rasl.graph.node.context import NodeContext, StartTaskCallable
 from rasl.graph.node.protocol import Node, get_inputs, get_outputs
@@ -51,6 +51,7 @@ __all__ = [
     "get_node_class",
     "get_node_registry",
     "get_outputs",
+    "has_own_pull",
     "list_node_types",
     "node",
     "pull_rate",
