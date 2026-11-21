@@ -7,7 +7,8 @@ nodes/
 │   ├── waveform.py     - WaveformNode (sine, triangle, attack_decay)
 │   ├── seeded_random.py - SeededRandomNode (deterministic per-channel random)
 │   ├── twinkle.py      - TwinkleEffectNode (TwinkleFOX-style modulation)
-│   └── math.py         - MathNode (element-wise operations)
+│   ├── math.py         - MathNode (element-wise operations)
+│   └── reshape.py      - ReshapeNode (regroup values into rows of N)
 ├── color/              - Color processing nodes
 │   ├── convert.py      - Color conversion utilities
 │   ├── color_node.py   - ColorNode (universal color converter)
@@ -53,6 +54,7 @@ from rasl.nodes.effects.math import MathNode
 from rasl.nodes.effects.matrix_multiply import MatrixMultiplyNode
 from rasl.nodes.effects.random_map import RandomMapNode
 from rasl.nodes.effects.range_map import RangeMapNode
+from rasl.nodes.effects.reshape import ReshapeNode
 from rasl.nodes.effects.seeded_random import SeededRandomNode
 from rasl.nodes.effects.smooth import SmoothNode
 from rasl.nodes.effects.twinkle import TwinkleEffectNode
@@ -70,6 +72,7 @@ __all__ = [
     "MatrixMultiplyNode",
     "RandomMapNode",
     "RangeMapNode",
+    "ReshapeNode",
     "SeededRandomNode",
     "SineSourceNode",
     "SmoothNode",

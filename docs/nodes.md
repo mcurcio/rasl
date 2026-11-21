@@ -254,6 +254,26 @@ Rescales each component from its own `[min, max]` range to 0 to 1.
 node RangeMap rm { ranges [0, 1] [0, 1] [0, 1]; connect rnd; }
 ```
 
+### Reshape
+
+Regroups a matrix's values into rows of `components`, reading and writing row by row: 510 single
+channels become 170 RGB triplets with `components 3`, and 170 triplets become 510 channels with
+`components 1`. Nothing is reordered. The input is `input` and the output `output`, a plain matrix of
+`components` columns.
+
+The input's total values (rows × columns) must be a multiple of `components`. When every source's rows
+and width are known at load, a total that is not is refused there, on the `connect` line: 512 channels
+into `components 3` fails, 510 loads. Several sources joined into the input by target slices count the
+frame the input receives, gaps included. Otherwise the node fails on the frame that breaks the rule.
+
+| Setting | Type | Default | Meaning |
+|---|---|---|---|
+| `components` | int, at least 1 | required | Values per output row. Changing it restarts the node. |
+
+```nginx
+node Reshape rgb { components 3; connect dmx; }
+```
+
 ### RandomMap
 
 Maps input channels to output channels at random.

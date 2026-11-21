@@ -109,7 +109,7 @@ outputs = PortGroup.outputs(out=OutputPortSpec(BoolPayload))
 The keyword is the port's name, the one a config's `connect` line uses. A source leaves out `inputs`; a sink
 leaves out `outputs`.
 
-`InputPortSpec(accepts, count=None, description="")`:
+`InputPortSpec(accepts, count=None, description="", values_multiple_of=None)`:
 
 - `accepts` is a payload class, a registered payload name such as `"matrix"` or `"color:rgb"`, or a tuple of
   either (all classes or all names). A connection is refused at load time, with the file and line, when the
@@ -120,6 +120,9 @@ leaves out `outputs`.
   - A specific model such as `RgbColorPayload` accepts only that model.
   - `BoolPayload` accepts only bools.
 - `count` is the number of elements: an `int` (fixed), `(min,)`, `(min, max)`, or `None` (any).
+- `values_multiple_of`, when set, is a number the total values supplied (rows × components) must be a
+  multiple of. Where every source's rows and width are known at load, a total that is not is refused there
+  (`Reshape` uses it); otherwise the node checks each frame.
 
 `OutputPortSpec(produces, count=None, description="", same_as=None)` takes exactly one payload class or name; a
 tuple raises `ValueError`. Declare what the port really emits: a node whose output type depends on its settings
@@ -270,6 +273,7 @@ The payload types:
 | `BoolPayload` | `rasl.signal` | `bool`, `boolean` | A mask: any input becomes 1.0 where non-zero, else 0.0. |
 | `ColorPayload` | `rasl.color` | `color` | A matrix tagged with a color model (`.model`). |
 | `RgbColorPayload` and one class per model | `rasl.color` | `color:rgb`, `color:srgb`, `color:hsl`, `color:okhsl`, `color:oklch`, ... | Three components per element (four for `rgbw` and `hsbk`). |
+| `RollingCounter` | `rasl.signal` | `counter` | Not a matrix: an immutable `value` that wraps at `modulus` (default 65536). `advanced(by)` returns the next counter; `advanced_since(previous)` the steps between two readings. A counter cannot be sliced, repeated or share an input with another connection (refused at load). |
 
 `payload.data` is the backing array itself, not a copy: do not change an input's data in place, because other
 nodes may read the same frame. `payload.count` is the number of elements (rows) and `payload.channels` the
