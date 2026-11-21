@@ -8,7 +8,7 @@ import anyio
 import numpy as np
 import pytest
 
-from rasl.graph import GraphBuilder
+from rasl.graph import CycleWarning, GraphBuilder
 from rasl.graph.node import BaseNode, TickContext, pull_rate
 from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.runtime import DueTimes, Runtime, find_rate_drivers, find_undriven
@@ -519,3 +519,65 @@ class TestPushedOutputs:
         # w runs at its own 5 Hz (0, 0.2, 0.4), not at the reader's 50 Hz
         assert [round(t.t, 6) for t in writer.ticks] == [0.0, 0.2, 0.4]
         assert len(reader.ticks) >= 20
+
+
+class TestRoutedInputs:
+    """Inputs built from slices, through a running runtime (rasl-pd0.15)."""
+
+    async def test_sliced_color_edges_from_three_nodes_of_one_class_assemble_in_order(self) -> None:
+        from rasl.color import RgbColorPayload
+        from rasl.graph import Slice
+
+        class Fill(BaseNode):
+            def __init__(self, node_id: str, value: float) -> None:
+                self.id = node_id
+                self.value = value
+                self.inputs = PortGroup.inputs()
+                self.outputs = PortGroup.outputs(out=OutputPortSpec(RgbColorPayload))
+
+            async def pull(self, tick: TickContext) -> None:
+                data = np.full((2, 3), self.value, dtype=np.float32)
+                self.outputs.out.write(Frame(topic=self.id, timestamp=0.0, payload=RgbColorPayload(data)))
+
+        class Strip(BaseNode):
+            def __init__(self) -> None:
+                self.id = "strip"
+                self.inputs = PortGroup.inputs(**{"in": InputPortSpec(RgbColorPayload, count=6)})
+                self.outputs = PortGroup.outputs()
+                self.frames: list[Frame | None] = []
+
+            @pull_rate(lambda self: 50.0)
+            async def pull(self, tick: TickContext) -> None:
+                frame = self.inputs.get("in").read()
+                self.frames.append(frame)
+
+        strip = Strip()
+        builder = GraphBuilder()
+        for node in (Fill("f0", 0.25), Fill("f1", 0.5), Fill("f2", 0.75), strip):
+            builder.add_node(node)
+        for i in range(3):
+            builder.connect(f"f{i}", "out", "strip", "in", None, Slice(2 * i, 2 * i + 2))
+        await _run(Runtime(builder.build()), 0.1)
+
+        assert strip.frames and all(frame is not None for frame in strip.frames)
+        last = strip.frames[-1]
+        assert type(last.payload) is RgbColorPayload
+        np.testing.assert_allclose(np.asarray(last.payload)[:, 0], [0.25, 0.25, 0.5, 0.5, 0.75, 0.75])
+
+    async def test_a_sliced_back_edge_reads_the_previous_ticks_frame(self) -> None:
+        from rasl.graph import Slice
+
+        a, b, out = Probe("a"), Probe("b"), Sink("out", 50)
+        builder = GraphBuilder()
+        for node in (a, b, out):
+            builder.add_node(node)
+        builder.connect("a", "out", "b", "in")
+        builder.connect("b", "out", "out", "in")
+        builder.connect("b", "out", "a", "in", Slice(0, 1), Slice(0, 1))
+        with pytest.warns(CycleWarning):
+            plan = builder.build()
+        await _run(Runtime(plan), 0.12)
+        # b writes 1, 2, 3... at ticks 0, 1, 2...; a reads b's write from the tick before
+        assert len(a.seen) >= 4
+        assert a.seen[0] is None
+        assert a.seen[1:] == [float(n) for n in range(1, len(a.seen))]

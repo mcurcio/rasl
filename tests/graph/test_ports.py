@@ -1,9 +1,11 @@
 """Tests for PortSpec channel configuration."""
 
+import numpy as np
 import pytest
 
-from rasl.graph.ports import InputPortSpec, OutputPortSpec
-from rasl.signal import MatrixPayload
+from rasl.color import RgbColorPayload
+from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
+from rasl.signal import Frame, MatrixPayload, RollingCounter
 
 
 class TestPortSpecChannels:
@@ -147,3 +149,49 @@ class TestOutputPortSpec:
     def test_output_port_type_name(self) -> None:
         spec = OutputPortSpec(MatrixPayload)
         assert spec.type_name == "matrix"
+
+
+class TestOutputPortBuffers:
+    """acquire/commit: a node fills a port-owned buffer instead of allocating (rasl-pd0.15)."""
+
+    @staticmethod
+    def _port(payload_type=MatrixPayload):
+        return PortGroup.outputs(out=OutputPortSpec(payload_type)).out
+
+    @staticmethod
+    def _commit(port, value: float, count: int = 3):
+        buf = port.acquire(count)
+        buf[:] = value
+        frame = Frame(topic="t", timestamp=0.0, payload=MatrixPayload(buf))
+        port.commit(frame)
+        return frame, np.asarray(frame.payload)
+
+    def test_acquire_gives_a_float32_view_with_the_payload_types_components(self) -> None:
+        buf = self._port(RgbColorPayload).acquire(4)
+        assert buf.shape == (4, 3) and buf.dtype == np.float32
+        assert self._port().acquire(5).shape == (5, 1)
+        assert self._port().acquire(5, components=2).shape == (5, 2)
+
+    def test_a_committed_frame_survives_the_next_commit(self) -> None:
+        port = self._port()
+        _, first = self._commit(port, 1.0)
+        self._commit(port, 2.0)
+        assert first.ravel().tolist() == [1.0, 1.0, 1.0]
+
+    def test_the_two_buffers_are_reused_without_allocating(self) -> None:
+        port = self._port()
+        _, first = self._commit(port, 1.0)
+        _, second = self._commit(port, 2.0)
+        _, third = self._commit(port, 3.0)
+        assert not np.shares_memory(first, second)
+        assert np.shares_memory(first, third)
+
+    def test_commit_checks_the_payload_type_and_write_does_not(self) -> None:
+        port = self._port()
+        port.acquire(1)
+        counter = Frame(topic="t", timestamp=0.0, payload=RollingCounter(0))
+        with pytest.raises(TypeError, match="does not accept payload type RollingCounter"):
+            port.commit(counter)
+        port.write(counter)
+        assert port.was_written
+        assert np.asarray(port.acquire(1)).shape == (1, 1)
