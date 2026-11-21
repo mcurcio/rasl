@@ -159,7 +159,7 @@ graph {
 
     node SacnUniverse output {
         universe 0;
-        destination "10.0.60.30";
+        target "10.0.60.30";
         connect input;
     }
 }

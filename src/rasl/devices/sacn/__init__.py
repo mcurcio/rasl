@@ -10,7 +10,7 @@ Example config:
     graph {
         node SacnUniverse dmx_in { universe 1; channels 510; }
         node Reshape pixels { components 3; connect dmx_in; }
-        node SacnUniverse dmx_out { universe 2; destination "10.0.60.30"; connect pixels; }
+        node SacnUniverse dmx_out { universe 2; target "10.0.60.30"; connect pixels; }
     }
 """
 

@@ -23,6 +23,7 @@ from rasl.graph import Edge, ExecutionPlan
 from rasl.graph.node import BaseNode, Lease, NodeContext, TickContext, TransformNodeConfig, node, pull_rate
 from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.signal import BoolPayload, Frame, MatrixPayload, RollingCounter
+from rasl.units import Frequency
 
 
 @node("SacnUniverseNode", "SacnUniverse")
@@ -30,12 +31,12 @@ class SacnUniverseNode(BaseNode):
     """One sACN universe. With its ``dmx`` input connected it sends the universe; with
     any output connected it receives it. Both may be wired at once.
 
-    Sending: once per ``min_interval_ms`` it sends the input's latest frame as one data
+    Sending: ``fps`` times a second it sends the input's latest frame as one data
     packet: values row by row, clipped to 0..1, times 255 (truncated), cut or padded to
     ``channels`` slots. Nothing is sent before the first frame. It goes to the universe's
-    multicast group, or to ``destination``. With ``sync_universe`` set, the packet asks
+    multicast group, or to ``target``. With ``sync`` set, the packet asks
     receivers to hold it until the synchronization packet the sender sends for that
-    universe after every tick it sent data in; universes sharing a ``sync_universe``
+    universe after every tick it sent data in; universes sharing a ``sync``
     change together. When no node sends the universe any more, three stream-terminated
     packets are sent (not on a live reload that keeps it).
 
@@ -48,7 +49,7 @@ class SacnUniverseNode(BaseNode):
     - ``terminated``: true once the winning source ends its stream (and no other
       source is live), false again when data arrives.
 
-    The receiver on (``bind_address``, ``port``) is shared with every other universe
+    The receiver on (``bind``, ``port``) is shared with every other universe
     received there; it joins the universe's multicast group and takes unicast too.
     Of several sources on one universe, the highest priority wins; at equal priority
     the first seen holds it until it stops or is silent for 2.5 s.
@@ -66,24 +67,20 @@ class SacnUniverseNode(BaseNode):
         """Configuration for SacnUniverseNode."""
 
         universe: int = Field(..., ge=0, le=63999, description="sACN universe number")
-        channels: int = Field(512, ge=1, le=512, description="DMX channels (slots) on the dmx output")
-        bind_address: str = Field(
-            "0.0.0.0", description="Interface to receive on (and to join multicast groups on)"
+        channels: int = Field(512, ge=1, le=512, description="DMX channels (slots) on the dmx output and in packets sent")
+        bind: str = Field(
+            "0.0.0.0", description="Local address: the interface multicast groups are joined on, and the one packets are sent from"
         )
         port: int = Field(5568, ge=1, le=65535, description="UDP port to receive on")
-        destination: Optional[str] = Field(
-            None, description="Send to this host by unicast; unset sends to the universe's multicast group"
+        target: Optional[str] = Field(
+            None, description="Send to this IP address by unicast; unset sends to the universe's multicast group"
         )
-        min_interval_ms: float = Field(
-            25, ge=0, le=800, description="Milliseconds between packets sent; 0 sends 40 a second"
-        )
+        fps: Frequency = Field(Frequency("40hz"), description="Packets sent per second (1 to 1000)")
         priority: int = Field(100, ge=0, le=200, description="sACN priority of packets sent")
         source_name: str = Field("RASL", description="sACN source name of packets sent (UTF-8, 63 bytes at most)")
-        multicast_ttl: int = Field(8, ge=1, le=255, description="Time to live of multicast packets sent")
+        ttl: int = Field(8, ge=1, le=255, description="Time to live of multicast packets sent")
         send_port: int = Field(0, ge=0, le=65535, description="Local UDP port to send from; 0 picks one")
-        sync_universe: int = Field(
-            0, ge=0, le=63999, description="Synchronization universe of packets sent; 0 for none"
-        )
+        sync: int = Field(0, ge=0, le=63999, description="Synchronization universe of packets sent; 0 for none")
 
         @field_validator("source_name")
         @classmethod
@@ -92,24 +89,33 @@ class SacnUniverseNode(BaseNode):
                 raise ValueError("source_name must be 63 bytes or fewer in UTF-8")
             return value
 
+        @field_validator("fps")
+        @classmethod
+        def _fps_in_range(cls, value: Frequency) -> Frequency:
+            # At least 1 Hz keeps receivers from timing out (E1.31: 2.5 s); at most
+            # 1000 Hz, as every other sink
+            if not 1 <= value.hz <= 1000:
+                raise ValueError(f"fps must be between 1hz and 1000hz (got {value})")
+            return value
+
     def __init__(self, config: Config) -> None:
         super().__init__(config)
         self._universe = config.universe
         self._channels = config.channels
-        self._bind_address = config.bind_address
+        self._bind_address = config.bind
         self._port = config.port
-        self._destination = config.destination
+        self._destination = config.target
         self._priority = config.priority
         self._source_name = config.source_name
-        self._ttl = config.multicast_ttl
+        self._ttl = config.ttl
         self._send_port = config.send_port
-        self._sync_universe = config.sync_universe
-        self._fps = 40.0 if config.min_interval_ms <= 0 else 1000.0 / config.min_interval_ms
+        self._sync_universe = config.sync
+        self._fps = config.fps.hz
         self.inputs = PortGroup.inputs(dmx=InputPortSpec(MatrixPayload, description="Values to send"))
         self.outputs = PortGroup.outputs(
-            dmx=OutputPortSpec(MatrixPayload, count=config.channels, components=1),
-            count=OutputPortSpec(RollingCounter),
-            terminated=OutputPortSpec(BoolPayload, count=1),
+            dmx=OutputPortSpec(MatrixPayload, count=config.channels, components=1, pushed=True),
+            count=OutputPortSpec(RollingCounter, pushed=True),
+            terminated=OutputPortSpec(BoolPayload, count=1, pushed=True),
         ).with_default("dmx")
         self._ctx: Optional[NodeContext] = None
         self._receiver: Optional[Lease[SacnReceiver]] = None
@@ -133,16 +139,16 @@ class SacnUniverseNode(BaseNode):
         return self._sync_universe
 
     def validate_connections(self, incoming_edges: Sequence[Edge]) -> None:
-        """Universe 0 has no multicast group, so sending it needs a ``destination``.
+        """Universe 0 has no multicast group, so sending it needs a ``target``.
 
         Raises:
             ValueError: If the ``dmx`` input is wired, the universe is 0 and no
-                ``destination`` is set.
+                ``target`` is set.
         """
         sends = any(edge.target_port == "dmx" for edge in incoming_edges)
         if sends and self._universe == 0 and self._destination is None:
             raise ValueError(
-                f"Node '{self.id}': universe 0 has no multicast group; set destination to send it"
+                f"Node '{self.id}': universe 0 has no multicast group; set target to send it"
             )
 
     @classmethod

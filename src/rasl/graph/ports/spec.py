@@ -281,6 +281,11 @@ class OutputPortSpec:
         components: Columns per element the output always emits, when its type does
             not fix them (a plain matrix of known width); None when unknown until it
             runs. A color type's own ``components`` needs no declaration here.
+        pushed: The node writes this output from outside ``pull`` (``ctx.inject``,
+            as data arrives), never from its inputs. A node reading it gets the latest
+            frame without the writer being pulled, so the writer runs only at its own
+            rate, if it has one (owner, 2026-11-21: an sACN universe received and sent
+            by one node).
     """
 
     produces: ProducesSpec
@@ -288,6 +293,7 @@ class OutputPortSpec:
     description: str = ""
     same_as: str | None = None
     components: int | None = None
+    pushed: bool = False
 
     def __post_init__(self) -> None:
         _parse_count_spec(self.count)

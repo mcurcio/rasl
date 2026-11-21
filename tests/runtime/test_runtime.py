@@ -487,3 +487,35 @@ class TestEndOfTick:
         a, b = Holder("a", 20), Holder("b", 20)
         await _run(Runtime(_plan([a, b])), 0.12)
         assert log[:6] == ["pull a 0.0", "pull b 0.0", "end 0.0", "pull a 0.05", "pull b 0.05", "end 0.05"]
+
+
+class TestPushedOutputs:
+    """An input fed by a pushed output reads it as last written; its writer is not pulled."""
+
+    async def test_a_reader_of_a_pushed_output_does_not_pull_its_writer(self) -> None:
+        class Writer(Probe):
+            """Pushes on 'live' outside pull; is a rate driver of its own at 5 Hz."""
+
+            def __init__(self, node_id: str) -> None:
+                super().__init__(node_id)
+                self.outputs = PortGroup.outputs(
+                    out=OutputPortSpec(MatrixPayload), live=OutputPortSpec(MatrixPayload, pushed=True)
+                )
+
+            @pull_rate(5)
+            async def pull(self, tick: TickContext) -> None:
+                self.ticks.append(tick)
+
+        src, writer, reader = Probe("src"), Writer("w"), Sink("r", 50)
+        builder = GraphBuilder()
+        for n in (src, writer, reader):
+            builder.add_node(n)
+        builder.connect("src", "out", "w", "in")
+        builder.connect("w", "live", "r", "in")
+        plan = builder.build()
+        runtime = Runtime(plan)
+        assert runtime._undriven == []  # w delivers by push; src feeds w, a driver
+        await _run(runtime, 0.5)
+        # w runs at its own 5 Hz (0, 0.2, 0.4), not at the reader's 50 Hz
+        assert [round(t.t, 6) for t in writer.ticks] == [0.0, 0.2, 0.4]
+        assert len(reader.ticks) >= 20

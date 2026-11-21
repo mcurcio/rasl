@@ -235,6 +235,11 @@ port from that task whenever data arrives. Each write is kept as that port's lat
 tick; it never causes a tick. `ctx.inject(port_name, frame)` does the same by port name. Only a node with no
 connected inputs is treated this way. `SineSource` is a push source.
 
+A node with inputs that also pushes (one that sends what its input carries and receives on its outputs, like
+`SacnUniverse`) declares those outputs `OutputPortSpec(..., pushed=True)` and writes them with `ctx.inject`. A node
+reading a pushed output gets its latest frame without pulling the writer, so the writer runs only at its own
+rate (if it declares one), not whenever a reader is due.
+
 ## Lifecycle
 
 | Method | When | Use |

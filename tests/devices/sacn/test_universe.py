@@ -34,7 +34,7 @@ def free_port() -> int:
 PORT = free_port()
 
 
-def universe_node(settings: str = f"universe 1; channels 6; bind_address \"127.0.0.1\"; port {PORT};"):
+def universe_node(settings: str = f"universe 1; channels 6; bind \"127.0.0.1\"; port {PORT};"):
     """A SacnUniverse built from config, with nothing connected."""
     plan = parse_config(f"graph {{\n    node SacnUniverse u {{ {settings} }}\n}}\n")
     return plan.nodes["u"]
@@ -208,10 +208,16 @@ async def test_both_directions_open_both(registry: ResourceRegistry) -> None:
 
 
 def test_it_drives_the_graph_only_when_it_sends() -> None:
-    node = universe_node("universe 1; min_interval_ms 50;")
+    node = universe_node("universe 1; fps 20hz;")
     assert pull_rate_of("u", node, Wiring(inputs=frozenset({"dmx"}))) == 20.0
     assert pull_rate_of("u", node, Wiring(outputs=frozenset({"dmx"}))) is None
-    assert pull_rate_of("u", universe_node("universe 1; min_interval_ms 0;"), Wiring(inputs=frozenset({"dmx"}))) == 40.0
+    assert pull_rate_of("u", universe_node("universe 1;"), Wiring(inputs=frozenset({"dmx"}))) == 40.0
+
+
+@pytest.mark.parametrize("fps", ["0.5hz", "1001hz"])
+def test_fps_outside_1_to_1000_hz_is_refused(fps: str) -> None:
+    with pytest.raises(ConfigError, match="between 1hz and 1000hz"):
+        universe_node(f"universe 1; fps {fps};")
 
 
 def test_dmx_is_the_input_as_a_target_and_the_output_as_a_source() -> None:
@@ -228,12 +234,12 @@ def test_dmx_is_the_input_as_a_target_and_the_output_as_a_source() -> None:
     assert (out_of.source_port, out_of.target) == ("dmx", "c")
 
 
-def test_sending_universe_0_needs_a_destination() -> None:
-    with pytest.raises((ConfigError, ValueError), match="destination"):
+def test_sending_universe_0_needs_a_target() -> None:
+    with pytest.raises((ConfigError, ValueError), match="target"):
         parse_config("graph {\n    node SineSource s { output_channels 4; }\n    node SacnUniverse u { universe 0; connect s; }\n}\n")
     parse_config(
         "graph {\n    node SineSource s { output_channels 4; }\n"
-        "    node SacnUniverse u { universe 0; destination \"10.0.0.2\"; connect s; }\n}\n"
+        "    node SacnUniverse u { universe 0; target \"10.0.0.2\"; connect s; }\n}\n"
     )
 
 
@@ -254,22 +260,22 @@ def test_two_nodes_sending_one_universe_load_with_a_warning() -> None:
         "graph {\n    node SineSource s { output_channels 4; }\n"
         "    node SacnUniverse a { universe 5; connect s; }\n"
         "    node SacnUniverse b { universe 5; connect s; }\n"
-        "    node SacnUniverse c { universe 5; destination \"10.0.0.2\"; connect s; }\n}\n"
+        "    node SacnUniverse c { universe 5; target \"10.0.0.2\"; connect s; }\n}\n"
     )
     assert len(details) == 1
     assert "rasl/sacn-duplicate" in details[0] and "'b' and 'a' both send universe 5" in details[0]
 
 
 @pytest.mark.parametrize(
-    ("intervals", "warned"),
-    [((25, 25), False), ((25, 50), False), ((25, 100), False), ((25, 33), True)],
+    ("rates", "warned"),
+    [((40, 40), False), ((40, 20), False), ((40, 10), False), ((40, 30), True)],
 )
-def test_sync_groups_warn_when_rates_rarely_share_a_tick(intervals: tuple[int, int], warned: bool) -> None:
-    a, b = intervals
+def test_sync_groups_warn_when_rates_rarely_share_a_tick(rates: tuple[int, int], warned: bool) -> None:
+    a, b = rates
     details = _warnings(
         "graph {\n    node SineSource s { output_channels 4; }\n"
-        f"    node SacnUniverse a {{ universe 1; sync_universe 9; min_interval_ms {a}; connect s; }}\n"
-        f"    node SacnUniverse b {{ universe 2; sync_universe 9; min_interval_ms {b}; connect s; }}\n}}\n"
+        f"    node SacnUniverse a {{ universe 1; sync 9; fps {a}hz; connect s; }}\n"
+        f"    node SacnUniverse b {{ universe 2; sync 9; fps {b}hz; connect s; }}\n}}\n"
     )
     assert any("rasl/sacn-sync-rate" in d for d in details) is warned
 
@@ -287,8 +293,8 @@ async def test_end_to_end_two_synchronized_universes_send_data_then_one_sync_per
     rx.setblocking(False)
     plan = parse_config(
         "graph {\n    node SineSource s { output_channels 6; }\n"
-        "    node SacnUniverse a { universe 1; destination \"127.0.0.1\"; sync_universe 9; min_interval_ms 50; connect s; }\n"
-        "    node SacnUniverse b { universe 2; destination \"127.0.0.1\"; sync_universe 9; min_interval_ms 50; connect s; }\n"
+        "    node SacnUniverse a { universe 1; target \"127.0.0.1\"; sync 9; fps 20hz; connect s; }\n"
+        "    node SacnUniverse b { universe 2; target \"127.0.0.1\"; sync 9; fps 20hz; connect s; }\n"
         "}\n"
     )
     runtime = Runtime(plan)
@@ -318,3 +324,39 @@ async def test_end_to_end_two_synchronized_universes_send_data_then_one_sync_per
     ticks = [k for k in kinds if not k.startswith("end")]
     assert ticks[:6] == ["data 1", "data 2", "sync 9"] * 2
     assert kinds.count("end 1") == 3 and kinds.count("end 2") == 3
+
+
+async def test_a_node_wired_both_ways_sends_at_its_own_rate_whatever_reads_its_outputs() -> None:
+    """Owner, 2026-11-21: received outputs are pushed, so a fast consumer does not pull the sender."""
+    from rasl.runtime import Runtime
+
+    rx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        rx.bind(("127.0.0.1", 5568))
+    except OSError:
+        rx.close()
+        pytest.skip("port 5568 is in use")
+    rx.setblocking(False)
+    plan = parse_config(
+        "graph {\n    node SineSource s { output_channels 3; }\n"
+        f"    node SacnUniverse u {{ universe 4; target \"127.0.0.1\"; fps 5hz; bind \"127.0.0.1\"; port {PORT}; connect s; }}\n"
+        "    node ConsoleSink c { fps 50; connect u; }\n"
+        "}\n"
+    )
+    runtime = Runtime(plan)
+    try:
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(runtime.run)
+            await anyio.sleep(0.5)
+            tg.cancel_scope.cancel()
+        data = []
+        while True:
+            try:
+                frame = protocol.decode(rx.recv(2048))
+            except BlockingIOError:
+                break
+            if frame is not None and not frame.terminated:
+                data.append(frame)
+    finally:
+        rx.close()
+    assert 2 <= len(data) <= 4  # about 5 a second, not 50

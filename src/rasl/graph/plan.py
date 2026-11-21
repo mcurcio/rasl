@@ -50,6 +50,12 @@ class ExecutionPlan:
     """The edges that close a cycle, as (source, source_port, target, target_port).
     A node reads such an edge's frame from the previous tick."""
 
+    def is_pushed(self, edge: Edge) -> bool:
+        """Whether ``edge`` starts at a pushed output (``OutputPortSpec.pushed``): its
+        frames are read as last written, without pulling the source node."""
+        port = get_outputs(self.nodes[edge.source]).get(edge.source_port)
+        return bool(getattr(getattr(port, "spec", None), "pushed", False))
+
     def wiring(self, node_id: str) -> Wiring:
         """Which of ``node_id``'s ports have an edge in this plan.
 

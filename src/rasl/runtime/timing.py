@@ -66,7 +66,9 @@ def find_undriven(plan: ExecutionPlan, drivers: Optional[Dict[str, float]] = Non
     """The nodes nothing pulls: not a rate driver, and not upstream of one.
 
     Such a node is loaded and started but its pull() never runs. With no rate
-    driver at all, that is every node.
+    driver at all, that is every node. A node that a driver reads only through a
+    pushed output (``OutputPortSpec.pushed``) delivers without being pulled, so it
+    counts as driven, but what feeds it is not reached through it.
 
     Args:
         plan: The compiled plan.
@@ -77,18 +79,24 @@ def find_undriven(plan: ExecutionPlan, drivers: Optional[Dict[str, float]] = Non
     """
     if drivers is None:
         drivers = find_rate_drivers(plan)
-    upstream: Dict[str, List[str]] = defaultdict(list)
+    upstream: Dict[str, List[Tuple[str, bool]]] = defaultdict(list)
     for source, edges in plan.adjacency.items():
         for edge in edges:
-            upstream[edge.target].append(source)
+            upstream[edge.target].append((source, plan.is_pushed(edge)))
     driven: Set[str] = set()
+    delivers: Set[str] = set()  # read through a pushed output: needs no pull
     pending = list(drivers)
     while pending:
         node_id = pending.pop()
-        if node_id not in driven:
-            driven.add(node_id)
-            pending.extend(upstream[node_id])
-    return [node_id for node_id in plan.topological_order if node_id not in driven]
+        if node_id in driven:
+            continue
+        driven.add(node_id)
+        for source, pushed in upstream[node_id]:
+            if pushed:
+                delivers.add(source)
+            else:
+                pending.append(source)
+    return [n for n in plan.topological_order if n not in driven and n not in delivers]
 
 
 class DueTimes:

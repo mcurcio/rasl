@@ -155,7 +155,7 @@ connected, and sends it when its `dmx` input is; with nothing connected it opens
 It makes no policy of its own: grouping channels into pixels is `Reshape`, joining universes is `connect`
 ranges, and what to do when a stream stops is wiring downstream (a `count` that stops advancing).
 
-Every SacnUniverse on the same `bind_address` and `port` shares one socket. It joins the universe's multicast
+Every SacnUniverse on the same `bind` and `port` shares one socket. It joins the universe's multicast
 group (239.255.hi.lo) and takes unicast too; universe 0 has no group and is unicast only. If the join fails (as
 on a Docker bridge network) rasl logs a warning and receives unicast only. Packets rasl sent itself are dropped.
 Of several sources on one universe, the one with the highest priority wins; at equal priority the first seen
@@ -164,29 +164,29 @@ holds it until it ends its stream or is silent for 2.5 s.
 | Setting | Type | Default | Meaning |
 |---|---|---|---|
 | `universe` | int, 0 to 63999 | required | Universe number. |
-| `channels` | int, 1 to 512 | `512` | Rows on the `dmx` output. |
-| `bind_address` | string | `0.0.0.0` | Interface to receive on and to join multicast groups on. |
+| `channels` | int, 1 to 512 | `512` | Rows on the `dmx` output, and slots in each packet sent. |
+| `bind` | string | `0.0.0.0` | Local address. Receiving: the interface multicast groups are joined on (on Linux the socket still takes unicast on every interface). Sending: the address packets leave from, and the interface multicast goes out on. |
 | `port` | int | `5568` | UDP port to receive on. |
-| `destination` | string | unset | Send to this host by unicast; unset sends to the universe's multicast group. Required to send universe 0. |
-| `min_interval_ms` | number, 0 to 800 | `25` | Milliseconds between packets sent: the node drives the graph at 1000 / `min_interval_ms` per second (40 at 0). |
+| `target` | string | unset | Send to this IP address by unicast; unset sends to the universe's multicast group. Required to send universe 0. |
+| `fps` | frequency, 1 to 1000 Hz | `40hz` | Packets sent per second; the node drives the graph at this rate while sending. |
 | `priority` | int, 0 to 200 | `100` | sACN priority of packets sent. |
 | `source_name` | string | `RASL` | sACN source name of packets sent (63 bytes at most). |
-| `multicast_ttl` | int | `8` | Time to live of multicast packets sent. |
+| `ttl` | int | `8` | Time to live of multicast packets sent. |
 | `send_port` | int | `0` | Local UDP port to send from (0 picks one). |
-| `sync_universe` | int, 0 to 63999 | `0` | Synchronization universe of packets sent; 0 for none. |
+| `sync` | int, 0 to 63999 | `0` | Synchronization universe of packets sent; 0 for none. |
 
-**Sending.** Once per `min_interval_ms` the node sends its input's latest frame as one packet: values row by
+**Sending.** `fps` times a second the node sends its input's latest frame as one packet: values row by
 row, clipped to 0..1, times 255 (truncated), cut or padded to `channels` slots. Nothing is sent before the
-first frame. Nodes sending on the same `bind_address` and `send_port` share one socket, under one sACN
+first frame. Nodes sending on the same `bind` and `send_port` share one socket, under one sACN
 source id (CID) per rasl. When no node sends a universe any more, three stream-terminated packets go out; a
 live reload that keeps the universe sends none. Two nodes sending the same universe to the same place load
 with a warning: their packets interleave.
-A node wired both ways is also pulled whenever a node reading its outputs is due, and sends then too, so it
-can send faster than `min_interval_ms`.
+Its outputs are pushed: a node reading them gets the latest frame without pulling the SacnUniverse, so a node
+wired both ways still sends at its own `fps`.
 
-**Synchronization.** Universes sent with the same `sync_universe` change together on receivers that support
+**Synchronization.** Universes sent with the same `sync` change together on receivers that support
 E1.31 synchronization: after each tick in which they sent data, rasl sends one synchronization packet for
-that universe (to its multicast group, or to each `destination`). Give them equal rates, or whole multiples
+that universe (to its multicast group, or to each `target`). Give them equal rates, or whole multiples
 (40 and 20 Hz); other rates rarely share a tick and load with a warning. When receiving, data that names a
 synchronization universe is held until its source's synchronization packet releases it, all universes at
 once; if the source has sent none in the last 2.5 s, data is delivered as it arrives. The receiver joins the
@@ -195,8 +195,8 @@ synchronization universe's multicast group the first time data names it.
 A live reload restarts the node when its wiring changes, since what it opens follows its wiring.
 
 ```nginx
-node SacnUniverse wall_1 { universe 10; sync_universe 99; connect pixels[0~170]; }   # sends
-node SacnUniverse wall_2 { universe 11; sync_universe 99; connect pixels[170~340]; } # changes with wall_1
+node SacnUniverse wall_1 { universe 10; sync 99; connect pixels[0~170]; }   # sends
+node SacnUniverse wall_2 { universe 11; sync 99; connect pixels[170~340]; } # changes with wall_1
 
 node SacnUniverse u1 { universe 1; channels 432; }
 node SacnUniverse u2 { universe 2; channels 24; }
@@ -372,8 +372,8 @@ node Crossfade fade {
 
 ## Sinks
 
-Each sink declares a pull rate: `fps`, or `min_interval_ms` for a sending `SacnUniverse`. rasl runs a sink,
-and the nodes it reads from, at that rate. A node that no sink reads from never runs.
+Each sink declares a pull rate, `fps` (a sending `SacnUniverse` too). rasl runs a sink, and the nodes it
+reads from, at that rate. A node that no sink reads from never runs.
 
 ### ConsoleSink
 

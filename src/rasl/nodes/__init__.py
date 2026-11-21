@@ -36,7 +36,7 @@ Example configuration::
         node Color toRgb rgb { connect toOklch; }         # and back to RGB
         node SacnUniverse sacnOut {
             universe 0;
-            destination "10.0.60.30";
+            target "10.0.60.30";
             connect toRgb;
         }
     }
