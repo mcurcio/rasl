@@ -183,7 +183,7 @@ async def test_closing_stops_the_thread_and_closes_the_socket(registry: Resource
 
 # ---- sending -------------------------------------------------------------------------
 
-from rasl.devices.sacn.transport import SacnOutput, SacnSender  # noqa: E402
+from rasl.devices.sacn.transport import SacnOutput  # noqa: E402
 
 
 class FakeSocket:
