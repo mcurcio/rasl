@@ -6,13 +6,12 @@ import time
 from collections import defaultdict, deque
 from typing import Dict, List, Optional, Set, Tuple
 
-import numpy as np
 import structlog
 
 from rasl.graph import Edge, ExecutionPlan, InputPortProgram
 from rasl.graph.errors import CoercionError
-from rasl.graph.node import TickContext
-from rasl.graph.ports import OutputPort
+from rasl.graph.node import TickContext, get_outputs
+from rasl.graph.ports import FrameLifetimeError, OutputPort, has_stale_data
 from rasl.runtime.diagnostics import TickTrace, TimingStats
 from rasl.runtime.lifecycle import NodeRuntime
 from rasl.runtime.monitor import NodeMonitor
@@ -36,8 +35,12 @@ class Executor:
     For one tick: each due sink is pulled, which first pulls what feeds it
     (each node at most once a tick), fills the node's input ports from the
     frames its sources wrote, and runs its ``pull``. A back-edge reads the
-    frame from the previous tick. A push source's write is kept as that
-    port's latest frame and read like any other.
+    frame from the previous tick.
+
+    Frames become visible when the executor publishes them: a pulled output at
+    the end of its node's pull, a pushed output (``OutputPortSpec.pushed``, or
+    any output of a node with no ``pull``) at the start of each tick, so every
+    reader in a tick sees the same pushed frame (rasl-pd0.12).
 
     Attributes:
         disabled: Nodes no longer pulled because they kept failing.
@@ -51,6 +54,7 @@ class Executor:
         timing: TimingStats,
         *,
         max_consecutive_errors: Optional[int] = None,
+        debug_frames: bool = False,
     ) -> None:
         """
         Args:
@@ -60,6 +64,8 @@ class Executor:
             max_consecutive_errors: Disable a node whose pull raises this many
                 times in a row, unless the node sets its own limit
                 (``max_consecutive_errors`` on the node). None or 0 never disables.
+            debug_frames: Check every frame read for data a port has already recycled
+                (with ``DebugFrameBuffers``, which poison it), failing the reading node.
         """
         self._nodes = nodes
         self._monitor = monitor
@@ -69,16 +75,20 @@ class Executor:
 
         # Frame cache (per-tick): (node_id, port_name) -> Frame
         self._frame_cache: Dict[Tuple[str, str], Frame] = {}
-        # The last frame each port wrote; what back-edges and push sources are read from
+        # The last frame each port published; what back-edges and pushed outputs are read from
         self.latest: Dict[Tuple[str, str], Frame] = {}
         self._pulled_this_tick: Set[str] = set()
-        self._port_buffers: Dict[Tuple[str, str], np.ndarray] = {}
+        self._resolve = self._resolve_checked if debug_frames else self._resolve_frame
 
         self._plan: Optional[ExecutionPlan] = None
         self._back_edges: Set[Tuple[str, str, str, str]] = set()
         self._incoming: Dict[str, List[Edge]] = defaultdict(list)
         self._pushed_edges: Set[Edge] = set()
         self._input_programs_by_node: Dict[str, List[InputPortProgram]] = defaultdict(list)
+        # Outputs published at the end of their node's pull, by node; and those published
+        # at the start of each tick. Each with its (node id, port name) key.
+        self._pulled_outputs: Dict[str, Tuple[Tuple[OutputPort, Tuple[str, str]], ...]] = {}
+        self._pushed_outputs: Tuple[Tuple[OutputPort, Tuple[str, str]], ...] = ()
 
     def set_plan(self, plan: ExecutionPlan) -> None:
         """Work out the routing tables for a plan. Raises nothing it has not
@@ -101,31 +111,46 @@ class Executor:
         for (target_node_id, _), program in plan.input_programs.items():
             self._input_programs_by_node[target_node_id].append(program)
 
+        # Built from the plan's node objects, so a replaced node's old ports are in neither
+        pulled: Dict[str, Tuple[Tuple[OutputPort, Tuple[str, str]], ...]] = {}
+        pushed: List[Tuple[OutputPort, Tuple[str, str]]] = []
+        for node_id, node in plan.nodes.items():
+            pull_less = not hasattr(node, "pull")
+            own: List[Tuple[OutputPort, Tuple[str, str]]] = []
+            for port in get_outputs(node):
+                if not isinstance(port, OutputPort):
+                    continue
+                entry = (port, (node_id, port.name))
+                if pull_less or port.spec.pushed:
+                    pushed.append(entry)
+                else:
+                    own.append(entry)
+            pulled[node_id] = tuple(own)
+        self._pulled_outputs = pulled
+        self._pushed_outputs = tuple(pushed)
+
     def begin_tick(self) -> None:
-        """Nothing computed in an earlier tick is this tick's."""
+        """Start a tick: nothing computed in an earlier tick is this tick's, and
+        what pushed outputs produced since the last tick is published."""
+        self._clear_tick_cache()
+        latest = self.latest
+        for port, key in self._pushed_outputs:
+            frame = port._publish()
+            if frame is not None:
+                latest[key] = frame
+
+    def _clear_tick_cache(self) -> None:
         self._frame_cache.clear()
         self._pulled_this_tick.clear()
 
     def forget(self, node_ids: Set[str]) -> None:
         """After a plan update stopped these nodes: nothing computed for the old
-        plan may leak into the new one."""
-        self.begin_tick()
-        self._port_buffers.clear()
+        plan may leak into the new one. Kept nodes keep their buffers, and nothing is
+        published until the next tick starts."""
+        self._clear_tick_cache()
         for key in [k for k in self.latest if k[0] in node_ids]:
             del self.latest[key]
         self.disabled -= node_ids
-
-    def store_pushed(self, node_id: str, port: str, frame: Frame) -> None:
-        """Keep a frame written outside a tick as that port's latest. It is
-        read at the next tick; sinks drive the rates, so nothing runs now."""
-        if node_id in self._nodes:
-            self.latest[(node_id, port)] = frame
-
-    def on_push_write(self, port: OutputPort) -> None:
-        """Callback when a push source writes to an output port."""
-        frame = port._frame
-        if frame is not None:
-            self.latest[(port._node_id, port.name)] = frame
 
     def _is_back_edge(self, edge: Edge) -> bool:
         """Check if an edge is a back-edge (creates a cycle)."""
@@ -136,23 +161,6 @@ class Executor:
             edge.target_port,
         ) in self._back_edges
 
-    def _ensure_port_buffer(self, key: tuple[str, str], rows: int, cols: int) -> np.ndarray:
-        buf = self._port_buffers.get(key)
-        if buf is None:
-            buf = np.zeros((rows, cols), dtype=np.float32)
-            self._port_buffers[key] = buf
-            return buf
-
-        if buf.shape[0] < rows or buf.shape[1] < cols:
-            new_buf = np.zeros(
-                (max(rows, buf.shape[0]), max(cols, buf.shape[1])),
-                dtype=np.float32,
-            )
-            new_buf[: buf.shape[0], : buf.shape[1]] = buf
-            buf = new_buf
-            self._port_buffers[key] = buf
-        return buf
-
     def _resolve_frame(self, node_id: str, port: str, is_back_edge: bool, tick: int) -> Frame | None:
         if is_back_edge:
             return self.latest.get((node_id, port))
@@ -160,6 +168,17 @@ class Executor:
         frame = self._frame_cache.get((node_id, port))
         if frame is None:
             frame = self.latest.get((node_id, port))
+        return frame
+
+    def _resolve_checked(self, node_id: str, port: str, is_back_edge: bool, tick: int) -> Frame | None:
+        """``_resolve_frame``, raising ``FrameLifetimeError`` for a frame whose data a
+        ``DebugFrameBuffers`` has recycled (debug runs only)."""
+        frame = self._resolve_frame(node_id, port, is_back_edge, tick)
+        if frame is not None and has_stale_data(frame):
+            raise FrameLifetimeError(
+                f"{node_id}.{port} handed out a frame whose data was recycled: something kept "
+                "or passed on a frame past its lifetime (see Frame.detach)"
+            )
         return frame
 
     async def pull_sink(self, sink_id: str, tick: TickContext) -> None:
@@ -283,15 +302,10 @@ class Executor:
         # own pull() raising would.
         for program in self._input_programs_by_node.get(node_id, []):
             try:
-                frame = program.populate(
-                    tick=tick.tick,
-                    resolve=self._resolve_frame,
-                    ensure_buffer=self._ensure_port_buffer,
-                )
-            except CoercionError as error:
+                program.populate(tick=tick.tick, resolve=self._resolve)
+            except (CoercionError, FrameLifetimeError) as error:
                 self._node_failed(node_id, error, (time.perf_counter() - pull_start) * 1000)
                 raise _NodeFailed(node_id) from error
-            program.target._set_frame(frame)
 
         if hasattr(node, "pull"):
             # This node's own dt: tick time since it last ran. A node shared by
@@ -309,6 +323,9 @@ class Executor:
             try:
                 await node.pull(node_tick)
             except Exception as error:
+                # What the failed pull produced is never published (rasl-v1e)
+                for port, _ in self._pulled_outputs.get(node_id, ()):
+                    port._clear()
                 self._node_failed(node_id, error, (time.perf_counter() - pull_start) * 1000)
                 raise _NodeFailed(node_id) from error
 
@@ -323,10 +340,9 @@ class Executor:
             self._timing.node_duration_samples[node_id] = deque(maxlen=100)
         self._timing.node_duration_samples[node_id].append(pull_ms)
 
-        # Collect outputs and cache them
-        for output_port in runtime.bound_outputs:
-            if isinstance(output_port, OutputPort) and output_port.was_written:
-                frame = output_port._consume()
-                if frame:
-                    self._frame_cache[(node_id, output_port.name)] = frame
-                    self.latest[(node_id, output_port.name)] = frame
+        # Publish what the pull produced
+        for port, key in self._pulled_outputs.get(node_id, ()):
+            frame = port._publish()
+            if frame is not None:
+                self._frame_cache[key] = frame
+                self.latest[key] = frame

@@ -22,18 +22,18 @@ async def test_random_map_preserves_mapping_between_frames() -> None:
     node = RandomMapNode(RandomMapNode.Config(id="rm", seed=1234))
     payload = MatrixPayload(np.array([[1.0], [2.0], [3.0], [4.0]], dtype=np.float32))
 
-    node.inputs.input._set_frame(_frame(payload))
+    node.inputs.input._write(_frame(payload))
     await node.pull(_tick())
-    out = node.outputs.out._consume()
+    out = node.outputs.out._publish()
     assert out is not None
 
     mapping = node._mapping
     assert mapping is not None
 
     payload2 = MatrixPayload(np.array([[10.0], [20.0], [30.0], [40.0]], dtype=np.float32))
-    node.inputs.input._set_frame(_frame(payload2))
+    node.inputs.input._write(_frame(payload2))
     await node.pull(_tick())
-    out2 = node.outputs.out._consume()
+    out2 = node.outputs.out._publish()
     assert out2 is not None
     np.testing.assert_allclose(out2.payload.data, payload2.data[mapping])
 
@@ -53,9 +53,9 @@ async def test_random_map_channel_override() -> None:
         )
     )
 
-    node.inputs.input._set_frame(_frame(payload))
+    node.inputs.input._write(_frame(payload))
     await node.pull(_tick())
-    out = node.outputs.out._consume()
+    out = node.outputs.out._publish()
     assert out is not None
     assert out.payload.data.shape == (2, 2)
 
@@ -69,12 +69,12 @@ async def test_random_map_detects_input_channel_change() -> None:
     node = RandomMapNode(RandomMapNode.Config(id="rm_change"))
 
     payload = MatrixPayload(np.array([[0.0, 1.0]], dtype=np.float32))
-    node.inputs.input._set_frame(_frame(payload))
+    node.inputs.input._write(_frame(payload))
     await node.pull(_tick())
-    assert node.outputs.out._consume() is not None
+    assert node.outputs.out._publish() is not None
 
     payload_mismatch = MatrixPayload(np.array([[0.0, 1.0], [2.0, 3.0]], dtype=np.float32))
-    node.inputs.input._set_frame(_frame(payload_mismatch))
+    node.inputs.input._write(_frame(payload_mismatch))
     with pytest.raises(ValueError, match="input channel count changed"):
         await node.pull(_tick())
 
@@ -87,10 +87,10 @@ async def test_random_map_preserves_color_payload_type() -> None:
         model="srgb",
     )
 
-    node.inputs.input._set_frame(_frame(payload))
+    node.inputs.input._write(_frame(payload))
     await node.pull(_tick())
 
-    out = node.outputs.out._consume()
+    out = node.outputs.out._publish()
     assert out is not None
     assert isinstance(out.payload, ColorPayload)
     assert out.payload.model == "srgb"

@@ -581,3 +581,222 @@ class TestRoutedInputs:
         assert len(a.seen) >= 4
         assert a.seen[0] is None
         assert a.seen[1:] == [float(n) for n in range(1, len(a.seen))]
+
+
+class _Ticker:
+    """Runs a runtime's ticks one at a time, under the test's control (no scheduler)."""
+
+    def __init__(self, runtime: Runtime, tg) -> None:
+        self.runtime = runtime
+        self.tg = tg
+        self.n = 0
+
+    async def tick(self) -> None:
+        now = time.monotonic()
+        await self.runtime._tick(TickContext(tick=self.n, t=self.n / 50, dt=0.02, wall_time=now), tuple(self.runtime._rate_drivers))
+        self.n += 1
+
+
+class _ticking:
+    """``async with _ticking(runtime) as ticker``: nodes bound and started, stopped on exit."""
+
+    def __init__(self, runtime: Runtime) -> None:
+        self.runtime = runtime
+
+    async def __aenter__(self) -> _Ticker:
+        self._tg = anyio.create_task_group()
+        tg = await self._tg.__aenter__()
+        runtime = self.runtime
+        runtime._host.attach(tg)
+        runtime._host.bind_ports(runtime.plan)
+        for node_id in runtime.plan.topological_order:
+            await runtime._host.start(runtime.plan, node_id)
+        return _Ticker(runtime, tg)
+
+    async def __aexit__(self, *exc) -> None:
+        await self.runtime._host.stop_all(self.runtime.plan)
+        self._tg.cancel_scope.cancel()
+        await self._tg.__aexit__(*exc)
+
+
+def _matrix(value: float, rows: int = 2) -> np.ndarray:
+    return np.full((rows, 1), value, dtype=np.float32)
+
+
+class PushSource(BaseNode):
+    """A push source with no pull; the test writes to it as a background task would."""
+
+    def __init__(self, node_id: str = "src") -> None:
+        self.id = node_id
+        self.inputs = PortGroup.inputs()
+        self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
+
+    def push(self, value: float) -> np.ndarray:
+        buf = self.outputs.out.acquire(2)
+        buf[:] = value
+        self.outputs.out.commit(Frame(topic=self.id, timestamp=0.0, payload=MatrixPayload(buf)))
+        return buf
+
+
+class Reader(BaseNode):
+    """A 50 Hz sink that records what it reads; ``during`` runs inside its pull, after the
+    read, as work that awaits while background tasks run would."""
+
+    def __init__(self, node_id: str = "reader") -> None:
+        self.id = node_id
+        self.inputs = PortGroup.inputs(**{"in": InputPortSpec(MatrixPayload)})
+        self.outputs = PortGroup.outputs()
+        self.during = None
+        self.read: list[list[float] | None] = []
+
+    @pull_rate(lambda self: 50.0)
+    async def pull(self, tick: TickContext) -> None:
+        frame = self.inputs.get("in").read()
+        if self.during is not None:
+            self.during()
+        self.read.append(None if frame is None else np.asarray(frame.payload).ravel().tolist())
+
+
+class TestPortPublishing:
+    """When frames become visible, and how long they stay unchanged (rasl-pd0.12)."""
+
+    async def test_pushes_during_a_pull_do_not_change_the_frame_it_read(self) -> None:
+        src, reader = PushSource(), Reader()
+        async with _ticking(Runtime(_plan([src, reader], [("src", "reader")]))) as ticker:
+            src.push(1.0)
+            await ticker.tick()
+            seen_in_tick: list[list[float]] = []
+
+            def pushes_mid_pull() -> None:
+                src.push(2.0)
+                src.push(3.0)
+                frame = reader.inputs.get("in").read()
+                seen_in_tick.append(np.asarray(frame.payload).ravel().tolist())
+
+            reader.during = pushes_mid_pull
+            await ticker.tick()
+            reader.during = None
+            await ticker.tick()
+        assert reader.read == [[1.0, 1.0], [1.0, 1.0], [3.0, 3.0]]
+        assert seen_in_tick == [[1.0, 1.0]]
+
+    async def test_a_push_becomes_visible_at_the_next_tick_not_mid_tick(self) -> None:
+        src, early, late = PushSource(), Reader("early"), Reader("late")
+        runtime = Runtime(_plan([src, early, late], [("src", "early"), ("src", "late")]))
+        async with _ticking(runtime) as ticker:
+            src.push(1.0)
+            await ticker.tick()
+            early.during = lambda: src.push(5.0)
+            await ticker.tick()
+            early.during = None
+            await ticker.tick()
+        # Every reader in a tick sees the same pushed frame
+        assert early.read == late.read == [[1.0, 1.0], [1.0, 1.0], [5.0, 5.0]]
+
+    async def test_an_unconnected_node_with_pull_publishes_in_its_own_tick(self) -> None:
+        reader = Reader()
+
+        class Counter(BaseNode):
+            def __init__(self) -> None:
+                self.id = "count"
+                self.inputs = PortGroup.inputs()
+                self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
+                self.n = 0
+
+            async def pull(self, tick: TickContext) -> None:
+                self.n += 1
+                buf = self.outputs.out.acquire(2)
+                buf[:] = self.n
+                self.outputs.out.commit(Frame(topic="c", timestamp=0.0, payload=MatrixPayload(buf)))
+
+        async with _ticking(Runtime(_plan([Counter(), reader], [("count", "reader")]))) as ticker:
+            for _ in range(3):
+                await ticker.tick()
+        assert reader.read == [[1.0, 1.0], [2.0, 2.0], [3.0, 3.0]]
+
+    async def test_what_a_failed_pull_wrote_is_never_published(self) -> None:
+        reader = Reader()
+
+        class Flaky(BaseNode):
+            """Writes 1, then writes 2 and raises, then writes nothing."""
+
+            def __init__(self) -> None:
+                self.id = "flaky"
+                self.inputs = PortGroup.inputs()
+                self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
+                self.n = 0
+
+            async def pull(self, tick: TickContext) -> None:
+                self.n += 1
+                if self.n <= 2:
+                    self.outputs.out.write(Frame(topic="f", timestamp=0.0, payload=MatrixPayload(_matrix(self.n))))
+                if self.n == 2:
+                    raise RuntimeError("fails after writing")
+
+        runtime = Runtime(_plan([Flaky(), reader], [("flaky", "reader")]))
+        async with _ticking(runtime) as ticker:
+            for _ in range(3):
+                await ticker.tick()
+        # Tick 1's pull failed, so the reader was not pulled; tick 2 reads the last good frame
+        assert reader.read == [[1.0, 1.0], [1.0, 1.0]]
+
+    async def test_forget_publishes_nothing_and_the_next_tick_does(self) -> None:
+        src, reader = PushSource(), Reader()
+        runtime = Runtime(_plan([src, reader], [("src", "reader")]))
+        async with _ticking(runtime) as ticker:
+            src.push(1.0)
+            await ticker.tick()
+            src.push(2.0)
+            runtime.executor.forget(set())
+            assert np.asarray(runtime.executor.latest[("src", "out")].payload).ravel().tolist() == [1.0, 1.0]
+            await ticker.tick()
+        assert reader.read[-1] == [2.0, 2.0]
+
+    async def test_a_plan_update_keeps_a_kept_nodes_buffers(self) -> None:
+        src, reader = PushSource(), Reader()
+        runtime = Runtime(_plan([src, reader], [("src", "reader")]))
+        async with _ticking(runtime) as ticker:
+            first = src.push(1.0)
+            await ticker.tick()
+            runtime._host.bind_ports(runtime.plan)  # as a plan update does
+            src.push(2.0)
+            await ticker.tick()
+            third = src.push(3.0)
+        assert np.shares_memory(first, third)
+
+
+class TestDebugFrames:
+    """``Runtime(debug_frames=True)``: frame-lifetime mistakes fail the node (rasl-pd0.12)."""
+
+    async def test_forwarding_a_port_owned_frame_without_detach_fails_the_forwarder(self) -> None:
+        class Forward(BaseNode):
+            def __init__(self, detach: bool) -> None:
+                self.id = "fwd"
+                self.detach = detach
+                self.inputs = PortGroup.inputs(**{"in": InputPortSpec(MatrixPayload)})
+                self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
+
+            async def pull(self, tick: TickContext) -> None:
+                frame = self.inputs.get("in").read()
+                if frame is not None:
+                    self.outputs.out.write(frame.detach() if self.detach else frame)
+
+        for detach, failures in ((False, 2), (True, 0)):
+            src, reader = PushSource(), Reader()
+            runtime = Runtime(_plan([src, Forward(detach), reader], [("src", "fwd"), ("fwd", "reader")]), debug_frames=True)
+            async with _ticking(runtime) as ticker:
+                src.push(1.0)
+                await ticker.tick()
+                await ticker.tick()
+            stats = runtime.monitor.get_stats("fwd")
+            assert (stats.failure_count if stats else 0) == failures
+
+    async def test_reading_a_recycled_frame_fails(self) -> None:
+        from rasl.graph.ports import FrameLifetimeError
+
+        runtime = Runtime(_plan([PushSource(), Reader()], [("src", "reader")]), debug_frames=True)
+        runtime.executor.latest[("src", "out")] = Frame(
+            topic="t", timestamp=0.0, payload=MatrixPayload(np.full((2, 1), np.nan, dtype=np.float32))
+        )
+        with pytest.raises(FrameLifetimeError, match="src.out"):
+            runtime.executor._resolve("src", "out", True, 0)

@@ -7,15 +7,14 @@ import contextlib
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Type
 
 import anyio
 import structlog
 
 from rasl.graph import ExecutionPlan
 from rasl.graph.node import Node, NodeContext, Resources, get_inputs, get_outputs
-from rasl.graph.ports import InputPort, OutputPort, PortGroup
-from rasl.signal import Frame
+from rasl.graph.ports import FrameBuffers, InputPort, OutputPort, PortGroup
 
 logger = structlog.get_logger()
 
@@ -46,20 +45,17 @@ class NodeHost:
     def __init__(
         self,
         *,
-        on_push_write: Callable[[OutputPort], None],
-        inject: Callable[[str, str, Frame], None],
         resources: Resources,
+        buffers: Type[FrameBuffers] = FrameBuffers,
     ) -> None:
         """
         Args:
-            on_push_write: Called when a push source writes an output port.
-            inject: Called with (node id, port, frame) when a node injects a frame.
             resources: The shared resources every node's context hands out.
+            buffers: The buffers class every port gets (``DebugFrameBuffers`` in debug runs).
         """
         self.runtimes: Dict[str, NodeRuntime] = {}
-        self._on_push_write = on_push_write
-        self._inject = inject
         self._resources = resources
+        self._buffers = buffers
         self._task_group: Optional[anyio.abc.TaskGroup] = None
 
     def attach(self, task_group: anyio.abc.TaskGroup) -> None:
@@ -67,11 +63,14 @@ class NodeHost:
         self._task_group = task_group
 
     def bind_ports(self, plan: ExecutionPlan) -> None:
-        """Tell every node's ports how the plan connects them.
+        """Tell every node's ports how the plan connects them, and give them buffers.
 
-        Run at start and again after a plan update, since a node that keeps
+        Every output port, and every input port the plan feeds through slices, repeats
+        or several connections, gets buffers of the host's class; a port that has them
+        keeps them. Run at start and again after a plan update, since a node that keeps
         running may have gained or lost connections.
         """
+        buffers = self._buffers
         incoming: Dict[str, Set[str]] = defaultdict(set)
         for edges in plan.adjacency.values():
             for edge in edges:
@@ -88,13 +87,14 @@ class NodeHost:
                     port._clear()
                 port._has_upstream = connected
 
-            # A push source (no incoming edges) writes outside ticks: its
-            # writes are reported so the latest frame can be kept
-            if not incoming[node_id]:
-                for output_port in get_outputs(node):
-                    if isinstance(output_port, OutputPort):
-                        output_port._node_id = node_id
-                        output_port._on_write = self._on_push_write
+            for output_port in get_outputs(node):
+                if isinstance(output_port, OutputPort) and type(output_port._buffers) is not buffers:
+                    output_port._buffers = buffers()
+
+        for program in plan.input_programs.values():
+            port = program.target
+            if program.passthrough is None and type(port._buffers) is not buffers:
+                port._buffers = buffers()
 
     async def start(self, plan: ExecutionPlan, node_id: str) -> None:
         """Give a node its runtime state and start it."""
@@ -106,9 +106,6 @@ class NodeHost:
 
         # Create node context
         node_logger = logger.bind(node=f"{type(node).__name__}.{node_id}")
-
-        def _inject(port: str, frame: Frame) -> None:
-            self._inject(node_id, port, frame)
 
         background: List[anyio.CancelScope] = []
 
@@ -130,7 +127,6 @@ class NodeHost:
             resources=self._resources,
             wiring=plan.wiring(node_id),
             _start_background=_start_background,
-            _inject=_inject,
         )
 
         # Registered before start, so a node whose start fails is still stopped
@@ -149,9 +145,10 @@ class NodeHost:
     async def stop(self, node_id: str) -> None:
         """Stop one node, whatever it raises, and end what it left running.
 
-        A node's ``stop`` need not end the background tasks it started, and its
-        output ports stay hooked to the runtime; left alone, a node replaced
-        in a plan update would go on writing frames under its successor's id.
+        A node's ``stop`` need not end the background tasks it started, so they
+        are cancelled here. (What a stopped node's ports still hold is never
+        published: the executor publishes only the ports of the running plan's
+        node objects.)
         """
         runtime = self.runtimes.get(node_id)
         if runtime and not runtime.stopped:
@@ -162,10 +159,6 @@ class NodeHost:
                     logger.debug("node_stopped", node_id=node_id)
             for scope in runtime.background:
                 scope.cancel()
-            if runtime.bound_outputs:
-                for output_port in runtime.bound_outputs:
-                    if isinstance(output_port, OutputPort):
-                        output_port._on_write = None
 
     async def stop_all(self, plan: ExecutionPlan) -> None:
         """Stop every node, downstream first, then any started node ``plan`` does not

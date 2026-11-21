@@ -7,6 +7,7 @@ ui {
 }
 runtime {
     max_consecutive_errors 10;   # disable a node after this many failed pulls in a row; 0 = never
+    debug_frames false;          # true: fail a node that keeps or passes on a frame past its lifetime (slower)
 }
 ```
 
@@ -52,9 +53,13 @@ class RuntimeSettings:
             disabled (no longer pulled, and reported by /health) until a config reload
             changes it or rasl restarts. 0 means never. A node's own
             ``max_consecutive_errors`` setting overrides this.
+        debug_frames: Check frame lifetimes (``Runtime(debug_frames=True)``): a node
+            that keeps or passes on a frame after its port recycled the buffer behind it
+            fails, naming the port. Slower; for debugging nodes.
     """
 
     max_consecutive_errors: int = DEFAULT_MAX_CONSECUTIVE_ERRORS
+    debug_frames: bool = False
 
 
 def _single_value(child: Directive, tree: Rendered) -> str:
@@ -83,6 +88,16 @@ def _integer(child: Directive, tree: Rendered, low: int, high: int | None) -> in
             tree=tree,
         )
     return value
+
+
+def _boolean(child: Directive, tree: Rendered) -> bool:
+    """The one value of a setting directive as ``true`` or ``false``."""
+    text = _single_value(child, tree)
+    if text not in ("true", "false"):
+        raise config_error(
+            child, f"'{child.name}' must be true or false, got {text!r}", code="rasl/settings", tree=tree
+        )
+    return text == "true"
 
 
 def ui_settings(tree: Rendered) -> UiSettings:
@@ -115,14 +130,17 @@ def runtime_settings(tree: Rendered) -> RuntimeSettings:
     if not blocks:
         return RuntimeSettings()
     limit = DEFAULT_MAX_CONSECUTIVE_ERRORS
+    debug_frames = False
     for child in children(blocks[0]):
         if child.name == "max_consecutive_errors":
             limit = _integer(child, tree, 0, None)
+        elif child.name == "debug_frames":
+            debug_frames = _boolean(child, tree)
         else:
             raise config_error(
                 child,
-                f"Unknown runtime setting '{child.name}' (known: max_consecutive_errors)",
+                f"Unknown runtime setting '{child.name}' (known: max_consecutive_errors, debug_frames)",
                 code="rasl/settings",
                 tree=tree,
             )
-    return RuntimeSettings(max_consecutive_errors=limit)
+    return RuntimeSettings(max_consecutive_errors=limit, debug_frames=debug_frames)

@@ -155,7 +155,9 @@ class ColorCorrectionNode(BaseNode):
             # A plain matrix is taken as sRGB; anything but RGB triplets passes through
             data = np.asarray(payload, dtype=np.float32)
             if data.ndim != 2 or data.shape[1] != 3:
-                self.outputs.out.write(frame)
+                # Passed on: this node did not build it, so it must not keep the
+                # input's buffer behind it (rasl-pd0.12)
+                self.outputs.out.write(frame.detach())
                 return
             rgb = np.array(RgbColorPayload(data).to_model(LinearRgbColorPayload).data, dtype=np.float32)
 

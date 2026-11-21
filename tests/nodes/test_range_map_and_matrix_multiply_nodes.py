@@ -37,10 +37,10 @@ async def test_range_map_remaps_each_channel() -> None:
         )
     )
 
-    node.inputs.input._set_frame(_frame(payload))
+    node.inputs.input._write(_frame(payload))
     await node.pull(_tick())
 
-    out = node.outputs.out._consume()
+    out = node.outputs.out._publish()
     assert out is not None
     assert isinstance(out.payload, MatrixPayload)
     np.testing.assert_allclose(
@@ -62,10 +62,10 @@ async def test_range_map_preserves_color_payload_type() -> None:
         model="srgb",
     )
 
-    node.inputs.input._set_frame(_frame(payload))
+    node.inputs.input._write(_frame(payload))
     await node.pull(_tick())
 
-    out = node.outputs.out._consume()
+    out = node.outputs.out._publish()
     assert out is not None
     assert isinstance(out.payload, ColorPayload)
     assert out.payload.model == "srgb"
@@ -85,7 +85,7 @@ async def test_range_map_channel_mismatch_raises() -> None:
         model="srgb",
     )
 
-    node.inputs.input._set_frame(_frame(payload))
+    node.inputs.input._write(_frame(payload))
     with pytest.raises(ValueError, match="payload has 3 channels"):
         await node.pull(_tick())
 
@@ -102,10 +102,10 @@ async def test_range_map_vector_data_grouped() -> None:
         np.array([0.5, 1.0, 2.0, 0.25, 0.5, 1.0], dtype=np.float32)
     )
 
-    node.inputs.input._set_frame(_frame(payload))
+    node.inputs.input._write(_frame(payload))
     await node.pull(_tick())
 
-    out = node.outputs.out._consume()
+    out = node.outputs.out._publish()
     assert out is not None
     assert isinstance(out.payload, MatrixPayload)
     assert out.payload.data.shape == (2, 3)
@@ -133,10 +133,10 @@ async def test_matrix_multiply_applies_matrix() -> None:
         np.array([[0.5, 0.2, 0.1]], dtype=np.float32),
     )
 
-    node.inputs.input._set_frame(_frame(payload))
+    node.inputs.input._write(_frame(payload))
     await node.pull(_tick())
 
-    out = node.outputs.out._consume()
+    out = node.outputs.out._publish()
     assert out is not None
     assert isinstance(out.payload, MatrixPayload)
     expected = np.asarray(payload.data, dtype=np.float32) @ np.asarray(matrix, dtype=np.float32)
@@ -156,10 +156,10 @@ async def test_matrix_multiply_preserves_color_payload_type() -> None:
         model="oklab",
     )
 
-    node.inputs.input._set_frame(_frame(payload))
+    node.inputs.input._write(_frame(payload))
     await node.pull(_tick())
 
-    out = node.outputs.out._consume()
+    out = node.outputs.out._publish()
     assert out is not None
     assert isinstance(out.payload, ColorPayload)
     assert out.payload.model == "oklab"
@@ -175,6 +175,6 @@ async def test_matrix_multiply_channel_mismatch_raises() -> None:
     node = MatrixMultiplyNode(MatrixMultiplyNode.Config(id="mm_err", matrix=matrix))
     payload = MatrixPayload(np.array([[0.1, 0.2, 0.3]], dtype=np.float32))
 
-    node.inputs.input._set_frame(_frame(payload))
+    node.inputs.input._write(_frame(payload))
     with pytest.raises(ValueError, match="payload has 3 channels"):
         await node.pull(_tick())

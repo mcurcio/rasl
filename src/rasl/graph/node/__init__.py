@@ -12,7 +12,7 @@
 
 from rasl.graph.node.base import BaseNode, PlanWarning
 from rasl.graph.node.config import BaseNodeConfig, SinkNodeConfig, SourceNodeConfig, TransformNodeConfig
-from rasl.graph.node.context import InjectCallable, NodeContext, StartTaskCallable
+from rasl.graph.node.context import NodeContext, StartTaskCallable
 from rasl.graph.node.protocol import Node, get_inputs, get_outputs
 from rasl.graph.node.registry import (
     NodeRegistryError,
@@ -32,7 +32,6 @@ __all__ = [
     "BaseNode",
     "BaseNodeConfig",
     "EndOfTick",
-    "InjectCallable",
     "Lease",
     "Node",
     "NodeContext",

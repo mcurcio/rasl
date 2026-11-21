@@ -197,7 +197,7 @@ def _buffer_type(spec: InputPortSpec) -> type:
 
 # Module-level profiling state (outside dataclass to avoid mutable default issues)
 _ipp_profile_enabled: bool = False
-_ipp_profile_stats: dict = {}  # {buffer_key: {resolve_ms, asarray_ms, buffer_ms, copy_ms, total_ms, count}}
+_ipp_profile_stats: dict = {}  # {endpoint: {resolve_ms, asarray_ms, buffer_ms, copy_ms, total_ms, count}}
 
 
 @dataclass(slots=True)
@@ -206,7 +206,7 @@ class InputPortProgram:
 
     Attributes:
         target: The input port the frame is for.
-        buffer_key: (node ID, port name) of ``target``; names the buffer the frame is built in.
+        endpoint: (node ID, port name) of ``target``; names it in errors and profiling.
         fixed_rows: Element count fixed by the port's spec, or None. The built frame has at
             least this many rows, and more if an op needs more.
         fixed_cols: Components per element when every payload type the port accepts has the
@@ -229,7 +229,7 @@ class InputPortProgram:
     """
 
     target: InputPort
-    buffer_key: Tuple[str, str]
+    endpoint: Tuple[str, str]
     fixed_rows: int | None
     fixed_cols: int | None
     passthrough: Tuple[str, str] | None
@@ -251,7 +251,7 @@ class InputPortProgram:
 
     @staticmethod
     def get_profile_stats() -> dict:
-        """Timings collected while profiling, keyed by ``buffer_key``.
+        """Timings collected while profiling, keyed by ``endpoint``.
 
         Each value has ``resolve_ms``, ``asarray_ms``, ``buffer_ms``, ``copy_ms`` and ``total_ms``
         (sums, in milliseconds) and ``count`` (``populate`` calls that built a frame).
@@ -263,39 +263,46 @@ class InputPortProgram:
         self,
         tick: int,
         resolve: Callable[[str, str, bool, int], Frame | None],
-        ensure_buffer: Callable[[Tuple[str, str], int, int], np.ndarray],
     ) -> Frame | None:
-        """Build this tick's frame for the target port.
+        """Build and publish this pull's frame on the target port; return it.
 
-        A passthrough returns its source's frame unchanged. Otherwise each op's source is
-        written, in op order, into a zero-filled float32 buffer. A source with no frame, a
-        payload with no ``data``, or data of more than two dimensions is skipped.
+        A passthrough publishes its source's frame unchanged (retyped if the port needs it).
+        Otherwise each op's source is written, in op order, into the zero-filled back buffer
+        of the target port, which is committed and published only once every op ran and
+        every source passed its type check. A source with no frame, a payload with no
+        ``data``, or data of more than two dimensions is skipped. With no source frame at
+        all the port is cleared.
 
         Args:
             tick: Tick number, passed on to ``resolve``.
-            resolve: Returns the frame last written to (node ID, output port), or None; called
-                with (node ID, output port, is_back_edge, tick).
-            ensure_buffer: Returns an array of at least (rows, cols) for a buffer key.
+            resolve: Returns the frame last published on (node ID, output port), or None;
+                called with (node ID, output port, is_back_edge, tick).
 
         Returns:
-            A frame whose ``MatrixPayload`` is a view of the buffer, with the topic, timestamp and
-            metadata of the first source that had a frame; None if no source had one. The buffer
-            is reused, so the payload holds only until the next call.
+            The published frame, or None. A frame built in the port's buffers stays
+            unchanged until the port's second publish after it.
+
+        Raises:
+            CoercionError: If a source's payload is one the port takes neither as it is
+                nor retyped. The port keeps its previous frame.
         """
+        target = self.target
         if self.passthrough is not None:
             src_node, src_port = self.passthrough
             frame = resolve(src_node, src_port, self.passthrough_is_back_edge, tick)
             if frame is None:
+                target._clear()
                 return None
             payload = self._retype(frame.payload, src_node, src_port)
-            if payload is frame.payload:
-                return frame
-            return Frame(
-                topic=frame.topic,
-                timestamp=frame.timestamp,
-                payload=payload,
-                metadata=frame.metadata,
-            )
+            if payload is not frame.payload:
+                frame = Frame(
+                    topic=frame.topic,
+                    timestamp=frame.timestamp,
+                    payload=payload,
+                    metadata=frame.metadata,
+                )
+            target._write(frame)
+            return frame
 
         profile = _ipp_profile_enabled
         if profile:
@@ -338,12 +345,12 @@ class InputPortProgram:
             sources.append((op, src))
 
         if first is None or rows <= 0 or cols <= 0:
+            target._clear()
             return None
 
         if profile:
             t_buffer = time.perf_counter()
-        buf = ensure_buffer(self.buffer_key, rows, cols)
-        view = buf[:rows, :cols]
+        view = target._acquire(rows, components=cols)
         view.fill(0.0)
         if profile:
             buffer_time = time.perf_counter() - t_buffer
@@ -356,7 +363,7 @@ class InputPortProgram:
             copy_time = time.perf_counter() - t_copy
             total_time = time.perf_counter() - t0
 
-            key = self.buffer_key
+            key = self.endpoint
             stats = _ipp_profile_stats.get(key)
             if stats is None:
                 stats = {"resolve_ms": 0.0, "asarray_ms": 0.0, "buffer_ms": 0.0, "copy_ms": 0.0, "total_ms": 0.0, "count": 0}
@@ -368,12 +375,15 @@ class InputPortProgram:
             stats["total_ms"] += total_time * 1000
             stats["count"] += 1
 
-        return Frame(
+        built = Frame(
             topic=first.topic,
             timestamp=first.timestamp,
             payload=self._buffer_payload(view),
             metadata=first.metadata,
         )
+        target._commit(built)
+        target._publish()
+        return built
 
     def _retype(self, payload: FramePayload, source: str, source_port: str) -> FramePayload:
         """``payload`` as the port takes it: as it is, or retyped to the port's type.
@@ -394,7 +404,7 @@ class InputPortProgram:
             return payload
         if target is _REFUSED:
             raise CoercionError(
-                Endpoint(self.buffer_key[0], self.buffer_key[1]),
+                Endpoint(self.endpoint[0], self.endpoint[1]),
                 Endpoint(source, source_port),
                 f"the port does not take {kind.__name__}",
             )
@@ -402,7 +412,7 @@ class InputPortProgram:
             return target.coerce(payload)
         except PayloadCoercionError as error:
             raise CoercionError(
-                Endpoint(self.buffer_key[0], self.buffer_key[1]),
+                Endpoint(self.endpoint[0], self.endpoint[1]),
                 Endpoint(source, source_port),
                 str(error),
                 supplied=error.supplied,
@@ -475,7 +485,7 @@ def compile_input_programs(
                     )
                     programs[(target_node_id, port_name)] = InputPortProgram(
                         target=port,
-                        buffer_key=(target_node_id, port_name),
+                        endpoint=(target_node_id, port_name),
                         fixed_rows=fixed_rows,
                         fixed_cols=fixed_cols,
                         passthrough=passthrough,
@@ -522,7 +532,7 @@ def compile_input_programs(
 
             programs[(target_node_id, port_name)] = InputPortProgram(
                 target=port,
-                buffer_key=(target_node_id, port_name),
+                endpoint=(target_node_id, port_name),
                 fixed_rows=fixed_rows,
                 fixed_cols=fixed_cols,
                 passthrough=None,

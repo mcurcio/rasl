@@ -24,10 +24,10 @@ def _matrix(values) -> Frame:
 
 async def _math(a=None, b=None, **config) -> np.ndarray | None:
     node = MathNode(MathNode.Config(id="m", **config))
-    node.inputs.a._set_frame(None if a is None else _matrix(a))
-    node.inputs.b._set_frame(None if b is None else _matrix(b))
+    node.inputs.a._write(None if a is None else _matrix(a))
+    node.inputs.b._write(None if b is None else _matrix(b))
     await node.pull(TICK)
-    out = node.outputs.out._consume()
+    out = node.outputs.out._publish()
     node.inputs.a._clear()
     node.inputs.b._clear()
     return None if out is None else np.asarray(out.payload)
@@ -60,9 +60,9 @@ class TestMathNodePull:
 
 async def _correct(payload, **config):
     node = ColorCorrectionNode(ColorCorrectionNode.Config(id="c", **config))
-    node.inputs.input._set_frame(_frame(payload))
+    node.inputs.input._write(_frame(payload))
     await node.pull(TICK)
-    out = node.outputs.out._consume()
+    out = node.outputs.out._publish()
     node.inputs.input._clear()
     return out.payload
 
@@ -101,7 +101,10 @@ class TestColorCorrectionPull:
 
     async def test_a_matrix_that_is_not_triplets_passes_through(self) -> None:
         payload = MatrixPayload(np.array([[0.1, 0.2]], dtype=np.float32))
-        assert await _correct(payload) is payload
+        out = await _correct(payload)
+        # Passed on detached: same values, its own array (rasl-pd0.12)
+        assert type(out) is MatrixPayload and out.data.tolist() == payload.data.tolist()
+        assert not np.shares_memory(out.data, payload.data)
 
     async def test_a_four_component_model_is_converted(self) -> None:
         hsbk = HsbkColorPayload(np.array([[0.0, 1.0, 1.0, 0.5]], dtype=np.float32))

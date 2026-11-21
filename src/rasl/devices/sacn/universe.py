@@ -329,8 +329,11 @@ class SacnUniverseNode(BaseNode):
         )
         topic = f"sacn.universe.{self._universe}"
 
+        outputs = self.outputs
+
         def emit(port: str, payload: object) -> None:
-            ctx.inject(port, Frame(topic=topic, timestamp=now, payload=payload, metadata=metadata))
+            # A pushed output: published at the start of the next tick
+            outputs.get(port).write(Frame(topic=topic, timestamp=now, payload=payload, metadata=metadata))
 
         if update.terminated:
             self._terminated = True

@@ -6,6 +6,7 @@ and BoolPayload for boolean data.
 
 from __future__ import annotations
 
+import copy
 from typing import Any, ClassVar
 
 import numpy as np
@@ -82,6 +83,12 @@ class MatrixPayload(FramePayload):
     def data(self) -> NDArray[np.float32]:
         """The backing float32 array, shape (count, channels). The array itself, not a copy."""
         return self._data
+
+    def detached(self) -> "MatrixPayload":
+        """This payload, of the same class and attributes, over a copy of its array."""
+        twin = copy.copy(self)
+        twin._data = self._data.copy()
+        return twin
 
     @property
     def channels(self) -> int:

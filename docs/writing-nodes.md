@@ -198,13 +198,15 @@ async def pull(self, tick: TickContext) -> None:
 - `self.inputs.<name>.read()` returns the port's frame for this tick, or `None`. It is `None` when nothing is
   connected (`self.inputs.<name>.connected` says whether something is) and when the upstream node has not
   written anything yet. Always handle `None`.
-- `self.outputs.<name>.write(frame)` hands a frame downstream. A node that writes nothing in a tick leaves its
-  last frame in place: downstream nodes read the frame it last wrote.
+- `self.outputs.<name>.write(frame)` hands a frame downstream. It is published (readers see it) when the pull
+  ends. A node that writes nothing in a tick leaves its last frame in place: downstream nodes read the frame it
+  last wrote.
 - An input fed by one whole connection gets the upstream frame object as it was written. An input fed by slices,
-  repeats or several connections gets a new `MatrixPayload` built in a buffer that is reused next tick, so copy
-  the data if you keep it, and do not rely on its color model.
-- Exceptions from `pull` are logged against the node. That sink's pull ends for the tick, and the node is pulled
-  again next tick. After `max_consecutive_errors` failures in a row (the config's `runtime` block, 10 by default,
+  repeats or several connections gets a frame built in the port's own buffers, of the type the port takes.
+- Frames have a lifetime (see [Frame lifetimes](#frame-lifetimes)): copy the data of a frame you keep past your
+  next pull, and call `frame.detach()` before writing a frame you did not build, such as an input frame.
+- Exceptions from `pull` are logged against the node, and what the failed pull wrote is never published. That
+  sink's pull ends for the tick, and the node is pulled again next tick. After `max_consecutive_errors` failures in a row (the config's `runtime` block, 10 by default,
   or the node's own setting) the node is disabled until a config reload changes it.
 
 `TickContext` is a frozen dataclass:
@@ -223,22 +225,58 @@ changes over time should scale by `dt` or compute from `t`, never assume a fixed
 ### Avoiding allocation
 
 A node that writes large frames every tick can reuse a buffer instead of allocating one. `acquire(count)` on an
-output port returns a float32 array of shape `(count, components)`; fill it, wrap it in a payload, and call
-`commit(frame)`. The port alternates two buffers, so a committed frame stays unchanged until the next commit.
-`commit` checks the payload type against the port; `write` does not. `Waveform` and `SeededRandom` do this.
+output port returns a writable float32 view of shape `(count, components)` of the port's back buffer; fill it
+(numpy operations can write straight into it with `out=`), wrap it in a payload, and call `commit(frame)`. The
+port publishes the frame when the pull ends, and only then swaps its two buffers. `commit` checks the payload type
+against the port; `write` does not. `Waveform` and `SeededRandom` do this.
+
+What `acquire` returns holds old data (the frame from two publishes ago), not your last output. To update your last
+output instead of rewriting it, read `previous`, a read-only view of the frame readers see now:
+
+```python
+buf = self.outputs.out.acquire(n)
+np.multiply(self.outputs.out.previous, 0.9, out=buf)   # decay the last output: one vector operation, no copy
+self.outputs.out.commit(Frame(topic="fade", timestamp=tick.wall_time, payload=MatrixPayload(buf)))
+```
+
+`previous` is None before the first `commit` is published, after a published `write`, and when the shape asked
+for differs from the published one.
+
+### Frame lifetimes
+
+A frame's dataclass is frozen, but the array behind its payload may belong to a port's buffers. A frame a port
+published stays unchanged until its producer's first fill after its next publish. Ports publish:
+
+- an output, at the end of its node's pull (at most once per pull);
+- a pushed output, at the start of each tick (at most once per tick), so a frame read in a tick is unchanged for
+  the rest of that tick, however often its source writes meanwhile;
+- an input fed by slices, repeats or several connections, before its node's pull.
+
+So a frame is safe to use during the pull that read it. Two rules cover the rest:
+
+- To keep a frame past your next pull, copy its data.
+- To write a frame you did not build (an input frame, or one another node wrote), call `frame.detach()` first. It
+  copies the data and keeps the topic, timestamp and metadata. Otherwise the frame you passed on changes under its
+  readers when its producer refills the buffer, for example while your node is disabled or on a slower rate.
+
+Setting `debug_frames true;` in the config's `runtime` block makes mistakes fail: every `acquire` gets a fresh
+buffer and the buffer it replaces is filled with NaN, reading such a frame fails the reading node, writing a frame
+whose data a port owns fails the writer, and committing a frame not built on the latest `acquire` fails. It is
+slower; use it while developing a node.
 
 ### Push sources
 
 A source can also produce frames outside ticks, for data that arrives on its own schedule, such as packets from
 the network. In `start`, launch a background task with `ctx.start_background(func, *args)`, and write to an output
-port from that task whenever data arrives. Each write is kept as that port's latest frame and read at the next
-tick; it never causes a tick. `ctx.inject(port_name, frame)` does the same by port name. Only a node with no
-connected inputs is treated this way. `SineSource` is a push source.
+port from that task whenever data arrives, with `write` or `acquire` and `commit`. An output is pushed when its
+node has no `pull` (`SineSource`), or when it is declared `OutputPortSpec(..., pushed=True)`. What a pushed output
+produced is published at the start of the next tick, so every reader in a tick sees the same frame, and a source
+may write any number of times between ticks; it never causes a tick. Do not `await` between `acquire` and
+`commit`: a tick that starts in between keeps the previous frame.
 
 A node with inputs that also pushes (one that sends what its input carries and receives on its outputs, like
-`SacnUniverse`) declares those outputs `OutputPortSpec(..., pushed=True)` and writes them with `ctx.inject`. A node
-reading a pushed output gets its latest frame without pulling the writer, so the writer runs only at its own
-rate (if it declares one), not whenever a reader is due.
+`SacnUniverse`) declares those outputs `pushed=True`. A node reading a pushed output gets its latest frame without
+pulling the writer, so the writer runs only at its own rate (if it declares one), not whenever a reader is due.
 
 ## Lifecycle
 
@@ -251,7 +289,7 @@ rate (if it declares one), not whenever a reader is due.
 | `update_config(config)` | On a reload that changes this node's settings, if the method exists | Take new settings without a restart. |
 
 `NodeContext` has `node_id`, `logger` (a structlog logger bound to the node, used as
-`ctx.logger.info(event="...", key=value)`), `start_background`, `inject`, `wiring` (which of the node's ports
+`ctx.logger.info(event="...", key=value)`), `start_background`, `wiring` (which of the node's ports
 the running plan connects) and `resources`. Background tasks are cancelled when the node stops, whether or not
 `stop` ends them. An exception from `stop` is suppressed.
 

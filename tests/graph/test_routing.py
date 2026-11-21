@@ -9,7 +9,7 @@ import pytest
 from rasl.color import RgbColorPayload
 from rasl.graph import CycleWarning, GraphBuilder, Slice
 from rasl.graph.node import NodeContext
-from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
+from rasl.graph.ports import FrameBuffers, InputPortSpec, OutputPortSpec, PortGroup
 from rasl.graph.routing import CopySliceOp, InputPortProgram, RepeatSliceOp
 from rasl.signal import Frame, MatrixPayload
 
@@ -102,7 +102,8 @@ class _Run:
 
     def __init__(self, program: InputPortProgram) -> None:
         self.program = program
-        self.buffers: dict = {}
+        if program.passthrough is None:
+            program.target._buffers = FrameBuffers()  # what the runtime's bind_ports gives it
         self.reads: list[tuple[str, str, bool]] = []
 
     def __call__(self, frames: dict[str, Frame | None]) -> Frame | None:
@@ -110,14 +111,9 @@ class _Run:
             self.reads.append((node, port, is_back_edge))
             return frames.get(node)
 
-        def ensure_buffer(key, rows: int, cols: int) -> np.ndarray:
-            buf = self.buffers.get(key)
-            if buf is None or buf.shape[0] < rows or buf.shape[1] < cols:
-                buf = np.zeros((rows, cols), dtype=np.float32)
-                self.buffers[key] = buf
-            return buf
-
-        return self.program.populate(tick=0, resolve=resolve, ensure_buffer=ensure_buffer)
+        published = self.program.populate(tick=0, resolve=resolve)
+        assert self.program.target.read() is published
+        return published
 
 
 def _program(nodes, connections, target: str = "b") -> _Run:
@@ -211,9 +207,25 @@ class TestInputPortProgram:
         }
         assert sorted(flags.values()) == [[False], [True]]
 
-    @pytest.mark.xfail(strict=True, reason="rasl-pd0.12: a built frame views a buffer the next pull rewrites")
-    def test_a_built_frame_is_unchanged_by_the_next_pull(self) -> None:
+    def test_a_built_frame_is_unchanged_by_the_next_pull_and_reused_at_the_one_after(self) -> None:
         run = _program([_Node("a"), _Node("b")], [(("a", "out", "b", "in", Slice(0, 2)), {})])
         first = run({"a": _frame(_rows(2, start=1))})
-        run({"a": _frame(_rows(2, start=7))})
+        second = run({"a": _frame(_rows(2, start=7))})
         assert np.asarray(first.payload).ravel().tolist() == [1, 2]
+        third = run({"a": _frame(_rows(2, start=3))})
+        assert np.shares_memory(np.asarray(first.payload), np.asarray(third.payload))
+        assert not np.shares_memory(np.asarray(second.payload), np.asarray(third.payload))
+
+    def test_a_source_that_fails_its_type_check_publishes_nothing(self) -> None:
+        from rasl.graph import CoercionError
+
+        rgb = InputPortSpec(RgbColorPayload)
+        run = _program(
+            [_Node("a", out=OutputPortSpec(RgbColorPayload)), _Node("b", inp=rgb)],
+            [(("a", "out", "b", "in", Slice(0, 2)), {})],
+        )
+        good = run({"a": _frame(_rows(2, cols=3), payload_type=RgbColorPayload)})
+        bad = Frame(topic="t", timestamp=0.0, payload=MatrixPayload(_rows(2, cols=2)))
+        with pytest.raises(CoercionError):
+            run.program.populate(tick=1, resolve=lambda *_: bad)
+        assert run.program.target.read() is good

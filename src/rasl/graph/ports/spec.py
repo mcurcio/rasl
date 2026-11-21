@@ -281,11 +281,11 @@ class OutputPortSpec:
         components: Columns per element the output always emits, when its type does
             not fix them (a plain matrix of known width); None when unknown until it
             runs. A color type's own ``components`` needs no declaration here.
-        pushed: The node writes this output from outside ``pull`` (``ctx.inject``,
-            as data arrives), never from its inputs. A node reading it gets the latest
-            frame without the writer being pulled, so the writer runs only at its own
-            rate, if it has one (owner, 2026-11-21: an sACN universe received and sent
-            by one node).
+        pushed: The node writes this output from outside ``pull`` (from a background
+            task, as data arrives), never from its inputs. What it writes is published at
+            the start of the next tick. A node reading it gets the latest frame without
+            the writer being pulled, so the writer runs only at its own rate, if it has
+            one (owner, 2026-11-21: an sACN universe received and sent by one node).
     """
 
     produces: ProducesSpec

@@ -183,6 +183,8 @@ syntax. rasl reads these directives:
 - **`runtime { max_consecutive_errors 10; }`**, at the top level: a node whose pull fails this many times in a
   row is disabled (no longer pulled) until a config reload changes it or rasl restarts. The default is 10, and
   0 means never. A node's own `max_consecutive_errors` setting overrides it.
+  `debug_frames true;` in the same block checks frame lifetimes while you develop a node: a node that keeps or
+  passes on a frame after its port reused the buffer behind it fails (see `docs/writing-nodes.md`, Frame lifetimes).
 
 A larger example, with a variable, a snippet and a slice:
 
