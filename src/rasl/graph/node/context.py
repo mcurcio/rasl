@@ -61,7 +61,8 @@ class NodeContext:
     """Resources this node shares with others, such as a socket (``rasl.graph.node.resources``)."""
 
     wiring: "Wiring"
-    """Which of this node's ports the running plan connects."""
+    """Which of this node's ports the plan it was started in connects. It is not updated
+    on a reroute: a class that depends on it sets ``restart_on_wiring_change``."""
 
     _start_background: StartTaskCallable
     """Internal callback for spawning background async tasks."""

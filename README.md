@@ -259,6 +259,7 @@ defaults, and has a working example for each sink.
 | `Crossfade` | Fades between two colors when a selector changes | `input0`, `input1`, `selector` | `out` |
 | **Sinks** | | | |
 | `ConsoleSink` | Prints frames to the log | `dmx` | |
+| `SacnUniverse` | Sends one sACN universe when `dmx` is connected (see Sources) | `dmx` | |
 | `DdpSink` | Sends pixels over DDP | `input` | |
 | `LifxSink` | Sets LIFX bulbs | `color` | |
 | `GoveeLight` | Sets a Govee light over its LAN API | `light` | |

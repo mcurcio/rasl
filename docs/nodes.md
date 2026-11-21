@@ -153,7 +153,9 @@ connected, and sends it when its `dmx` input is; with nothing connected it opens
 | `terminated` | bool, 1 element | 1 once the source ends its stream (and no other source is live), 0 again when data arrives. |
 
 It makes no policy of its own: grouping channels into pixels is `Reshape`, joining universes is `connect`
-ranges, and what to do when a stream stops is wiring downstream (a `count` that stops advancing).
+ranges, and what to do when a stream stops is wiring downstream: `count` stops advancing and `terminated`
+turns 1. No built-in node reads a `count` yet; the nodes that will (detecting a count that stops) are planned
+(bead rasl-2lg.6).
 
 Every SacnUniverse on the same `bind` and `port` shares one socket. It joins the universe's multicast
 group (239.255.hi.lo) and takes unicast too; universe 0 has no group and is unicast only. If the join fails (as
@@ -194,10 +196,9 @@ synchronization universe's multicast group the first time data names it.
 
 A live reload restarts the node when its wiring changes, since what it opens follows its wiring.
 
-```nginx
-node SacnUniverse wall_1 { universe 10; sync 99; connect pixels[0~170]; }   # sends
-node SacnUniverse wall_2 { universe 11; sync 99; connect pixels[170~340]; } # changes with wall_1
+Receive two universes as one run of RGB pixels:
 
+```nginx
 node SacnUniverse u1 { universe 1; channels 432; }
 node SacnUniverse u2 { universe 2; channels 24; }
 node Reshape pixels {                # 152 RGB pixels: 144 from universe 1, then 8 from universe 2
@@ -205,6 +206,14 @@ node Reshape pixels {                # 152 RGB pixels: 144 from universe 1, then
     connect u1 input[0~432];
     connect u2 input[432~456];
 }
+```
+
+Send 340 RGB pixels across two universes that change together (510 channels each):
+
+```nginx
+node Waveform pattern { output_channels 1020; }
+node SacnUniverse wall_1 { universe 10; channels 510; sync 99; connect pattern[0~510]; }
+node SacnUniverse wall_2 { universe 11; channels 510; sync 99; connect pattern[510~1020]; }
 ```
 
 ## Transforms
@@ -313,7 +322,8 @@ frame the input receives, gaps included. Otherwise the node fails on the frame t
 | `components` | int, at least 1 | required | Values per output row. Changing it restarts the node. |
 
 ```nginx
-node Reshape rgb { components 3; connect dmx; }
+node SacnUniverse dmx { universe 1; channels 510; }   # 510 channels: a multiple of 3
+node Reshape rgb { components 3; connect dmx; }       # 170 RGB pixels
 ```
 
 ### RandomMap
@@ -372,8 +382,9 @@ node Crossfade fade {
 
 ## Sinks
 
-Each sink declares a pull rate, `fps` (a sending `SacnUniverse` too). rasl runs a sink, and the nodes it
-reads from, at that rate. A node that no sink reads from never runs.
+Each sink declares a pull rate, `fps`. rasl runs a sink, and the nodes it reads from, at that rate. A node
+that no sink reads from never runs. A `SacnUniverse` with its `dmx` input connected is a sink too: see
+[SacnUniverse](#sacnuniverse) under Sources.
 
 ### ConsoleSink
 

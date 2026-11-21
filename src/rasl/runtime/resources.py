@@ -3,7 +3,8 @@
 Each resource is counted by holder. It opens on the first ``acquire`` and closes when
 the last lease is released, except during a plan update: a swap stops the old nodes
 before it starts the new ones, so a resource both use would close and reopen in
-between (a socket rebound, a multicast group left and rejoined). While a swap runs
+between (a socket rebound). State a resource keeps per holder is its own business
+(an sACN receiver keeps a universe's group until the end of the tick). While a swap runs
 (``ResourceRegistry.deferring_close``) a resource nobody holds stays open, and closes
 when the swap ends only if nobody took it up again (owner, 2026-11-20, rasl-2lg.1).
 
