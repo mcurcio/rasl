@@ -830,3 +830,95 @@ class TestDebugFrames:
             computed = Frame(topic="t", timestamp=0.0, payload=MatrixPayload(np.full((2, 1), np.nan, dtype=np.float32)))
             runtime.executor.latest[("src", "out")] = computed
             assert runtime.executor._resolve("src", "out", True, 0) is computed
+
+
+class TestStartRetries:
+    """A node a plan update cannot start is retried (owner, 2026-11-21, rasl-blc)."""
+
+    def test_the_delay_doubles_from_one_second_to_a_minute(self) -> None:
+        from rasl.runtime.runtime import start_retry_delay
+
+        assert [start_retry_delay(n) for n in range(1, 9)] == [1, 2, 4, 8, 16, 32, 60, 60]
+
+    async def test_a_node_whose_start_fails_is_not_pulled_and_starts_on_a_later_retry(self, monkeypatch) -> None:
+        import rasl.runtime.runtime as runtime_module
+        from rasl.runtime import PlanUpdate
+
+        class Flaky(BaseNode):
+            """Fails to start ``failures`` times, then writes 7 every pull."""
+
+            def __init__(self, failures: int) -> None:
+                self.id = "flaky"
+                self.inputs = PortGroup.inputs()
+                self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
+                self.failures = failures
+                self.starts = self.stops = self.pulls = 0
+
+            async def start(self, ctx) -> None:
+                self.starts += 1
+                if self.starts <= self.failures:
+                    raise OSError("address in use")
+
+            async def stop(self, ctx) -> None:
+                self.stops += 1
+
+            async def pull(self, tick: TickContext) -> None:
+                self.pulls += 1
+                self.outputs.out.write(Frame(topic="f", timestamp=0.0, payload=MatrixPayload(_matrix(7.0))))
+
+        clock = [1000.0]
+        monkeypatch.setattr(runtime_module.time, "monotonic", lambda: clock[0])
+
+        reader = Reader()
+        runtime = Runtime(_plan([reader]))
+        async with _ticking(runtime) as ticker:
+            await ticker.tick()
+            flaky = Flaky(failures=2)
+            new_plan = _plan([flaky, reader], [("flaky", "reader")])
+            runtime._plan = new_plan
+            runtime._derive_from_plan()
+            await runtime._swap_nodes(PlanUpdate(plan=new_plan, tree=None, added=("flaky",)), _plan([Reader()]))
+            assert runtime.unstarted == ["flaky"] and flaky.stops == 1  # half-started node stopped
+
+            await ticker.tick()  # retry not due yet (1 s)
+            assert flaky.starts == 1 and flaky.pulls == 0 and reader.read[-1] is None
+            clock[0] += 1.0
+            await ticker.tick()  # second attempt fails: next in 2 s
+            assert flaky.starts == 2 and runtime.unstarted == ["flaky"]
+            clock[0] += 1.0
+            await ticker.tick()
+            assert flaky.starts == 2
+            clock[0] += 1.0
+            await ticker.tick()  # third attempt starts it, and it is pulled in the same tick
+            assert flaky.starts == 3 and runtime.unstarted == []
+            assert flaky.pulls == 1 and reader.read[-1] == [7.0, 7.0]
+
+    async def test_a_later_update_that_removes_the_node_stops_retrying_it(self, monkeypatch) -> None:
+        from rasl.runtime import PlanUpdate
+
+        class Broken(BaseNode):
+            def __init__(self) -> None:
+                self.id = "broken"
+                self.inputs = PortGroup.inputs()
+                self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
+                self.starts = 0
+
+            async def start(self, ctx) -> None:
+                self.starts += 1
+                raise OSError("no device")
+
+        reader = Reader()
+        old = _plan([reader])
+        runtime = Runtime(old)
+        async with _ticking(runtime):
+            broken = Broken()
+            with_broken = _plan([broken, reader], [("broken", "reader")])
+            runtime._plan = with_broken
+            runtime._derive_from_plan()
+            await runtime._swap_nodes(PlanUpdate(plan=with_broken, tree=None, added=("broken",)), old)
+            assert runtime.unstarted == ["broken"]
+            without = _plan([reader])
+            runtime._plan = without
+            runtime._derive_from_plan()
+            await runtime._swap_nodes(PlanUpdate(plan=without, tree=None, removed=("broken",)), with_broken)
+            assert runtime.unstarted == [] and runtime._start_retries == {}

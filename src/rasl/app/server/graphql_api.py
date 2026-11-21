@@ -132,8 +132,9 @@ class Health:
     """Server health, the same report as ``GET /health`` (``rasl.app.server.health``).
 
     Attributes:
-        status: "ok", "degraded" (a node disabled for repeated failures, or the last
-            config reload failed and the old graph still runs) or "stalled" (the graph
+        status: "ok", "degraded" (a node disabled for repeated failures, a node a config
+            reload added or restarted has not started, or the last config reload failed
+            and the old graph still runs) or "stalled" (the graph
             has rate drivers but has not ticked for ``stall_after_seconds``).
         uptime_seconds: Seconds since the server was created.
         tick_count: Ticks run since the runtime started.
@@ -141,6 +142,8 @@ class Health:
         stall_after_seconds: How long without a tick counts as a stall for the graph
             now running; null when it has no rate driver.
         disabled_nodes: Ids of the nodes disabled for failing again and again.
+        unstarted_nodes: Ids of the nodes a config reload added or restarted whose start
+            failed; the runtime retries them.
         last_reload_ok: Whether the last config reload succeeded; null if none yet.
         last_reload_error: Why the last reload failed; null unless it failed.
         last_reload_at: When the last reload attempt ended, in Unix seconds.
@@ -151,6 +154,7 @@ class Health:
     last_tick_age_seconds: Optional[float]
     stall_after_seconds: Optional[float]
     disabled_nodes: List[str]
+    unstarted_nodes: List[str]
     last_reload_ok: Optional[bool]
     last_reload_error: Optional[str]
     last_reload_at: Optional[float]
@@ -240,6 +244,7 @@ class Query(EditorQuery):
             last_tick_age_seconds=report.last_tick_age_seconds,
             stall_after_seconds=report.stall_after_seconds,
             disabled_nodes=list(report.disabled_nodes),
+            unstarted_nodes=list(report.unstarted_nodes),
             last_reload_ok=report.last_reload_ok,
             last_reload_error=report.last_reload_error,
             last_reload_at=report.last_reload_at,

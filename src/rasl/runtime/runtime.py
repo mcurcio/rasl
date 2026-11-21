@@ -14,7 +14,8 @@ and it is the one place a new plan is swapped in (``request_update``).
 from __future__ import annotations
 
 import time
-from typing import Dict, List, Optional, Set, Tuple
+from dataclasses import dataclass
+from typing import Dict, Final, List, Optional, Set, Tuple
 
 import anyio
 import structlog
@@ -32,6 +33,30 @@ from rasl.runtime.scheduler import Scheduler
 from rasl.runtime.timing import find_rate_drivers, find_undriven
 
 logger = structlog.get_logger()
+
+# A node a plan update could not start is retried after this many seconds, doubling
+# after each failure up to the cap (owner, 2026-11-21, rasl-blc).
+START_RETRY_FIRST_SECONDS: Final = 1.0
+START_RETRY_MAX_SECONDS: Final = 60.0
+
+
+@dataclass
+class _StartRetry:
+    """When to try again to start a node a plan update could not start."""
+
+    failures: int
+    due_at: float
+
+    def failed(self, now: float) -> None:
+        """Count one more failed start and push the next attempt back."""
+        self.failures += 1
+        self.due_at = now + start_retry_delay(self.failures)
+
+
+def start_retry_delay(failures: int) -> float:
+    """Seconds before the next start attempt after ``failures`` failed ones (1 or more):
+    1, 2, 4, ... capped at ``START_RETRY_MAX_SECONDS``."""
+    return min(START_RETRY_MAX_SECONDS, START_RETRY_FIRST_SECONDS * 2 ** (failures - 1))
 
 
 class Runtime:
@@ -95,6 +120,8 @@ class Runtime:
 
         # A plan update waiting for the next tick boundary (request_update)
         self._pending_update: Optional[Tuple[PlanUpdate, anyio.Event]] = None
+        # Nodes a plan update could not start, and when to try each again
+        self._start_retries: Dict[str, _StartRetry] = {}
 
         self._rate_drivers: Dict[str, float] = {}
         self._undriven: List[str] = []
@@ -126,6 +153,13 @@ class Runtime:
     def undriven(self) -> List[str]:
         """The nodes nothing pulls (see ``find_undriven``)."""
         return list(self._undriven)
+
+    @property
+    def unstarted(self) -> List[str]:
+        """Nodes a plan update added or restarted whose ``start`` failed, sorted. They are
+        not pulled, and are retried at tick boundaries after 1, 2, 4 ... seconds (at most
+        a minute apart) until one succeeds or a later update removes or replaces them."""
+        return sorted(self.executor.unstarted)
 
     @property
     def nodes(self) -> Dict[str, NodeRuntime]:
@@ -203,6 +237,11 @@ class Runtime:
                 await self._host.stop(node_id)
                 self._host.runtimes.pop(node_id, None)
 
+        # A node that goes away, or is replaced, stops being retried; one the update
+        # starts afresh gets its own attempt below
+        for node_id in [n for n in self._start_retries if n in stopping or n not in self._plan.nodes]:
+            del self._start_retries[node_id]
+
         # Nothing computed or measured for the old plan may leak into the new one
         self.executor.forget(stopping)
         self.timing.forget(stopping)
@@ -218,15 +257,60 @@ class Runtime:
                 self._plan.nodes[node_id].update_config(config)
             except Exception as e:
                 logger.error("node_update_failed", node_id=node_id, error=str(e))
+            retry = self._start_retries.get(node_id)
+            if retry is not None:
+                retry.due_at = 0.0  # new settings: try again at the next tick
 
         self._host.bind_ports(self._plan)
+        now = time.monotonic()
         for node_id in self._plan.topological_order:
             if node_id not in self._host.runtimes:
-                try:
-                    await self._host.start(self._plan, node_id)
-                except Exception as e:
-                    logger.error("node_start_failed", node_id=node_id, error=str(e))
+                if not await self._try_start(node_id, first=True):
+                    self.executor.unstarted.add(node_id)
+                    self._start_retries[node_id] = _StartRetry(failures=1, due_at=now + start_retry_delay(1))
         return stopping
+
+    async def _try_start(self, node_id: str, *, first: bool) -> bool:
+        """Start a node of the running plan; on failure stop what it started and log it
+        (the traceback on the first failure, one line after). Returns whether it started."""
+        try:
+            await self._host.start(self._plan, node_id)
+            return True
+        except Exception as e:
+            # Release what the half-started node acquired before the next attempt
+            await self._host.stop(node_id)
+            retry = self._start_retries.get(node_id)
+            if first:
+                logger.error(
+                    "node_start_failed",
+                    node_id=node_id,
+                    error=str(e),
+                    retry_in_seconds=start_retry_delay(1),
+                    exc_info=e,
+                )
+            else:
+                failures = (retry.failures if retry else 0) + 1
+                logger.warning(
+                    "node_start_retry_failed",
+                    node_id=node_id,
+                    error=str(e),
+                    failures=failures,
+                    retry_in_seconds=start_retry_delay(failures),
+                )
+            return False
+
+    async def _retry_starts(self) -> None:
+        """At a tick boundary: try again to start each node whose retry is due."""
+        now = time.monotonic()
+        for node_id, retry in list(self._start_retries.items()):
+            if now < retry.due_at:
+                continue
+            if await self._try_start(node_id, first=False):
+                del self._start_retries[node_id]
+                self.executor.unstarted.discard(node_id)
+                logger.info("node_started_after_retry", node_id=node_id, failures=retry.failures)
+            else:
+                retry.failed(now)
 
     def enable_profiling(self, enabled: bool = True) -> None:
         """Enable detailed profiling of populate() and node execution."""
@@ -239,8 +323,10 @@ class Runtime:
         return self._pending_update is not None
 
     async def _tick(self, tick: TickContext, sinks: Tuple[str, ...]) -> None:
-        """One tick: pull each sink that is due, and what feeds it; then let shared
-        resources finish the tick (``EndOfTick``)."""
+        """One tick: retry starts that are due, pull each sink that is due and what
+        feeds it, then let shared resources finish the tick (``EndOfTick``)."""
+        if self._start_retries:
+            await self._retry_starts()
         self.executor.begin_tick()
         for sink_id in sinks:
             await self.executor.pull_sink(sink_id, tick)

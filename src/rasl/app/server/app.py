@@ -35,6 +35,7 @@ def health_response(state: AppState) -> JSONResponse:
     body = dataclasses.asdict(report)
     body["status"] = report.status.value
     body["disabled_nodes"] = list(report.disabled_nodes)
+    body["unstarted_nodes"] = list(report.unstarted_nodes)
     code = 503 if report.status is HealthStatus.STALLED else 200
     return JSONResponse(body, status_code=code)
 

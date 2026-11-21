@@ -58,6 +58,7 @@ class AppState:
             last_tick_at=scheduler.last_tick_at,
             run_started_at=scheduler.run_started_at,
             disabled_nodes=self.runtime.executor.disabled,
+            unstarted_nodes=self.runtime.executor.unstarted,
             last_reload=None if self.session is None else self.session.last_reload,
             uptime_seconds=self.uptime_seconds,
             now=time.monotonic(),

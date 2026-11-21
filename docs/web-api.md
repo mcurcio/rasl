@@ -109,7 +109,7 @@ server: uvicorn
 content-length: 225
 content-type: application/json
 
-{"status":"ok","uptime_seconds":3.6419973373413086,"tick_count":4,"last_tick_age_seconds":0.6377826190000633,"stall_after_seconds":10.0,"disabled_nodes":[],"last_reload_ok":null,"last_reload_error":null,"last_reload_at":null}
+{"status":"ok","uptime_seconds":3.6419973373413086,"tick_count":4,"last_tick_age_seconds":0.6377826190000633,"stall_after_seconds":10.0,"disabled_nodes":[],"unstarted_nodes":[],"last_reload_ok":null,"last_reload_error":null,"last_reload_at":null}
 ```
 
 | Field | Type | Meaning |
@@ -120,6 +120,7 @@ content-type: application/json
 | `last_tick_age_seconds` | number or null | Seconds since the last tick finished; null before the first tick. |
 | `stall_after_seconds` | number or null | How long without a tick counts as a stall for the graph now running; null when the graph has no rate-driving sink, since it cannot stall. |
 | `disabled_nodes` | array of strings | Ids of nodes disabled after `max_consecutive_errors` failed pulls in a row (10 by default; see the README's `runtime` block), sorted. A config reload that changes a node re-enables it. |
+| `unstarted_nodes` | array of strings | Ids of nodes a config reload added or restarted whose start failed, sorted. They are not pulled (what reads them gets no frame), and the runtime retries each at tick boundaries after 1, 2, 4 ... seconds, at most a minute apart, until it starts or a later reload removes or replaces it. |
 | `last_reload_ok` | boolean or null | Whether the last config reload succeeded; null if none has been tried, or the config is not watched (`--no-watch`). |
 | `last_reload_error` | string or null | Why the last reload failed, with file, line, column and the source line; null unless it failed. |
 | `last_reload_at` | number or null | When the last reload attempt ended, in Unix seconds; null if none has been tried. |
@@ -131,7 +132,7 @@ The rules are in `src/rasl/app/server/health.py`. The worst one that applies win
 | Status | When | HTTP |
 |---|---|---|
 | `stalled` | The graph has at least one rate-driving sink, the scheduler has begun running, and no tick has finished for more than `stall_after_seconds`. The time is counted from the later of the last tick and the moment the scheduler last began running (it begins again after each reload). | 503 |
-| `degraded` | Not stalled, but a node has been disabled for repeated failures, or the last config reload failed and the previous graph is still running. | 200 |
+| `degraded` | Not stalled, but a node has been disabled for repeated failures, a node a config reload added or restarted has not started (it is being retried), or the last config reload failed and the previous graph is still running. | 200 |
 | `ok` | Neither. | 200 |
 
 `stall_after_seconds` is `max(5, 10 / slowest rate)`: ten periods of the slowest rate-driving sink, and never
@@ -151,7 +152,7 @@ server: uvicorn
 content-length: 368
 content-type: application/json
 
-{"status":"degraded","uptime_seconds":6.7178826332092285,"tick_count":7,"last_tick_age_seconds":0.7128174150002451,"stall_after_seconds":10.0,"disabled_nodes":[],"last_reload_ok":false,"last_reload_error":"live.conf:43:5: rasl/connect: Node 'twinkle': Unknown source node 'missing_node'\n    node TwinkleEffect twinkle {\n    ^^^^","last_reload_at":1794779340.9721258}
+{"status":"degraded","uptime_seconds":6.7178826332092285,"tick_count":7,"last_tick_age_seconds":0.7128174150002451,"stall_after_seconds":10.0,"disabled_nodes":[],"unstarted_nodes":[],"last_reload_ok":false,"last_reload_error":"live.conf:43:5: rasl/connect: Node 'twinkle': Unknown source node 'missing_node'\n    node TwinkleEffect twinkle {\n    ^^^^","last_reload_at":1794779340.9721258}
 ```
 
 The status returns to `ok` at the next reload that succeeds.
