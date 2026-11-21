@@ -421,3 +421,36 @@ def test_a_broken_plan_warnings_hook_is_logged_and_the_config_still_loads(broken
     with capture_logs() as logs:
         parse_config("graph {\n    node SacnUniverse u { universe 1; }\n}\n")
     assert any(entry["event"] == "plan_warnings_failed" for entry in logs)
+
+
+class TestDirectionWarnings:
+    """Owner, 2026-11-21: warn on settings and wiring that will not do what they look like."""
+
+    def test_send_settings_on_a_node_that_only_receives(self) -> None:
+        details = _warnings(
+            "graph {\n    node SacnUniverse u { universe 1; target \"10.0.0.2\"; priority 150; }\n"
+            "    node ConsoleSink c { fps 1; connect u; }\n}\n"
+        )
+        assert any("rasl/sacn-send-settings" in d and "priority, target" in d for d in details)
+
+    def test_receiving_a_universe_this_rasl_sends(self) -> None:
+        details = _warnings(
+            "graph {\n    node SineSource s { output_channels 3; }\n"
+            "    node SacnUniverse out { universe 7; connect s; }\n"
+            "    node SacnUniverse back { universe 7; }\n"
+            "    node ConsoleSink c { fps 1; connect back; }\n}\n"
+        )
+        assert any("rasl/sacn-own-universe" in d and "'out' sends" in d for d in details)
+
+    def test_more_values_than_channels(self) -> None:
+        details = _warnings(
+            "graph {\n    node SacnUniverse src { universe 1; channels 30; }\n"
+            "    node SacnUniverse out { universe 2; channels 20; connect src; }\n}\n"
+        )
+        assert any("rasl/sacn-truncated" in d and "fed 30 values but sends 20" in d for d in details)
+
+    def test_a_plain_receiver_and_a_plain_sender_warn_nothing(self) -> None:
+        assert _warnings(
+            "graph {\n    node SacnUniverse a { universe 1; channels 6; }\n"
+            "    node SacnUniverse b { universe 2; channels 6; connect a; }\n}\n"
+        ) == []

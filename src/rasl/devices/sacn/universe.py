@@ -72,6 +72,9 @@ class SacnUniverseNode(BaseNode):
 
     restart_on_wiring_change = True
 
+    _SEND_SETTINGS = frozenset({"target", "fps", "priority", "source_name", "ttl", "send_port", "sync"})
+    """Settings that only matter when the node sends."""
+
     class Config(TransformNodeConfig):
         """Configuration for SacnUniverseNode."""
 
@@ -120,6 +123,7 @@ class SacnUniverseNode(BaseNode):
         self._send_port = config.send_port
         self._sync_universe = config.sync
         self._fps = config.fps.hz
+        self._send_settings = sorted(config.model_fields_set & self._SEND_SETTINGS)
         self.inputs = PortGroup.inputs(dmx=InputPortSpec(MatrixPayload, description="Values to send"))
         self.outputs = PortGroup.outputs(
             dmx=OutputPortSpec(MatrixPayload, count=config.channels, components=1, pushed=True),
@@ -200,7 +204,55 @@ class SacnUniverseNode(BaseNode):
                     f"sync universe {sync} has senders at rates that rarely share a tick ({listed}); "
                     "use equal rates or whole multiples so they change together"
                 )))
+        warnings += cls._direction_warnings(plan, node_ids, senders)
         return warnings
+
+    @classmethod
+    def _direction_warnings(
+        cls, plan: ExecutionPlan, node_ids: Sequence[str], senders: list[str]
+    ) -> list[PlanWarning]:
+        """Settings and wiring that will not do what they look like (owner, 2026-11-21)."""
+        warnings: list[PlanWarning] = []
+        sent = {}
+        for node_id in senders:
+            sent.setdefault(plan.nodes[node_id].send_target[2], node_id)  # type: ignore[attr-defined]
+        for node_id in node_ids:
+            node = plan.nodes[node_id]
+            wiring = plan.wiring(node_id)
+            if node_id not in senders and node._send_settings:  # type: ignore[attr-defined]
+                listed = ", ".join(node._send_settings)  # type: ignore[attr-defined]
+                warnings.append(PlanWarning(node_id, "rasl/sacn-send-settings", (
+                    f"'{node_id}' sets {listed}, which only apply when it sends, "
+                    "but nothing is connected to its dmx input"
+                )))
+            sender = sent.get(node._universe)  # type: ignore[attr-defined]
+            if wiring.outputs and sender is not None:
+                warnings.append(PlanWarning(node_id, "rasl/sacn-own-universe", (
+                    f"'{node_id}' receives universe {node._universe}, which '{sender}' sends from this rasl; "  # type: ignore[attr-defined]
+                    "rasl drops its own packets, so it receives only other sources"
+                )))
+            supplied = cls._supplied_to_dmx(plan, node_id)
+            if node_id in senders and supplied is not None and supplied > node._channels:  # type: ignore[attr-defined]
+                warnings.append(PlanWarning(node_id, "rasl/sacn-truncated", (
+                    f"'{node_id}' is fed {supplied} values but sends {node._channels} channels; "  # type: ignore[attr-defined]
+                    f"the rest are dropped (raise channels, up to 512, or split across universes)"
+                )))
+        return warnings
+
+    @staticmethod
+    def _supplied_to_dmx(plan: ExecutionPlan, node_id: str) -> Optional[int]:
+        """Values one whole edge into ``dmx`` supplies, when known before the graph runs."""
+        edges = [e for es in plan.adjacency.values() for e in es if e.target == node_id and e.target_port == "dmx"]
+        if len(edges) != 1:
+            return None
+        edge = edges[0]
+        if edge.source_slice is not None or edge.target_slice is not None or edge.repeat > 1 or edge.repeat_until:
+            return None
+        port = plan.nodes[edge.source].outputs.get(edge.source_port)  # type: ignore[attr-defined]
+        spec = getattr(port, "spec", None)
+        rows = getattr(spec, "fixed_count", None)
+        width = getattr(spec, "known_components", None)
+        return rows * width if isinstance(rows, int) and isinstance(width, int) else None
 
     async def start(self, ctx: NodeContext) -> None:
         """Open what the wiring asks for: the shared output when ``dmx`` is an input,
