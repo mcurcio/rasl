@@ -10,7 +10,7 @@
 - the node registry: ``@node("Name")`` and lookups by type name
 """
 
-from rasl.graph.node.base import BaseNode
+from rasl.graph.node.base import BaseNode, PlanWarning
 from rasl.graph.node.config import BaseNodeConfig, SinkNodeConfig, SourceNodeConfig, TransformNodeConfig
 from rasl.graph.node.context import InjectCallable, NodeContext, StartTaskCallable
 from rasl.graph.node.protocol import Node, get_inputs, get_outputs
@@ -37,6 +37,7 @@ __all__ = [
     "Node",
     "NodeContext",
     "NodeRegistryError",
+    "PlanWarning",
     "ResourceKey",
     "Resources",
     "SinkNodeConfig",

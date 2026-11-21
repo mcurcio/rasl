@@ -29,12 +29,17 @@ def pull_rate_of(node_id: str, node: object, wiring: Optional[Wiring] = None) ->
     if hz is None:
         return None
     if callable(hz):
-        if getattr(pull, "_pull_rate_wiring", False):
-            if wiring is None:
-                raise ValueError(f"Node '{node_id}' declares a rate that depends on its wiring; none given")
-            hz = hz(node, wiring)
-        else:
-            hz = hz(node)
+        wants_wiring = getattr(pull, "_pull_rate_wiring", False)
+        if wants_wiring and wiring is None:
+            raise ValueError(f"Node '{node_id}' declares a rate that depends on its wiring; none given")
+        try:
+            hz = hz(node, wiring) if wants_wiring else hz(node)
+        except TypeError as e:
+            shape = "(self, wiring)" if wants_wiring else "(self)"
+            raise ValueError(
+                f"Node '{node_id}' ({type(node).__name__}): its @pull_rate function must take {shape}"
+                f"{'' if wants_wiring else '; pass wiring=True for one that takes (self, wiring)'}: {e}"
+            ) from e
         if hz is None:
             return None
     try:

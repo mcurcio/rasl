@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from abc import ABC
 from types import MappingProxyType
-from typing import TYPE_CHECKING, ClassVar, Sequence, Type
+from typing import TYPE_CHECKING, ClassVar, NamedTuple, Sequence, Type
 
 from rasl.graph.ports.group import PortGroup
 from rasl.signal import EMPTY_METADATA
@@ -44,6 +44,20 @@ if TYPE_CHECKING:
     from rasl.graph.node.context import NodeContext
     from rasl.graph.node.tick import TickContext
     from rasl.graph.plan import ExecutionPlan
+
+
+class PlanWarning(NamedTuple):
+    """One warning from ``BaseNode.plan_warnings``, logged on its node's line.
+
+    Attributes:
+        node_id: The node it is about.
+        code: rasl's code for it, ``rasl/<name>``.
+        message: Description of the problem.
+    """
+
+    node_id: str
+    code: str
+    message: str
 
 
 class BaseNode(ABC):
@@ -185,19 +199,21 @@ class BaseNode(ABC):
         pass
 
     @classmethod
-    def plan_warnings(cls, plan: "ExecutionPlan", node_ids: Sequence[str]) -> list[tuple[str, str, str]]:
+    def plan_warnings(cls, plan: "ExecutionPlan", node_ids: Sequence[str]) -> list[PlanWarning]:
         """Warnings about this class's nodes taken together, found when a config loads.
 
         For a problem no single node can see (two nodes using the same thing). The
         config loader calls it once per node class in the plan and logs each warning on
-        its node's line; the plan still loads. The default finds nothing.
+        its node's line; the plan still loads, also when this method raises or returns
+        something malformed (that is logged as ``plan_warnings_failed``). The default
+        finds nothing.
 
         Args:
             plan: The built plan.
             node_ids: The ids of this class's nodes in it.
 
         Returns:
-            (node id, code ``rasl/<name>``, message) for each warning.
+            A ``PlanWarning`` for each warning.
         """
         return []
 

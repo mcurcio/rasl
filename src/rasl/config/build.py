@@ -12,6 +12,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+import structlog
+
 from rasl.config.connect import parse_connect_directive, resolve_connections
 from rasl.config.document import (
     ConfigError,
@@ -27,6 +29,8 @@ from rasl.config.node_directive import _node_config, node_spec
 from rasl.graph import ConnectError, ExecutionPlan, GraphBuilder, PortTypeError
 from rasl.graph.node import ensure_nodes_loaded
 from rasl.runtime import pull_rate_of
+
+logger = structlog.get_logger()
 
 
 def graph_directive(tree: Rendered) -> Directive:
@@ -133,8 +137,24 @@ def _log_plan_warnings(plan: ExecutionPlan, node_directives: dict[str, Directive
         finder = getattr(node_class, "plan_warnings", None)
         if finder is None:
             continue
-        for node_id, code, message in finder(plan, node_ids):
-            config_warning(node_directives[node_id], message, code=code, tree=tree)
+        # A warning hook must never stop a valid config from loading
+        try:
+            found = list(finder(plan, node_ids))
+        except Exception as e:
+            logger.error("plan_warnings_failed", node_class=node_class.__name__, error=repr(e))
+            continue
+        for warning in found:
+            try:
+                node_id, code, message = warning
+                config_warning(node_directives[node_id], message, code=code, tree=tree)
+            except Exception as e:
+                logger.error(
+                    "plan_warnings_failed",
+                    node_class=node_class.__name__,
+                    warning=repr(warning),
+                    error=repr(e),
+                    expected="PlanWarning(node_id of one of its nodes, 'rasl/<name>', message)",
+                )
 
 
 def _connect_error(line: Directive, node_id: str, error: Exception, tree: Rendered) -> ConfigError:

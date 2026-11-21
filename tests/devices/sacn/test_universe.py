@@ -404,3 +404,20 @@ def test_two_senders_of_one_universe_warn_even_from_different_local_ports() -> N
         "    node SacnUniverse b { universe 5; send_port 46001; connect s; }\n}\n"
     )
     assert any("rasl/sacn-duplicate" in d for d in details)
+
+
+@pytest.mark.parametrize(
+    "broken",
+    [
+        lambda cls, plan, ids: [("nope", "rasl/x", "unknown node")],
+        lambda cls, plan, ids: [(ids[0], "not a code", "bad code")],
+        lambda cls, plan, ids: 1 / 0,
+    ],
+)
+def test_a_broken_plan_warnings_hook_is_logged_and_the_config_still_loads(broken, monkeypatch) -> None:
+    from rasl.devices.sacn.universe import SacnUniverseNode
+
+    monkeypatch.setattr(SacnUniverseNode, "plan_warnings", classmethod(broken))
+    with capture_logs() as logs:
+        parse_config("graph {\n    node SacnUniverse u { universe 1; }\n}\n")
+    assert any(entry["event"] == "plan_warnings_failed" for entry in logs)

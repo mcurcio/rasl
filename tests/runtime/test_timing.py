@@ -58,3 +58,26 @@ def test_a_node_without_a_declared_rate_has_none() -> None:
             """Do nothing."""
 
     assert pull_rate_of("n", _Plain()) is None
+
+
+def test_a_rate_function_of_the_wrong_shape_names_the_node_and_the_fix() -> None:
+    class _TwoArgsNoFlag(BaseNode):
+        @pull_rate(lambda self, wiring: 10.0)
+        async def pull(self, tick: TickContext) -> None:
+            """Do nothing."""
+
+        def __init__(self) -> None:
+            pass
+
+    class _OneArgWithFlag(BaseNode):
+        @pull_rate(lambda self: 10.0, wiring=True)
+        async def pull(self, tick: TickContext) -> None:
+            """Do nothing."""
+
+        def __init__(self) -> None:
+            pass
+
+    with pytest.raises(ValueError, match=r"_TwoArgsNoFlag.*take \(self\); pass wiring=True"):
+        pull_rate_of("a", _TwoArgsNoFlag())
+    with pytest.raises(ValueError, match=r"_OneArgWithFlag.*take \(self, wiring\)"):
+        pull_rate_of("b", _OneArgWithFlag(), Wiring())

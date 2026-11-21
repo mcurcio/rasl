@@ -20,7 +20,16 @@ from pydantic import Field, field_validator
 
 from rasl.devices.sacn.transport import SacnOutput, SacnReceiver, Subscription, UniverseUpdate
 from rasl.graph import Edge, ExecutionPlan
-from rasl.graph.node import BaseNode, Lease, NodeContext, TickContext, TransformNodeConfig, node, pull_rate
+from rasl.graph.node import (
+    BaseNode,
+    Lease,
+    NodeContext,
+    PlanWarning,
+    TickContext,
+    TransformNodeConfig,
+    node,
+    pull_rate,
+)
 from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.signal import BoolPayload, Frame, MatrixPayload, RollingCounter
 from rasl.units import Frequency
@@ -152,8 +161,8 @@ class SacnUniverseNode(BaseNode):
             )
 
     @classmethod
-    def plan_warnings(cls, plan: ExecutionPlan, node_ids: Sequence[str]) -> list[tuple[str, str, str]]:
-        """Warnings about how this plan's SacnUniverse nodes send, as (node id, code, message).
+    def plan_warnings(cls, plan: ExecutionPlan, node_ids: Sequence[str]) -> list[PlanWarning]:
+        """Warnings about how this plan's SacnUniverse nodes are wired and set.
 
         - Two nodes sending the same universe to the same place: their packets interleave
           (owner, 2026-11-20: a warning, not an error).
@@ -162,7 +171,7 @@ class SacnUniverseNode(BaseNode):
           packets cover one universe (owner, 2026-11-21).
         """
         senders = [n for n in node_ids if "dmx" in plan.wiring(n).inputs]
-        warnings: list[tuple[str, str, str]] = []
+        warnings: list[PlanWarning] = []
         # Keyed on where packets go, not where they leave from: one CID per runtime,
         # so two local sockets sending one universe still interleave at receivers
         by_target: dict[tuple[int, Optional[str]], list[str]] = {}
@@ -172,7 +181,7 @@ class SacnUniverseNode(BaseNode):
         for (universe, destination), ids in by_target.items():
             for node_id in ids[1:]:
                 where = destination or "its multicast group"
-                warnings.append((node_id, "rasl/sacn-duplicate", (
+                warnings.append(PlanWarning(node_id, "rasl/sacn-duplicate", (
                     f"'{node_id}' and '{ids[0]}' both send universe {universe} to {where}; "
                     "their packets will interleave"
                 )))
@@ -187,7 +196,7 @@ class SacnUniverseNode(BaseNode):
             uneven = [n for n, r in rates.items() if (fastest / r).denominator != 1]
             if uneven:
                 listed = ", ".join(f"'{n}' at {float(rates[n]):g} Hz" for n in ids)
-                warnings.append((uneven[0], "rasl/sacn-sync-rate", (
+                warnings.append(PlanWarning(uneven[0], "rasl/sacn-sync-rate", (
                     f"sync universe {sync} has senders at rates that rarely share a tick ({listed}); "
                     "use equal rates or whole multiples so they change together"
                 )))
