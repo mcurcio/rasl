@@ -24,5 +24,6 @@ Example config:
 
 from rasl.devices.sacn.sink import SacnSinkNode
 from rasl.devices.sacn.source import SacnSourceNode
+from rasl.devices.sacn.universe import SacnUniverseNode
 
-__all__ = ["SacnSourceNode", "SacnSinkNode"]
+__all__ = ["SacnSinkNode", "SacnSourceNode", "SacnUniverseNode"]
