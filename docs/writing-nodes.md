@@ -168,9 +168,19 @@ async def pull(self, tick: TickContext) -> None:
     ...
 ```
 
-The rate is read when the runtime is built and after each reload. It must be a positive, finite number;
-otherwise rasl stops with a `ValueError` when it starts. Validate the setting in the `Config` so the config is
-refused with its line number instead.
+The rate is read when the runtime is built and after each reload. It must be a positive, finite number, or
+None: a function that returns None says this node does not drive the graph (it runs only when a driver
+downstream pulls it). Anything else stops rasl with a `ValueError` when it starts. Validate the setting in the
+`Config` so the config is refused with its line number instead.
+
+A node whose rate depends on what is connected asks for its wiring, the names of its ports that have edges
+(`Wiring.inputs`, `Wiring.outputs`):
+
+```python
+@pull_rate(lambda self, wiring: self._fps if "dmx" in wiring.inputs else None, wiring=True)
+async def pull(self, tick: TickContext) -> None:
+    ...  # drives the graph only when something feeds dmx (SacnUniverse)
+```
 
 ### What `pull` does
 
@@ -236,8 +246,21 @@ connected inputs is treated this way. `SineSource` is a push source.
 | `update_config(config)` | On a reload that changes this node's settings, if the method exists | Take new settings without a restart. |
 
 `NodeContext` has `node_id`, `logger` (a structlog logger bound to the node, used as
-`ctx.logger.info(event="...", key=value)`), `start_background` and `inject`. Background tasks are cancelled when
-the node stops, whether or not `stop` ends them. An exception from `stop` is suppressed.
+`ctx.logger.info(event="...", key=value)`), `start_background`, `inject`, `wiring` (which of the node's ports
+the running plan connects) and `resources`. Background tasks are cancelled when the node stops, whether or not
+`stop` ends them. An exception from `stop` is suppressed.
+
+`ctx.resources` shares things such as sockets between nodes. `await ctx.resources.acquire(key, open, close)`
+returns a lease on the resource that `key` (a `ResourceKey(kind, params)`) names: the first node to ask opens
+it, later ones share it, and it closes when the last lease is released, so release it in `stop`. During a live
+reload a resource whose holders are all replaced stays open across the swap. A resource whose value has
+`end_tick(tick)` (the `EndOfTick` protocol) is called once after every tick's pulls; the sACN sender sends its
+synchronization packets there.
+
+A class whose behaviour follows its wiring sets `restart_on_wiring_change = True`: a reload that changes which of
+its ports have edges restarts it, even when another node's `connect` line made the change. A class can also
+define `plan_warnings(cls, plan, node_ids)`, returning `(node id, "rasl/<code>", message)` for problems only
+visible across its nodes (two nodes sending one sACN universe); the loader logs each on the node's line.
 
 Nodes start in graph order, sources first, and stop in the reverse order.
 

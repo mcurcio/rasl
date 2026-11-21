@@ -49,8 +49,8 @@ Source nodes (`Waveform`, `SineSource`, `SeededRandom`, `literal`, `cron`) also 
 (a frequency from 0.1 to 1000 Hz, unset by default). Only `SineSource` uses it; the other sources run at
 the rate the sinks set.
 
-`ConsoleSink`, `SacnSink`, `DdpSink` and `GoveeLight` take `input_port`, which renames their input port.
-Their defaults are `dmx`, `input`, `input` and `light`. The name matters only when a `connect` line names
+`ConsoleSink`, `DdpSink` and `GoveeLight` take `input_port`, which renames their input port.
+Their defaults are `dmx`, `input` and `light`. The name matters only when a `connect` line names
 the port.
 
 ### Connecting to a node with more than one input
@@ -143,8 +143,8 @@ node cron evening { schedule "0 22-23 * * *"; }
 
 ### SacnUniverse
 
-One sACN (E1.31) universe. It receives the universe when any of its outputs is connected; with nothing
-connected it opens nothing.
+One sACN (E1.31) universe, in either direction or both. It receives the universe when any of its outputs is
+connected, and sends it when its `dmx` input is; with nothing connected it opens nothing.
 
 | Output | Type | Meaning |
 |---|---|---|
@@ -167,10 +167,37 @@ holds it until it ends its stream or is silent for 2.5 s.
 | `channels` | int, 1 to 512 | `512` | Rows on the `dmx` output. |
 | `bind_address` | string | `0.0.0.0` | Interface to receive on and to join multicast groups on. |
 | `port` | int | `5568` | UDP port to receive on. |
+| `destination` | string | unset | Send to this host by unicast; unset sends to the universe's multicast group. Required to send universe 0. |
+| `min_interval_ms` | number, 0 to 800 | `25` | Milliseconds between packets sent: the node drives the graph at 1000 / `min_interval_ms` per second (40 at 0). |
+| `priority` | int, 0 to 200 | `100` | sACN priority of packets sent. |
+| `source_name` | string | `RASL` | sACN source name of packets sent (63 bytes at most). |
+| `multicast_ttl` | int | `8` | Time to live of multicast packets sent. |
+| `send_port` | int | `0` | Local UDP port to send from (0 picks one). |
+| `sync_universe` | int, 0 to 63999 | `0` | Synchronization universe of packets sent; 0 for none. |
+
+**Sending.** Once per `min_interval_ms` the node sends its input's latest frame as one packet: values row by
+row, clipped to 0..1, times 255 (truncated), cut or padded to `channels` slots. Nothing is sent before the
+first frame. Nodes sending on the same `bind_address` and `send_port` share one socket, under one sACN
+source id (CID) per rasl. When no node sends a universe any more, three stream-terminated packets go out; a
+live reload that keeps the universe sends none. Two nodes sending the same universe to the same place load
+with a warning: their packets interleave.
+A node wired both ways is also pulled whenever a node reading its outputs is due, and sends then too, so it
+can send faster than `min_interval_ms`.
+
+**Synchronization.** Universes sent with the same `sync_universe` change together on receivers that support
+E1.31 synchronization: after each tick in which they sent data, rasl sends one synchronization packet for
+that universe (to its multicast group, or to each `destination`). Give them equal rates, or whole multiples
+(40 and 20 Hz); other rates rarely share a tick and load with a warning. When receiving, data that names a
+synchronization universe is held until its source's synchronization packet releases it, all universes at
+once; if the source has sent none in the last 2.5 s, data is delivered as it arrives. The receiver joins the
+synchronization universe's multicast group the first time data names it.
 
 A live reload restarts the node when its wiring changes, since what it opens follows its wiring.
 
 ```nginx
+node SacnUniverse wall_1 { universe 10; sync_universe 99; connect pixels[0~170]; }   # sends
+node SacnUniverse wall_2 { universe 11; sync_universe 99; connect pixels[170~340]; } # changes with wall_1
+
 node SacnUniverse u1 { universe 1; channels 432; }
 node SacnUniverse u2 { universe 2; channels 24; }
 node Reshape pixels {                # 152 RGB pixels: 144 from universe 1, then 8 from universe 2
@@ -345,8 +372,8 @@ node Crossfade fade {
 
 ## Sinks
 
-Each sink declares a pull rate: `fps`, or `min_interval_ms` for `SacnSink`. rasl runs a sink, and the
-nodes it reads from, at that rate. A node that no sink reads from never runs.
+Each sink declares a pull rate: `fps`, or `min_interval_ms` for a sending `SacnUniverse`. rasl runs a sink,
+and the nodes it reads from, at that rate. A node that no sink reads from never runs.
 
 ### ConsoleSink
 
@@ -360,29 +387,6 @@ Prints frames to the log, for testing.
 | `include_metadata` | bool | `true` | Include frame metadata in the log line. |
 | `label` | string | the node id | Label in the log line. |
 | `input_port` | string | `dmx` | Name of the input port. |
-
-### SacnSink
-
-Sends one sACN universe, unicast, to one host.
-
-| Setting | Type | Default | Meaning |
-|---|---|---|---|
-| `target_host` | string | required | IP address to send to. |
-| `target_universe` | int | `0` | sACN universe number. |
-| `min_interval_ms` | int | `25` | Minimum milliseconds between packets. It sets the pull rate: 1000 / `min_interval_ms` per second (40 at the default). |
-| `source_name` | string | `RASL` | sACN source name. |
-| `priority` | int | `100` | sACN priority. |
-| `bind_address` | string | `0.0.0.0` | Local address to send from. |
-| `bind_port` | int | `0` | Local port to send from (0 picks one). |
-| `input_port` | string | `input` | Name of the input port. |
-
-```nginx
-node SacnSink output {
-    target_host "192.168.1.80";
-    target_universe 1;
-    connect input.universe_1;
-}
-```
 
 ### DdpSink
 

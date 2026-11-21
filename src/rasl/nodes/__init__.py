@@ -18,7 +18,7 @@ nodes/
     └── sine_source.py  - SineSourceNode (test waveform)
 
 Protocol nodes are in rasl.devices:
-    - rasl.devices.sacn: SacnUniverseNode, SacnSinkNode
+    - rasl.devices.sacn: SacnUniverseNode
     - rasl.devices.ddp: DdpSinkNode
 
 Nodes are registered via the @node decorator and discovered by the
@@ -34,9 +34,9 @@ Example configuration::
         node Reshape pixels { components 3; connect sacnIn; }
         node Color toOklch oklch { connect pixels; }      # convert to OKLCH
         node Color toRgb rgb { connect toOklch; }         # and back to RGB
-        node SacnSink sacnSink0 {
-            target_host "10.0.60.30";
-            target_universe 0;
+        node SacnUniverse sacnOut {
+            universe 0;
+            destination "10.0.60.30";
             connect toRgb;
         }
     }

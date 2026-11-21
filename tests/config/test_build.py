@@ -85,17 +85,16 @@ class TestParseConfig:
         assert node._max_channels == 24
         assert node._as_bytes is True
 
-    def test_parse_sacn_sink_requires_target_host(self):
-        """Test that SacnSink requires target_host."""
+    def test_parse_sacn_universe_requires_a_universe(self):
+        """SacnUniverse has no default universe."""
         config = """
         graph {
-            node SacnSink sink {
-                input_port universe0;
-                target_universe 0;
+            node SacnUniverse u {
+                channels 3;
             }
         }
         """
-        with pytest.raises(ConfigError, match="target_host"):
+        with pytest.raises(ConfigError, match="universe"):
             parse_config(config)
 
     def test_parse_connections(self):

@@ -157,9 +157,9 @@ graph {
         universe 1;
     }
 
-    node SacnSink output {
-        target_host "10.0.60.30";
-        target_universe 0;
+    node SacnUniverse output {
+        universe 0;
+        destination "10.0.60.30";
         connect input;
     }
 }
@@ -244,7 +244,7 @@ defaults, and has a working example for each sink.
 | `SeededRandom` | Fixed random values per channel, drawn once from a seed | | `out` |
 | `literal` | A constant, e.g. `node literal red color:srgb [[1,0,0]];` | | `out` |
 | `cron` | 1 while the local time matches a cron schedule, else 0, e.g. `node cron night 0 22;` | | `out` |
-| `SacnUniverse` | Receives one sACN universe: raw channel values, a packet counter, a stream-terminated flag | | `dmx` (the default), `count`, `terminated` |
+| `SacnUniverse` | One sACN universe: receives it (raw channel values, a packet counter, a stream-terminated flag) when an output is connected, sends it when `dmx` is | `dmx` | `dmx` (the default), `count`, `terminated` |
 | **Transforms** | | | |
 | `Compose` | Interleaves named inputs into one payload, such as a color | the names in `ports { }` | `out` |
 | `Color` | Converts to a color model, e.g. `node Color rgb rgb { ... }` | `color` | `color` |
@@ -259,7 +259,6 @@ defaults, and has a working example for each sink.
 | `Crossfade` | Fades between two colors when a selector changes | `input0`, `input1`, `selector` | `out` |
 | **Sinks** | | | |
 | `ConsoleSink` | Prints frames to the log | `dmx` | |
-| `SacnSink` | Sends one sACN universe | `input` | |
 | `DdpSink` | Sends pixels over DDP | `input` | |
 | `LifxSink` | Sets LIFX bulbs | `color` | |
 | `GoveeLight` | Sets a Govee light over its LAN API | `light` | |
