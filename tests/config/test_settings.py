@@ -39,6 +39,13 @@ class TestRuntime:
         with pytest.raises(ConfigError, match="Unknown runtime setting 'retries'"):
             runtime_settings(parse_document("runtime { retries 3; }\ngraph { }"))
 
+    def test_debug_frames_is_off_unless_set_true(self) -> None:
+        assert runtime_settings(parse_document("graph { }")).debug_frames is False
+        tree = parse_document("runtime { debug_frames true; }\ngraph { }")
+        assert runtime_settings(tree) == RuntimeSettings(10, debug_frames=True)
+        with pytest.raises(ConfigError, match="'debug_frames' must be true or false, got 'yes'"):
+            runtime_settings(parse_document("runtime { debug_frames yes; }\ngraph { }"))
+
 
 def test_a_node_can_set_its_own_limit() -> None:
     plan = parse_config("graph {\n    node ConsoleSink c { fps 1; max_consecutive_errors 3; }\n}\n")

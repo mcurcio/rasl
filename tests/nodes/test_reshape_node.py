@@ -43,9 +43,9 @@ def _tick() -> TickContext:
 
 
 async def _pull(node: ReshapeNode, data: np.ndarray) -> Frame | None:
-    node.inputs.input._set_frame(Frame(topic="t", timestamp=0.0, payload=MatrixPayload(data)))
+    node.inputs.input._write(Frame(topic="t", timestamp=0.0, payload=MatrixPayload(data)))
     await node.pull(_tick())
-    return node.outputs.output._consume()
+    return node.outputs.output._publish()
 
 
 def test_the_ports_follow_components() -> None:
@@ -80,7 +80,7 @@ async def test_seven_values_fail_at_pull() -> None:
 async def test_no_frame_writes_nothing() -> None:
     node = ReshapeNode(ReshapeNode.Config(id="r", components=3))
     await node.pull(_tick())
-    assert node.outputs.output._consume() is None
+    assert node.outputs.output._publish() is None
 
 
 def _graph(*lines: str) -> str:

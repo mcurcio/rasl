@@ -76,6 +76,14 @@ class FramePayload:
             return np.zeros((rows, components), dtype=np.float32)
         return arr
 
+    def detached(self) -> FramePayload:
+        """This payload with data no one else holds: a copy of any array behind it.
+
+        The base type holds no array, so it returns itself; a type backed by an array
+        overrides this.
+        """
+        return self
+
     @classmethod
     def coerces_from(cls, other: Type[FramePayload]) -> bool:
         """Whether a port of this type takes ``other`` by retyping it, with no converter node.

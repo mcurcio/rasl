@@ -157,4 +157,9 @@ class ColorNode(BaseNode):
             except TypeError:
                 out_payload = target_frame_cls(arr)
 
-        self.outputs.color.write(frame.with_payload(out_payload))
+        out = frame.with_payload(out_payload)
+        if np.may_share_memory(np.asarray(out_payload), np.asarray(payload)):
+            # Still the input's data: detach it, as a node passing on data it did not
+            # build must (rasl-pd0.12)
+            out = out.detach()
+        self.outputs.color.write(out)

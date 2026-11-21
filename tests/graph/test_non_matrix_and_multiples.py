@@ -16,7 +16,7 @@ from rasl.graph import (
     Slice,
 )
 from rasl.graph.node import NodeContext
-from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
+from rasl.graph.ports import FrameBuffers, InputPortSpec, OutputPortSpec, PortGroup
 from rasl.signal import Frame, MatrixPayload, RollingCounter
 
 
@@ -64,7 +64,7 @@ class TestCounterTypes:
         builder.connect("a", "out", "b", "in")
         program = builder.build().input_programs[("b", "in")]
         frame = Frame(topic="t", timestamp=0.0, payload=RollingCounter(41))
-        assert program.populate(0, lambda *_: frame, None) is frame
+        assert program.populate(0, lambda *_: frame) is frame
 
 
 class TestNotSliceable:
@@ -190,11 +190,8 @@ class TestValuesMultipleOf:
             "s0": Frame(topic="t", timestamp=0.0, payload=MatrixPayload(np.ones((2, 1), dtype=np.float32))),
             "s1": Frame(topic="t", timestamp=0.0, payload=MatrixPayload(np.ones((2, 3), dtype=np.float32))),
         }
-        delivered = program.populate(
-            0,
-            lambda node, *_: frames[node],
-            lambda key, rows, cols: np.zeros((rows, cols), dtype=np.float32),
-        )
+        program.target._buffers = FrameBuffers()  # what the runtime's bind_ports gives it
+        delivered = program.populate(0, lambda node, *_: frames[node])
         assert delivered.payload.data.size == expected == 15
 
     @pytest.mark.parametrize(

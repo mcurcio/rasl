@@ -577,10 +577,10 @@ class TestMatrixIntoColor:
             frame = Frame(topic="t", timestamp=0.0, payload=MatrixPayload(np.zeros((2, columns), dtype=np.float32)))
             return lambda *_: frame
 
-        delivered = program.populate(0, frames(4), lambda *_: np.zeros((2, 4), dtype=np.float32))
+        delivered = program.populate(0, frames(4))
         assert isinstance(delivered.payload, HsbkColorPayload)
         with pytest.raises(CoercionError, match=r"a\.out into b\.in: MatrixPayload of 1 columns cannot be made a HsbkColorPayload \(4 components\)") as caught:
-            program.populate(0, frames(1), lambda *_: np.zeros((2, 4), dtype=np.float32))
+            program.populate(0, frames(1))
         assert (caught.value.supplied, caught.value.takes) == (1, 4)
 
     def test_a_generic_color_of_another_model_fails_on_its_first_frame(self) -> None:
@@ -599,9 +599,9 @@ class TestMatrixIntoColor:
             frame = Frame(topic="t", timestamp=0.0, payload=ColorPayload(np.zeros((2, 3), dtype=np.float32), model))
             return lambda *_: frame
 
-        assert isinstance(program.populate(0, frames("srgb"), None).payload, RgbColorPayload)
+        assert isinstance(program.populate(0, frames("srgb")).payload, RgbColorPayload)
         with pytest.raises(CoercionError, match="model hsl cannot be made a RgbColorPayload"):
-            program.populate(0, frames("hsl"), None)
+            program.populate(0, frames("hsl"))
 
     def test_a_matrix_feeds_a_bool_port_as_a_mask(self) -> None:
         import numpy as np
@@ -612,7 +612,7 @@ class TestMatrixIntoColor:
         builder.connect("a", "out", "b", "in")
         program = builder.build().input_programs[("b", "in")]
         frame = Frame(topic="t", timestamp=0.0, payload=MatrixPayload(np.array([[0.0], [0.4]], dtype=np.float32)))
-        delivered = program.populate(0, lambda *_: frame, None)
+        delivered = program.populate(0, lambda *_: frame)
         assert isinstance(delivered.payload, BoolPayload)
         assert delivered.payload.data.tolist() == [[0.0], [1.0]]
 

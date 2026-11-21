@@ -1,26 +1,21 @@
 """Node context and runtime services.
 
 This module defines NodeContext which provides runtime services to nodes
-during execution, including background task spawning and frame injection.
+during execution, including background task spawning.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Tuple
 
 if TYPE_CHECKING:
     from rasl.graph.node.resources import Resources
     from rasl.graph.node.wiring import Wiring
-    from rasl.signal import Frame
 
 
 StartTaskCallable = Callable[[Callable[..., Awaitable[None]], Tuple[Any, ...]], None]
 """Type alias for background task spawning function signature."""
-
-InjectCallable = Callable[[str, "Frame"], None]
-"""Type alias for frame injection function signature."""
-
 
 @dataclass(slots=True)
 class NodeContext:
@@ -48,7 +43,7 @@ class NodeContext:
         >>> async def _receive_loop(self):
         ...     while True:
         ...         data = await self._socket.recv()
-        ...         self._ctx.inject("out", Frame(...))
+        ...         self.outputs.out.write(Frame(...))  # published at the next tick
     """
 
     node_id: str
@@ -67,9 +62,6 @@ class NodeContext:
     _start_background: StartTaskCallable
     """Internal callback for spawning background async tasks."""
 
-    _inject: Optional[InjectCallable] = None
-    """Internal callback for injecting pushed frames."""
-
     def start_background(self, func: Callable[..., Awaitable[None]], *args: Any) -> None:
         """Spawn a background async task within the node's task group.
 
@@ -86,23 +78,3 @@ class NodeContext:
             ...     ctx.start_background(self._heartbeat_loop, interval=1.0)
         """
         self._start_background(func, args)
-
-    def inject(self, port: str, frame: "Frame") -> None:
-        """Inject a frame into the graph (for push sources).
-
-        Frame will be processed at the next scheduler tick.
-        Use this from background tasks that receive external data.
-
-        Args:
-            port: Output port name to inject on.
-            frame: The frame to inject.
-
-        Example:
-            >>> async def _receive_loop(self):
-            ...     while True:
-            ...         packet = await self._socket.recv()
-            ...         frame = Frame(payload=ArrayPayload(packet.data), ...)
-            ...         self._ctx.inject("dmx", frame)
-        """
-        if self._inject is not None:
-            self._inject(port, frame)

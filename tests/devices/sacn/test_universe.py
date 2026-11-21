@@ -41,7 +41,7 @@ def universe_node(settings: str = f"universe 1; channels 6; bind \"127.0.0.1\"; 
 
 
 class Context:
-    """A NodeContext whose injected frames are recorded."""
+    """A NodeContext, and a record of what the node it starts writes to its ports."""
 
     def __init__(self, registry: ResourceRegistry, wiring: Wiring) -> None:
         self.frames: list[tuple[str, Any]] = []
@@ -51,11 +51,20 @@ class Context:
             resources=registry,
             wiring=wiring,
             _start_background=lambda fn, args: None,
-            _inject=lambda port, frame: self.frames.append((port, frame)),
         )
 
+    async def start(self, node) -> None:
+        """Start ``node`` with this context, recording every frame it writes to an output."""
+        for port in node.outputs:
+            def record(frame, name=port.name, write=port.write) -> None:
+                self.frames.append((name, frame))
+                write(frame)
+
+            port.write = record
+        await node.start(self.ctx)
+
     def on(self, port: str) -> list[Any]:
-        """Payloads injected on ``port``, in order."""
+        """Payloads written on ``port``, in order."""
         return [frame.payload for name, frame in self.frames if name == port]
 
 
@@ -75,7 +84,7 @@ async def until(condition, timeout: float = 2.0) -> None:
 
 async def test_with_nothing_wired_it_opens_nothing(registry: ResourceRegistry) -> None:
     node, c = universe_node(), Context(registry, Wiring())
-    await node.start(c.ctx)
+    await c.start(node)
     assert registry._entries == {}
     await node.stop(c.ctx)
 
@@ -83,7 +92,7 @@ async def test_with_nothing_wired_it_opens_nothing(registry: ResourceRegistry) -
 async def test_a_wired_output_opens_the_receiver_and_writes_raw_channels(registry: ResourceRegistry) -> None:
     node = universe_node()
     c = Context(registry, Wiring(outputs=frozenset({"dmx"})))
-    await node.start(c.ctx)
+    await c.start(node)
     receiver = node._receiver.value
     receiver._listener.on_data(packet(0, bytes([255, 0, 51])), 0.0)  # 3 of 6 slots
     await until(lambda: c.on("dmx"))
@@ -105,7 +114,7 @@ async def test_identical_packets_advance_count_and_terminated_flips_and_resumes(
 ) -> None:
     node = universe_node()
     c = Context(registry, Wiring(outputs=frozenset({"count", "terminated"})))
-    await node.start(c.ctx)
+    await c.start(node)
     on_data = node._receiver.value._listener.on_data
     on_data(packet(0, b"\x01"), 0.0)
     on_data(packet(1, b"\x01"), 0.0)
@@ -123,11 +132,11 @@ async def test_identical_packets_advance_count_and_terminated_flips_and_resumes(
 async def test_a_stopped_node_writes_nothing(registry: ResourceRegistry) -> None:
     node = universe_node()
     c = Context(registry, Wiring(outputs=frozenset({"dmx"})))
-    await node.start(c.ctx)
+    await c.start(node)
     listener = node._receiver.value._listener
     other = Context(registry, Wiring(outputs=frozenset({"dmx"})))
     keeper = universe_node()
-    await keeper.start(other.ctx)  # keeps the shared receiver open
+    await other.start(keeper)  # keeps the shared receiver open
     await node.stop(c.ctx)
     listener.on_data(packet(0, b"\x01"), 0.0)
     await until(lambda: other.on("dmx"))
@@ -169,7 +178,7 @@ class FakeSocket:
 async def started_sender(registry: ResourceRegistry, settings: str = "universe 3; channels 4;") -> tuple[Any, Context, FakeSocket]:
     node = universe_node(settings)
     c = Context(registry, Wiring(inputs=frozenset({"dmx"})))
-    await node.start(c.ctx)
+    await c.start(node)
     sender = node._output.value._sender.value
     real, sender._socket = sender._socket, FakeSocket()
     real.close()
@@ -178,7 +187,7 @@ async def started_sender(registry: ResourceRegistry, settings: str = "universe 3
 
 def feed(node, values) -> None:
     """Put a frame on the node's dmx input, as routing would."""
-    node.inputs.dmx._frame = Frame(topic="t", timestamp=0.0, payload=MatrixPayload(np.asarray(values, dtype=np.float32)))
+    node.inputs.dmx._write(Frame(topic="t", timestamp=0.0, payload=MatrixPayload(np.asarray(values, dtype=np.float32))))
 
 
 async def test_a_wired_input_opens_only_the_output_and_sends_encoded_slots(registry: ResourceRegistry) -> None:
@@ -202,7 +211,7 @@ async def test_a_wired_input_opens_only_the_output_and_sends_encoded_slots(regis
 async def test_both_directions_open_both(registry: ResourceRegistry) -> None:
     node = universe_node()
     c = Context(registry, Wiring(inputs=frozenset({"dmx"}), outputs=frozenset({"dmx"})))
-    await node.start(c.ctx)
+    await c.start(node)
     assert node._output is not None and node._receiver is not None
     await node.stop(c.ctx)
 
@@ -390,7 +399,7 @@ async def test_a_start_that_fails_partway_gives_back_what_it_acquired(registry: 
         node = universe_node(f"universe 1; bind \"127.0.0.1\"; port {port};")
         c = Context(registry, Wiring(inputs=frozenset({"dmx"}), outputs=frozenset({"dmx"})))
         with pytest.raises(OSError):
-            await node.start(c.ctx)
+            await c.start(node)
         assert node._output is None and node._receiver is None
         assert registry._entries == {}
     finally:

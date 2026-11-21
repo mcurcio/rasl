@@ -207,7 +207,11 @@ def main(args: Optional[list[str]] = None) -> int:
         print(json.dumps(description, indent=2))
         return 0
 
-    runtime = Runtime(plan, max_consecutive_errors=session.runtime.max_consecutive_errors or None)
+    runtime = Runtime(
+        plan,
+        max_consecutive_errors=session.runtime.max_consecutive_errors or None,
+        debug_frames=session.runtime.debug_frames,
+    )
     
     if parsed.profile:
         runtime.enable_profiling(True)

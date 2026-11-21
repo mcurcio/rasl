@@ -24,13 +24,13 @@ async def test_crossfade_initial_false_outputs_input0() -> None:
     c0 = ColorPayload(np.array([[0.1, 0.2, 0.3]], dtype=np.float32), model="hsl")
     c1 = ColorPayload(np.array([[0.9, 0.8, 0.7]], dtype=np.float32), model="hsl")
 
-    node.inputs.input0._set_frame(_frame(c0))
-    node.inputs.input1._set_frame(_frame(c1))
-    node.inputs.selector._set_frame(_frame(BoolPayload(np.array([[0]], dtype=np.float32))))
+    node.inputs.input0._write(_frame(c0))
+    node.inputs.input1._write(_frame(c1))
+    node.inputs.selector._write(_frame(BoolPayload(np.array([[0]], dtype=np.float32))))
 
     await node.pull(_tick(dt=0.1))
 
-    out = node.outputs.out._consume()
+    out = node.outputs.out._publish()
     assert out is not None
     assert isinstance(out.payload, ColorPayload)
     assert out.payload.model == "hsl"
@@ -44,13 +44,13 @@ async def test_crossfade_initial_true_outputs_input1() -> None:
     c0 = ColorPayload(np.array([[0.1, 0.2, 0.3]], dtype=np.float32), model="hsl")
     c1 = ColorPayload(np.array([[0.9, 0.8, 0.7]], dtype=np.float32), model="hsl")
 
-    node.inputs.input0._set_frame(_frame(c0))
-    node.inputs.input1._set_frame(_frame(c1))
-    node.inputs.selector._set_frame(_frame(BoolPayload(np.array([[1]], dtype=np.float32))))
+    node.inputs.input0._write(_frame(c0))
+    node.inputs.input1._write(_frame(c1))
+    node.inputs.selector._write(_frame(BoolPayload(np.array([[1]], dtype=np.float32))))
 
     await node.pull(_tick(dt=0.1))
 
-    out = node.outputs.out._consume()
+    out = node.outputs.out._publish()
     assert out is not None
     assert isinstance(out.payload, ColorPayload)
     assert out.payload.model == "hsl"
@@ -64,24 +64,24 @@ async def test_crossfade_progresses_over_seconds() -> None:
     c0 = ColorPayload(np.array([[0.0, 0.0, 0.0]], dtype=np.float32), model="hsl")
     c1 = ColorPayload(np.array([[0.5, 1.0, 1.0]], dtype=np.float32), model="hsl")
 
-    node.inputs.input0._set_frame(_frame(c0))
-    node.inputs.input1._set_frame(_frame(c1))
+    node.inputs.input0._write(_frame(c0))
+    node.inputs.input1._write(_frame(c1))
 
     # Start at false
-    node.inputs.selector._set_frame(_frame(BoolPayload(np.array([[0]], dtype=np.float32))))
+    node.inputs.selector._write(_frame(BoolPayload(np.array([[0]], dtype=np.float32))))
     await node.pull(_tick(dt=0.1))
-    node.outputs.out._consume()
+    node.outputs.out._publish()
 
     # Switch true: after 0.5s we should be halfway
-    node.inputs.selector._set_frame(_frame(BoolPayload(np.array([[1]], dtype=np.float32))))
+    node.inputs.selector._write(_frame(BoolPayload(np.array([[1]], dtype=np.float32))))
     await node.pull(_tick(dt=0.5))
-    out = node.outputs.out._consume()
+    out = node.outputs.out._publish()
     assert out is not None
     np.testing.assert_allclose(np.asarray(out.payload), np.array([[0.75, 0.5, 0.5]], dtype=np.float32))
 
     # Another 0.5s should reach fully true
     await node.pull(_tick(dt=0.5))
-    out = node.outputs.out._consume()
+    out = node.outputs.out._publish()
     assert out is not None
     np.testing.assert_allclose(np.asarray(out.payload), np.asarray(c1))
 
@@ -93,17 +93,17 @@ async def test_crossfade_seconds_zero_is_instant() -> None:
     c0 = ColorPayload(np.array([[0.2, 0.2, 0.2]], dtype=np.float32), model="hsl")
     c1 = ColorPayload(np.array([[0.8, 0.8, 0.8]], dtype=np.float32), model="hsl")
 
-    node.inputs.input0._set_frame(_frame(c0))
-    node.inputs.input1._set_frame(_frame(c1))
+    node.inputs.input0._write(_frame(c0))
+    node.inputs.input1._write(_frame(c1))
 
-    node.inputs.selector._set_frame(_frame(BoolPayload(np.array([[0]], dtype=np.float32))))
+    node.inputs.selector._write(_frame(BoolPayload(np.array([[0]], dtype=np.float32))))
     await node.pull(_tick(dt=0.1))
-    node.outputs.out._consume()
+    node.outputs.out._publish()
 
-    node.inputs.selector._set_frame(_frame(BoolPayload(np.array([[1]], dtype=np.float32))))
+    node.inputs.selector._write(_frame(BoolPayload(np.array([[1]], dtype=np.float32))))
     await node.pull(_tick(dt=0.0001))
 
-    out = node.outputs.out._consume()
+    out = node.outputs.out._publish()
     assert out is not None
     np.testing.assert_allclose(np.asarray(out.payload), np.asarray(c1))
 
@@ -116,18 +116,18 @@ async def test_crossfade_hue_wrap_shortest_path() -> None:
     c0 = ColorPayload(np.array([[0.1, 0.5, 0.5]], dtype=np.float32), model="hsl")
     c1 = ColorPayload(np.array([[0.9, 0.5, 0.5]], dtype=np.float32), model="hsl")
 
-    node.inputs.input0._set_frame(_frame(c0))
-    node.inputs.input1._set_frame(_frame(c1))
+    node.inputs.input0._write(_frame(c0))
+    node.inputs.input1._write(_frame(c1))
 
-    node.inputs.selector._set_frame(_frame(BoolPayload(np.array([[0]], dtype=np.float32))))
+    node.inputs.selector._write(_frame(BoolPayload(np.array([[0]], dtype=np.float32))))
     await node.pull(_tick(dt=0.0))
-    node.outputs.out._consume()
+    node.outputs.out._publish()
 
     # Halfway (mix=0.5) should wrap to 0.0, not 0.5.
-    node.inputs.selector._set_frame(_frame(BoolPayload(np.array([[1]], dtype=np.float32))))
+    node.inputs.selector._write(_frame(BoolPayload(np.array([[1]], dtype=np.float32))))
     await node.pull(_tick(dt=0.5))
 
-    out = node.outputs.out._consume()
+    out = node.outputs.out._publish()
     assert out is not None
     arr = np.asarray(out.payload)
     # Hue can land at 1.0 instead of 0.0 due to float modulo when the value is a tiny negative.
@@ -145,9 +145,9 @@ async def test_crossfade_count_mismatch_is_error() -> None:
         np.array([[0.9, 0.8, 0.7], [0.8, 0.7, 0.6]], dtype=np.float32), model="hsl"
     )
 
-    node.inputs.input0._set_frame(_frame(c0))
-    node.inputs.input1._set_frame(_frame(c1))
-    node.inputs.selector._set_frame(_frame(BoolPayload(np.array([[1]], dtype=np.float32))))
+    node.inputs.input0._write(_frame(c0))
+    node.inputs.input1._write(_frame(c1))
+    node.inputs.selector._write(_frame(BoolPayload(np.array([[1]], dtype=np.float32))))
 
     with pytest.raises(ValueError, match="matching count"):
         await node.pull(_tick(dt=0.1))

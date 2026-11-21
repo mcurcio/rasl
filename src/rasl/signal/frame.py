@@ -1,7 +1,7 @@
 """Frame dataclass for the RASL processing DAG.
 
-This module defines the immutable Frame dataclass that represents
-a normalized payload flowing through the node graph.
+This module defines the Frame dataclass that represents a normalized payload
+flowing through the node graph.
 """
 
 from __future__ import annotations
@@ -25,14 +25,17 @@ def _empty_metadata() -> Metadata:
 
 @dataclass(frozen=True, slots=True)
 class Frame:
-    """Immutable payload flowing through the processing DAG.
+    """A payload flowing through the processing DAG, with its topic, time and metadata.
 
     A Frame represents a single unit of data traveling between nodes.
     It contains normalized channel data (float32 values from 0.0 to 1.0),
     a topic for routing, a monotonic timestamp, and arbitrary metadata.
 
-    Frames are immutable (frozen dataclass) to ensure thread-safety
-    and prevent unintended side effects during concurrent processing.
+    The dataclass is frozen, but the array behind its payload may belong to a port's
+    buffers (rasl-pd0.12). A frame a port published stays unchanged until its producer's
+    first fill after its next publish: pulled ports publish at most once per pull, pushed
+    ports at most once per tick, at its start. A node that keeps a frame past its next
+    pull copies its data; a node that writes a frame it did not build calls ``detach()``.
 
     Attributes:
         topic: Routing key identifying the data source or type.
@@ -87,6 +90,15 @@ class Frame:
             payload=payload,
             metadata=self.metadata,
         )
+
+    def detach(self) -> Frame:
+        """This frame over a copy of its data, so no port's buffers are behind it.
+
+        Call it before writing a frame this node did not build (an input frame, or another
+        node's) to an output: the original changes when its producer refills the buffer.
+        Topic, timestamp and metadata are kept. Costs one copy of the data.
+        """
+        return self.with_payload(self.payload.detached())
 
     def with_metadata(self, **updates: Any) -> Frame:
         """Create a new Frame with updated metadata.

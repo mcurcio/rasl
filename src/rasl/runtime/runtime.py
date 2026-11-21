@@ -21,6 +21,7 @@ import structlog
 
 from rasl.graph import ExecutionPlan, InputPortProgram
 from rasl.graph.node import TickContext
+from rasl.graph.ports import DebugFrameBuffers, FrameBuffers
 from rasl.runtime.diagnostics import TimingStats
 from rasl.runtime.executor import Executor
 from rasl.runtime.lifecycle import NodeHost, NodeRuntime
@@ -39,7 +40,7 @@ class Runtime:
     Sinks declare their desired frame rates via the @pull_rate decorator. The
     scheduler works out when each is due; at each tick the due sinks and what
     feeds them are pulled. Push sources write frames from their own background
-    tasks; a write is kept as that port's latest frame and read at the next
+    tasks; what a pushed output produced is published at the start of the next
     tick.
 
     Example:
@@ -55,7 +56,13 @@ class Runtime:
         resources: The resources nodes share, such as sockets; closed when the runtime stops.
     """
 
-    def __init__(self, plan: ExecutionPlan, *, max_consecutive_errors: Optional[int] = None) -> None:
+    def __init__(
+        self,
+        plan: ExecutionPlan,
+        *,
+        max_consecutive_errors: Optional[int] = None,
+        debug_frames: bool = False,
+    ) -> None:
         """Set up to run a compiled execution plan.
 
         Args:
@@ -65,6 +72,9 @@ class Runtime:
                 it goes on with the last frames it wrote. None (the default)
                 never disables a node. A node replaced by a plan update
                 starts afresh.
+            debug_frames: Make frame-lifetime mistakes fail loudly: ports get
+                ``DebugFrameBuffers`` and every frame read is checked for recycled
+                data. Slower; for finding a node that keeps or forwards frames.
         """
         self._plan = plan
         self.monitor = NodeMonitor()
@@ -72,15 +82,15 @@ class Runtime:
         self.scheduler = Scheduler(self.timing)
         self.resources = ResourceRegistry()
         self._host = NodeHost(
-            on_push_write=lambda port: self.executor.on_push_write(port),
-            inject=lambda node_id, port, frame: self.executor.store_pushed(node_id, port, frame),
             resources=self.resources,
+            buffers=DebugFrameBuffers if debug_frames else FrameBuffers,
         )
         self.executor = Executor(
             self._host.runtimes,
             self.monitor,
             self.timing,
             max_consecutive_errors=max_consecutive_errors,
+            debug_frames=debug_frames,
         )
 
         # A plan update waiting for the next tick boundary (request_update)
