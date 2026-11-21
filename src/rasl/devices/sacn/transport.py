@@ -6,7 +6,15 @@
 - ``SacnReceiver``: one UDP socket per (bind address, port), shared by every universe
   received on it. Its thread only decodes packets and hands them to the event loop;
   sequence, arbitration and the per-universe packet counters live on the loop, so no
-  state is shared between threads.
+  state is shared between threads. Data that names a synchronization universe is held
+  until that source's synchronization packet releases it (see ``SacnReceiver``).
+- ``SacnSender``: one non-blocking UDP socket per (bind address, send port). No thread
+  and no clock: a node sends its universe's packet in its own pull, and at the end of
+  the tick (``EndOfTick``) the sender sends one synchronization packet per
+  synchronization universe that sent data in it (owner, 2026-11-21).
+- ``SacnOutput``: one universe (and destination) on a sender: its sequence numbers, and
+  the stream-terminated packets sent when the last node sending it is gone. A reload that
+  restarts the node keeps it (the registry defers the close), so no termination is sent.
 
 The E1.31 rules themselves (codec, sequence numbers, which source wins) are in
 ``rasl.devices.sacn.protocol``.
@@ -15,6 +23,7 @@ The E1.31 rules themselves (codec, sequence numbers, which source wins) are in
 from __future__ import annotations
 
 import asyncio
+import socket
 import time
 import uuid
 from dataclasses import dataclass
@@ -25,7 +34,7 @@ import structlog
 from sacn.receiving.receiver_socket_udp import ReceiverSocketUDP
 
 from rasl.devices.sacn import protocol
-from rasl.graph.node import Lease, ResourceKey, Resources
+from rasl.graph.node import Lease, ResourceKey, Resources, TickContext
 from rasl.signal import RollingCounter
 
 logger = structlog.get_logger()
@@ -49,6 +58,18 @@ async def acquire_cid(resources: Resources) -> Lease[bytes]:
 def receiver_key(bind_address: str, port: int) -> ResourceKey["SacnReceiver"]:
     """The key of the receiver on (``bind_address``, ``port``)."""
     return ResourceKey("sacn.receiver", (bind_address, port))
+
+
+def sender_key(bind_address: str, send_port: int) -> ResourceKey["SacnSender"]:
+    """The key of the sender on (``bind_address``, ``send_port``)."""
+    return ResourceKey("sacn.sender", (bind_address, send_port))
+
+
+def output_key(
+    bind_address: str, send_port: int, universe: int, destination: Optional[str]
+) -> ResourceKey["SacnOutput"]:
+    """The key of one universe sent to ``destination`` (None: its multicast group)."""
+    return ResourceKey("sacn.output", (bind_address, send_port, universe, destination))
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,14 +124,21 @@ class Subscription:
 class _Listener:
     """What the receive thread calls: decode, then hand to the loop. Holds no state."""
 
-    def __init__(self, loop: asyncio.AbstractEventLoop, on_frame: Callable[[protocol.DataFrame, float], None]) -> None:
+    def __init__(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        on_frame: Callable[[protocol.DataFrame | protocol.SyncFrame, float], None],
+    ) -> None:
         self._loop = loop
         self._on_frame = on_frame
 
     def on_data(self, data: object, current_time: float) -> None:
         """Called on the receive thread with one datagram's bytes."""
         try:
-            frame = protocol.decode(bytes(data))  # type: ignore[call-overload]
+            raw = bytes(data)  # type: ignore[call-overload]
+            frame: protocol.DataFrame | protocol.SyncFrame | None = protocol.decode(raw)
+            if frame is None:
+                frame = protocol.decode_sync(raw)
         except Exception:  # never let a hostile packet end the thread
             return
         if frame is None:
@@ -130,6 +158,15 @@ class SacnReceiver:
 
     Created by ``acquire``; use ``subscribe`` and ``Subscription.close`` from the event
     loop only.
+
+    Synchronization (E1.31 6.6, 11; owner, 2026-11-21): accepted data that names a
+    synchronization universe is held, newest per universe, while that source has sent a
+    synchronization packet for it within the last 2.5 s; the source's next
+    synchronization packet releases everything held for it at once. Without a recent
+    synchronization packet (none yet, or the source stopped sending them) data is
+    delivered at once. The packet counter advances when data is accepted, and subscribers
+    see it with the released data. The receiver joins a synchronization universe's
+    multicast group the first time data names it, and leaves at close.
     """
 
     def __init__(self, bind_address: str, port: int, cid: Lease[bytes], loop: asyncio.AbstractEventLoop) -> None:
@@ -141,6 +178,10 @@ class SacnReceiver:
         self._arbiters: Dict[int, protocol.UniverseArbiter] = {}
         self._counters: Dict[int, RollingCounter] = {}
         self._joined: set[int] = set()
+        self._sync_joined: set[int] = set()
+        self._last_sync: Dict[tuple[bytes, int], float] = {}
+        self._sync_sequences: Dict[int, protocol.SequenceTracker] = {}
+        self._held: Dict[tuple[bytes, int], Dict[int, UniverseUpdate]] = {}
         self._listener = _Listener(loop, self._on_frame)
 
     @classmethod
@@ -177,9 +218,10 @@ class SacnReceiver:
         sock = self._socket
         self._socket = None
         if sock is not None:
-            for universe in list(self._joined):
+            for universe in self._joined | self._sync_joined:
                 sock.leave_multicast(protocol.multicast_group(universe))
             self._joined.clear()
+            self._sync_joined.clear()
             await anyio.to_thread.run_sync(sock.stop)
             # The library closes the socket only when its thread had started
             try:
@@ -206,7 +248,9 @@ class SacnReceiver:
         return subscription
 
     def _join(self, universe: int) -> None:
-        if universe == 0 or self._socket is None:
+        if universe == 0 or self._socket is None or universe in self._sync_joined:
+            if universe in self._sync_joined:
+                self._joined.add(universe)
             return
         try:
             self._socket.join_multicast(protocol.multicast_group(universe))
@@ -230,14 +274,23 @@ class SacnReceiver:
         universe = subscription.universe
         self._subscribers.pop(universe, None)
         self._arbiters.pop(universe, None)
-        if universe in self._joined and self._socket is not None:
+        if universe in self._joined and universe not in self._sync_joined and self._socket is not None:
             self._socket.leave_multicast(protocol.multicast_group(universe))
         self._joined.discard(universe)
+        for held in self._held.values():
+            held.pop(universe, None)
 
-    def _on_frame(self, frame: protocol.DataFrame, now: float) -> None:
-        """On the loop: arbitrate one decoded packet and tell the universe's subscribers."""
+    def _on_frame(self, frame: protocol.DataFrame | protocol.SyncFrame, now: float) -> None:
+        """On the loop: handle one decoded packet."""
         if self._socket is None or frame.cid == self._cid.value:
             return
+        if isinstance(frame, protocol.SyncFrame):
+            self._on_sync(frame, now)
+        else:
+            self._on_data(frame, now)
+
+    def _on_data(self, frame: protocol.DataFrame, now: float) -> None:
+        """Arbitrate one data packet; deliver it, or hold it for its synchronization."""
         arbiter = self._arbiters.get(frame.universe)
         if arbiter is None:
             return
@@ -256,5 +309,257 @@ class SacnReceiver:
             source=protocol.SourceInfo(cid=frame.cid, name=frame.source_name, priority=frame.priority),
             sequence=frame.sequence,
         )
-        for subscription in list(self._subscribers.get(frame.universe, [])):
+        if verdict is protocol.Verdict.TERMINATED:
+            for held in self._held.values():
+                held.pop(frame.universe, None)
+        elif frame.sync_address:
+            key = (frame.cid, frame.sync_address)
+            self._join_sync(frame.sync_address)
+            last = self._last_sync.get(key)
+            if last is not None and now - last <= protocol.LOSS_TIMEOUT_S:
+                self._held.setdefault(key, {})[frame.universe] = update
+                return
+            self._held.pop(key, None)  # synchronization stopped: deliver as it comes
+        self._deliver(update)
+
+    def _on_sync(self, frame: protocol.SyncFrame, now: float) -> None:
+        """Release what a source held for this synchronization universe."""
+        tracker = self._sync_sequences.setdefault(frame.sync_universe, protocol.SequenceTracker())
+        if not tracker.accept(frame.cid, frame.sequence):
+            return
+        key = (frame.cid, frame.sync_universe)
+        self._last_sync[key] = now
+        for update in self._held.pop(key, {}).values():
+            self._deliver(update)
+
+    def _join_sync(self, sync_universe: int) -> None:
+        if sync_universe in self._sync_joined or self._socket is None:
+            return
+        self._sync_joined.add(sync_universe)
+        if sync_universe in self._joined:
+            return  # already a member for its data
+        try:
+            self._socket.join_multicast(protocol.multicast_group(sync_universe))
+        except OSError as e:
+            logger.warning(
+                "sacn_multicast_join_failed",
+                universe=sync_universe,
+                bind_address=self._bind_address,
+                error=str(e),
+                note="synchronization packets for it arrive by unicast only",
+            )
+
+    def _deliver(self, update: UniverseUpdate) -> None:
+        for subscription in list(self._subscribers.get(update.universe, [])):
             subscription._deliver(update)
+
+
+class SacnSender:
+    """One non-blocking UDP socket that sends sACN under the runtime's CID.
+
+    Loop thread only. Created by ``acquire``. Implements ``EndOfTick``: after a tick's
+    pulls it sends one synchronization packet per synchronization universe that data
+    was sent for in that tick, to its multicast group or, for data sent by unicast, to
+    each destination (owner, 2026-11-21).
+    """
+
+    def __init__(self, bind_address: str, send_port: int, cid: Lease[bytes]) -> None:
+        self._bind_address = bind_address
+        self._send_port = send_port
+        self._cid = cid
+        self._socket: Optional[socket.socket] = None
+        self._ttl: Optional[int] = None
+        self._pending_sync: Dict[tuple[int, Optional[str]], int] = {}
+        self._sync_sequence: Dict[int, int] = {}
+        self.dropped = 0
+        """Packets dropped because the socket's send buffer was full."""
+
+    @classmethod
+    async def acquire(cls, resources: Resources, bind_address: str, send_port: int) -> Lease["SacnSender"]:
+        """A share of the sender on (``bind_address``, ``send_port``), opening it if needed.
+
+        Raises:
+            OSError: If the socket cannot be bound.
+        """
+
+        async def _open() -> SacnSender:
+            cid = await acquire_cid(resources)
+            sender = cls(bind_address, send_port, cid)
+            try:
+                sender._open_socket()
+            except BaseException:
+                await sender.close()
+                raise
+            return sender
+
+        async def _close(sender: SacnSender) -> None:
+            await sender.close()
+
+        return await resources.acquire(sender_key(bind_address, send_port), _open, _close)
+
+    @property
+    def cid(self) -> bytes:
+        """The CID this sender's packets carry."""
+        return self._cid.value
+
+    def _open_socket(self) -> None:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        try:
+            if self._send_port:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((self._bind_address, self._send_port))
+            if self._bind_address != "0.0.0.0":
+                sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(self._bind_address))
+            sock.setblocking(False)
+        except BaseException:
+            sock.close()
+            raise
+        self._socket = sock
+
+    async def close(self) -> None:
+        """Close the socket and release the CID. Closing twice does nothing."""
+        sock, self._socket = self._socket, None
+        if sock is not None:
+            sock.close()
+            await self._cid.release()
+
+    def sendto(self, packet: bytes, universe: int, destination: Optional[str], ttl: int) -> None:
+        """Send one packet now, to ``destination`` or else ``universe``'s multicast group.
+
+        A full send buffer drops the packet (counted in ``dropped``).
+
+        Raises:
+            OSError: For any other send failure (the node's pull fails).
+            ValueError: If ``destination`` is None and ``universe`` has no group (0).
+        """
+        if self._socket is None:
+            raise OSError("sACN sender is closed")
+        address = destination if destination is not None else protocol.multicast_group(universe)
+        if destination is None and ttl != self._ttl:
+            self._socket.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, ttl)
+            self._ttl = ttl
+        try:
+            self._socket.sendto(packet, (address, protocol.E131_PORT))
+        except BlockingIOError:
+            self.dropped += 1
+
+    def note_sync(self, sync_universe: int, destination: Optional[str], ttl: int) -> None:
+        """Ask for a synchronization packet for ``sync_universe`` at the end of this tick."""
+        key = (sync_universe, destination)
+        self._pending_sync[key] = max(ttl, self._pending_sync.get(key, 0))
+
+    def end_tick(self, tick: TickContext) -> None:
+        """Send the synchronization packets this tick's data asked for (``EndOfTick``).
+
+        Each synchronization universe's sequence number advances once per tick, whatever
+        the number of destinations.
+
+        Raises:
+            OSError: If a send fails; the remaining packets are still sent first.
+        """
+        pending, self._pending_sync = self._pending_sync, {}
+        if not pending or self._socket is None:
+            return
+        packets: Dict[int, bytes] = {}
+        error: Optional[OSError] = None
+        for (sync_universe, destination), ttl in pending.items():
+            if sync_universe not in packets:
+                sequence = self._sync_sequence.get(sync_universe, 0)
+                self._sync_sequence[sync_universe] = (sequence + 1) % 256
+                packets[sync_universe] = protocol.encode_sync(self.cid, sync_universe, sequence)
+            try:
+                self.sendto(packets[sync_universe], sync_universe, destination, ttl)
+            except OSError as e:
+                error = error or e
+        if error is not None:
+            raise error
+
+
+class SacnOutput:
+    """One universe sent to one destination through a shared sender.
+
+    Holds the universe's sequence number and what it last sent. Created by ``acquire``;
+    closing it (when no node sends this universe any more, after a reload's swap) sends
+    three stream-terminated packets (E1.31 6.2.6) if it ever sent data.
+    """
+
+    TERMINATION_PACKETS = 3
+
+    def __init__(self, sender: Lease[SacnSender], universe: int, destination: Optional[str]) -> None:
+        self._sender = sender
+        self.universe = universe
+        self.destination = destination
+        self._sequence = 0
+        self._last: Optional[tuple[bytes, int, str, int, int]] = None
+
+    @classmethod
+    async def acquire(
+        cls,
+        resources: Resources,
+        bind_address: str,
+        send_port: int,
+        universe: int,
+        destination: Optional[str],
+    ) -> Lease["SacnOutput"]:
+        """A share of ``universe`` sent to ``destination`` on the sender for
+        (``bind_address``, ``send_port``), opening both if needed."""
+
+        async def _open() -> SacnOutput:
+            sender = await SacnSender.acquire(resources, bind_address, send_port)
+            return cls(sender, universe, destination)
+
+        async def _close(output: SacnOutput) -> None:
+            await output.close()
+
+        key = output_key(bind_address, send_port, universe, destination)
+        return await resources.acquire(key, _open, _close)
+
+    def _next_sequence(self) -> int:
+        sequence = self._sequence
+        self._sequence = (sequence + 1) % 256
+        return sequence
+
+    def send(
+        self, slots: bytes, *, priority: int, source_name: str, ttl: int, sync_universe: int = 0
+    ) -> None:
+        """Send one data packet now; with ``sync_universe``, ask the sender for that
+        universe's synchronization packet at the end of the tick.
+
+        Raises:
+            OSError: If the send fails (other than a full buffer).
+            ValueError: If an argument is out of range (see ``protocol.encode_data``).
+        """
+        sender = self._sender.value
+        packet = protocol.encode_data(
+            sender.cid, self.universe, self._next_sequence(), priority, source_name, slots,
+            sync_address=sync_universe,
+        )
+        self._last = (slots, priority, source_name, ttl, sync_universe)
+        sender.sendto(packet, self.universe, self.destination, ttl)
+        if sync_universe:
+            sender.note_sync(sync_universe, self.destination, ttl)
+
+    def terminate(self) -> None:
+        """Send the stream-terminated packets, if this output ever sent data; errors are
+        logged, not raised."""
+        if self._last is None:
+            return
+        slots, priority, source_name, ttl, sync_universe = self._last
+        sender = self._sender.value
+        try:
+            for _ in range(self.TERMINATION_PACKETS):
+                packet = protocol.encode_data(
+                    sender.cid, self.universe, self._next_sequence(), priority, source_name, slots,
+                    terminated=True, sync_address=sync_universe,
+                )
+                sender.sendto(packet, self.universe, self.destination, ttl)
+        except OSError as e:
+            logger.warning("sacn_termination_failed", universe=self.universe, error=str(e))
+        self._last = None
+
+    async def close(self) -> None:
+        """Terminate the stream and release the sender."""
+        try:
+            self.terminate()
+        finally:
+            await self._sender.release()
