@@ -288,11 +288,11 @@ class TestConnectErrorsArePlaced:
             parse_config(config)
         assert caught.value.line == 7
 
-    def test_a_sacn_source_defaults_to_its_merged_channels(self):
+    def test_a_sacn_universe_defaults_to_its_dmx_output(self):
         config = """
         graph {
-            node SacnSource input {
-                universes 1 2;
+            node SacnUniverse input {
+                universe 1;
             }
             node ConsoleSink sink {
                 fps 1;
@@ -301,7 +301,7 @@ class TestConnectErrorsArePlaced:
         }
         """
         edge = parse_config(config).adjacency["input"][0]
-        assert edge.source_port == "channels"
+        assert edge.source_port == "dmx"
 
 
 @node("TestCounterSource")

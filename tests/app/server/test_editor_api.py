@@ -88,10 +88,10 @@ def test_node_types_and_a_preview(client: Client) -> None:
     assert "Waveform" in names and "WaveformNode" not in names
     preview = _gql(
         client,
-        '{ previewNode(type: "SacnSource", settings: [{key: "universes", values: "1 2"}]) '
+        '{ previewNode(type: "SacnUniverse", settings: [{key: "universe", values: "1"}]) '
         "{ outputs { name } error } }",
     )["previewNode"]
-    assert preview == {"outputs": [{"name": "universe_1"}, {"name": "universe_2"}, {"name": "channels"}], "error": None}
+    assert preview == {"outputs": [{"name": "dmx"}, {"name": "count"}, {"name": "terminated"}], "error": None}
 
 
 def test_an_applied_batch_is_saved(client: Client, config: Path) -> None:

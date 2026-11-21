@@ -5,14 +5,14 @@ not part of the core RASL engine. Each subpackage provides nodes for
 a specific protocol or integration.
 
 Available packages:
-    - sacn: sACN/E1.31 DMX protocol (source and sink nodes)
+    - sacn: sACN/E1.31 DMX protocol (SacnUniverse, SacnSink)
     - ddp: Distributed Display Protocol (sink node)
     - govee: Govee LAN protocol (sink node)
     - lifx: LIFX LAN protocol (sink node)
 
 These packages are optional and can be imported independently:
 
-    from rasl.devices.sacn import SacnSourceNode, SacnSinkNode
+    from rasl.devices.sacn import SacnUniverseNode, SacnSinkNode
     from rasl.devices.ddp import DdpSinkNode
 
 The registry imports this package as the "rasl.nodes" entry point named

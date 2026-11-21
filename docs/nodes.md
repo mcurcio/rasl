@@ -45,7 +45,7 @@ Value types used below:
 | `metadata` | map of strings | empty | Key-value metadata attached to the node's frames: `metadata { room den; zone 2; }`, or `metadata "room=den" "zone=2";`. Both forms may be used together; a key given twice is an error. |
 | `max_consecutive_errors` | int, 0 or more | the `runtime` block's (10) | Disable this node after this many failed pulls in a row; 0 means never. |
 
-Source nodes (`Waveform`, `SineSource`, `SeededRandom`, `literal`, `cron`, `SacnSource`) also accept `fps`
+Source nodes (`Waveform`, `SineSource`, `SeededRandom`, `literal`, `cron`) also accept `fps`
 (a frequency from 0.1 to 1000 Hz, unset by default). Only `SineSource` uses it; the other sources run at
 the rate the sinks set.
 
@@ -141,27 +141,42 @@ node cron night 0 22;                          # 22:00 to 22:00:59
 node cron evening { schedule "0 22-23 * * *"; }
 ```
 
-### SacnSource
+### SacnUniverse
 
-Receives sACN universes. It has one output per universe, `universe_<N>`, and `channels` with all of them
-merged. `channels` is the default: `connect input;` takes it, and `connect input.universe_1;` takes one universe.
+One sACN (E1.31) universe. It receives the universe when any of its outputs is connected; with nothing
+connected it opens nothing.
 
-SacnSource receives unicast sACN only: it does not join multicast groups. Configure the sender to unicast
-to rasl's address. In a container, see the note under [Container](../README.md#container).
+| Output | Type | Meaning |
+|---|---|---|
+| `dmx` (default) | matrix, `channels` rows of 1 column | Each DMX slot / 255 (0 to 1). A packet with fewer slots leaves the rest at 0. |
+| `count` | counter | Advances once per data packet accepted, identical data included. Wraps at 65536. |
+| `terminated` | bool, 1 element | 1 once the source ends its stream (and no other source is live), 0 again when data arrives. |
+
+It makes no policy of its own: grouping channels into pixels is `Reshape`, joining universes is `connect`
+ranges, and what to do when a stream stops is wiring downstream (a `count` that stops advancing).
+
+Every SacnUniverse on the same `bind_address` and `port` shares one socket. It joins the universe's multicast
+group (239.255.hi.lo) and takes unicast too; universe 0 has no group and is unicast only. If the join fails (as
+on a Docker bridge network) rasl logs a warning and receives unicast only. Packets rasl sent itself are dropped.
+Of several sources on one universe, the one with the highest priority wins; at equal priority the first seen
+holds it until it ends its stream or is silent for 2.5 s.
 
 | Setting | Type | Default | Meaning |
 |---|---|---|---|
-| `universes` | list of ints | unset | Universe numbers to listen to. |
-| `universe` | block, repeated | none | One universe with options: `id` (required) and `channels` (number of RGB elements to emit). A block wins over the same number in `universes`. |
-| `bind_address` | string | `0.0.0.0` | Network interface to listen on. |
-| `bind_port` | int | `5568` | UDP port to listen on. |
+| `universe` | int, 0 to 63999 | required | Universe number. |
+| `channels` | int, 1 to 512 | `512` | Rows on the `dmx` output. |
+| `bind_address` | string | `0.0.0.0` | Interface to receive on and to join multicast groups on. |
+| `port` | int | `5568` | UDP port to receive on. |
 
-It needs at least one universe, from `universes` or one or more `universe` blocks.
+A live reload restarts the node when its wiring changes, since what it opens follows its wiring.
 
 ```nginx
-node SacnSource input {
-    universe { id 1; channels 170; }
-    universe { id 2; }
+node SacnUniverse u1 { universe 1; channels 432; }
+node SacnUniverse u2 { universe 2; channels 24; }
+node Reshape pixels {                # 152 RGB pixels: 144 from universe 1, then 8 from universe 2
+    components 3;
+    connect u1 input[0~432];
+    connect u2 input[432~456];
 }
 ```
 

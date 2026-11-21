@@ -80,9 +80,9 @@ directory. If it does not exist when the container starts, the image writes a st
 empty graph) and never overwrites it after that. The web UI is on port 8080. Edit the file and rasl
 reloads it.
 
-sACN input arrives on 5568/udp. `SacnSource` receives unicast sACN only, so the sender must send to the
-host's address, not to a multicast group. In a container, multicast also needs `--network host`, because
-Docker's default bridge network does not forward it.
+sACN input arrives on 5568/udp. `SacnUniverse` takes both unicast and multicast: it joins each received
+universe's multicast group. In a container, multicast needs `--network host`, because Docker's default
+bridge network does not forward it; where the join fails, rasl logs a warning and receives unicast only.
 
 | Variable | Default | What it does |
 |---|---|---|
@@ -148,20 +148,19 @@ uv run rasl rainbow.conf --api-port 8080
 
 Open http://127.0.0.1:8080/ to see the graph. Press Ctrl+C to stop.
 
-To drive real lights, swap the sink. This graph listens for sACN universes 1 and 2 and sends universe 1 on
-to a controller as universe 0. `SacnSource` receives unicast sACN only: set the sender to unicast to the
-address of the machine running rasl, not to multicast (the E1.31 default).
+To drive real lights, swap the sink. This graph receives sACN universe 1 (by multicast or unicast) and
+sends it on to a controller as universe 0.
 
 ```nginx
 graph {
-    node SacnSource input {
-        universes 1 2;
+    node SacnUniverse input {
+        universe 1;
     }
 
     node SacnSink output {
         target_host "10.0.60.30";
         target_universe 0;
-        connect input.universe_1;
+        connect input;
     }
 }
 ```
@@ -245,7 +244,7 @@ defaults, and has a working example for each sink.
 | `SeededRandom` | Fixed random values per channel, drawn once from a seed | | `out` |
 | `literal` | A constant, e.g. `node literal red color:srgb [[1,0,0]];` | | `out` |
 | `cron` | 1 while the local time matches a cron schedule, else 0, e.g. `node cron night 0 22;` | | `out` |
-| `SacnSource` | Receives sACN universes | | `universe_<N>` per universe, `channels` (all merged; the default) |
+| `SacnUniverse` | Receives one sACN universe: raw channel values, a packet counter, a stream-terminated flag | | `dmx` (the default), `count`, `terminated` |
 | **Transforms** | | | |
 | `Compose` | Interleaves named inputs into one payload, such as a color | the names in `ports { }` | `out` |
 | `Color` | Converts to a color model, e.g. `node Color rgb rgb { ... }` | `color` | `color` |
@@ -253,6 +252,7 @@ defaults, and has a working example for each sink.
 | `Math` | Element-wise multiply, add, subtract, min, max, screen or lerp | `a`, `b` | `out` |
 | `MatrixMultiply` | Applies a fixed matrix to each channel vector | `input` | `out` |
 | `RangeMap` | Maps each channel to its own range | `input` | `out` |
+| `Reshape` | Regroups values into rows of N components, e.g. DMX channels into RGB pixels | `input` | `output` |
 | `RandomMap` | Maps input channels to output channels at random, optionally seeded | `input` | `out` |
 | `Smooth` | Smoothing and slew limiting over time | `input`, `reset` | `output` |
 | `TwinkleEffect` | Per-pixel twinkle over a color input | `input` | `out` |
