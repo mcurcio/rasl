@@ -114,7 +114,7 @@ def build_plan(
     # A node's rate comes from its settings: check it here, on the node's line
     for node_id, node in plan.nodes.items():
         try:
-            pull_rate_of(node_id, node)
+            pull_rate_of(node_id, node, plan.wiring(node_id))
         except ValueError as e:
             raise config_error(
                 node_directives[node_id], str(e), code="rasl/rate", tree=tree

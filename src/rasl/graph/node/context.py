@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional, Tuple
 
 if TYPE_CHECKING:
     from rasl.graph.node.resources import Resources
+    from rasl.graph.node.wiring import Wiring
     from rasl.signal import Frame
 
 
@@ -37,6 +38,7 @@ class NodeContext:
         logger: Structured logger instance bound to this node.
         resources: Shared resources, opened by the first node to ask and closed
             after the last one releases them.
+        wiring: Which of this node's ports the plan it was started in connects.
 
     Example:
         >>> async def start(self, ctx: NodeContext):
@@ -57,6 +59,9 @@ class NodeContext:
 
     resources: "Resources"
     """Resources this node shares with others, such as a socket (``rasl.graph.node.resources``)."""
+
+    wiring: "Wiring"
+    """Which of this node's ports the running plan connects."""
 
     _start_background: StartTaskCallable
     """Internal callback for spawning background async tasks."""

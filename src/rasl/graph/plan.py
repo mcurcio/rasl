@@ -8,6 +8,7 @@ from typing import Any, Dict, FrozenSet, List, Tuple
 
 from rasl.graph.edge import Edge
 from rasl.graph.node.protocol import Node, get_inputs, get_outputs
+from rasl.graph.node.wiring import Wiring
 from rasl.graph.routing import InputPortProgram
 
 
@@ -48,6 +49,24 @@ class ExecutionPlan:
     back_edges: FrozenSet[Tuple[str, str, str, str]] = frozenset()
     """The edges that close a cycle, as (source, source_port, target, target_port).
     A node reads such an edge's frame from the previous tick."""
+
+    def wiring(self, node_id: str) -> Wiring:
+        """Which of ``node_id``'s ports have an edge in this plan.
+
+        Raises:
+            KeyError: If the plan has no node ``node_id``.
+        """
+        if node_id not in self.nodes:
+            raise KeyError(node_id)
+        inputs = set()
+        outputs = set()
+        for source_id, edges in self.adjacency.items():
+            for edge in edges:
+                if edge.target == node_id:
+                    inputs.add(edge.target_port)
+                if source_id == node_id:
+                    outputs.add(edge.source_port)
+        return Wiring(inputs=frozenset(inputs), outputs=frozenset(outputs))
 
     def describe(self) -> Dict[str, Any]:
         """Serialize the execution plan to a JSON-compatible dictionary.

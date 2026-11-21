@@ -6,7 +6,7 @@
 - ``NodeContext``: what a node is handed at ``start`` and ``stop``; ``Resources``,
   ``ResourceKey`` and ``Lease``: resources nodes share through it
 - ``TickContext`` and ``pull_rate``: what ``pull`` is told, and how a sink
-  declares the rate it drives
+  declares the rate it drives; ``Wiring``: which of a node's ports the plan connects
 - the node registry: ``@node("Name")`` and lookups by type name
 """
 
@@ -26,6 +26,7 @@ from rasl.graph.node.registry import (
 )
 from rasl.graph.node.resources import Lease, ResourceKey, Resources
 from rasl.graph.node.tick import TickContext, pull_rate
+from rasl.graph.node.wiring import Wiring
 
 __all__ = [
     "BaseNode",
@@ -42,6 +43,7 @@ __all__ = [
     "StartTaskCallable",
     "TickContext",
     "TransformNodeConfig",
+    "Wiring",
     "ensure_nodes_loaded",
     "export_node_schemas",
     "get_inputs",

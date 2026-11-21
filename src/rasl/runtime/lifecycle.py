@@ -128,6 +128,7 @@ class NodeHost:
             node_id=node_id,
             logger=node_logger,
             resources=self._resources,
+            wiring=plan.wiring(node_id),
             _start_background=_start_background,
             _inject=_inject,
         )

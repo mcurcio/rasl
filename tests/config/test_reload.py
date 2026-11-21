@@ -586,3 +586,28 @@ class TestWatch:
             os.utime(config, ns=(stamp, stamp))
             await until(lambda: runtime.rate_drivers == {"out": 10.0})
             tg.cancel_scope.cancel()
+
+
+class TestRestartOnWiringChange:
+    """A node class that opts in is restarted when another node's connect line rewires it."""
+
+    def _wire_other_into_out(self, config: Path) -> object:
+        session = ConfigSession(config)
+        edit(config, "connect smooth; }", "connect smooth dmx[0~8]; connect other dmx[8~12]; }")
+        return session.reload()
+
+    def test_a_node_that_does_not_opt_in_keeps_running(self, config: Path) -> None:
+        update = self._wire_other_into_out(config)
+        assert "other" not in update.restarted
+        assert update.rerouted == ("out",)
+
+    def test_a_node_that_opts_in_is_restarted_when_it_gains_a_consumer(
+        self, config: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rasl.nodes.effects.waveform import WaveformNode
+
+        monkeypatch.setattr(WaveformNode, "restart_on_wiring_change", True)
+        update = self._wire_other_into_out(config)
+        assert update.restarted == ("other",)
+        assert update.rerouted == ("out",)
+        assert "wave" not in update.restarted  # its wiring did not change

@@ -109,6 +109,13 @@ class BaseNode(ABC):
     """Unique node identifier within the graph."""
 
 
+    restart_on_wiring_change: ClassVar[bool] = False
+    """Restart this node on a live reload that changes which of its ports have edges.
+
+    For a node whose behaviour follows its wiring (``NodeContext.wiring``); others
+    are only rerouted when their connections change.
+    """
+
     def __init__(self, config: "BaseNodeConfig") -> None:
         """Initialize base node with common config.
 

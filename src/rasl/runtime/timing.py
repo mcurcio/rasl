@@ -7,19 +7,36 @@ from collections import defaultdict
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from rasl.graph import ExecutionPlan
+from rasl.graph.node import Wiring
 
 
-def pull_rate_of(node_id: str, node: object) -> Optional[float]:
-    """The rate in Hz a node's pull() declares with @pull_rate, or None if it declares none.
+def pull_rate_of(node_id: str, node: object, wiring: Optional[Wiring] = None) -> Optional[float]:
+    """The rate in Hz a node's pull() declares with @pull_rate, or None if it declares
+    none or its rate callable returns None (this instance drives nothing).
+
+    Args:
+        node_id: The node's id, for error messages.
+        node: The node.
+        wiring: The node's wiring in the plan; required when the node declares
+            ``@pull_rate(..., wiring=True)``.
 
     Raises:
-        ValueError: If the declared rate is not a positive, finite number.
+        ValueError: If the declared rate is not None and not a positive, finite
+            number, or the rate needs ``wiring`` and none was given.
     """
-    hz = getattr(getattr(node, "pull", None), "_pull_rate_hz", None)
+    pull = getattr(node, "pull", None)
+    hz = getattr(pull, "_pull_rate_hz", None)
     if hz is None:
         return None
     if callable(hz):
-        hz = hz(node)
+        if getattr(pull, "_pull_rate_wiring", False):
+            if wiring is None:
+                raise ValueError(f"Node '{node_id}' declares a rate that depends on its wiring; none given")
+            hz = hz(node, wiring)
+        else:
+            hz = hz(node)
+        if hz is None:
+            return None
     try:
         hz = float(hz)
     except (TypeError, ValueError):
@@ -39,7 +56,7 @@ def find_rate_drivers(plan: ExecutionPlan) -> Dict[str, float]:
     """
     drivers: Dict[str, float] = {}
     for node_id, node in plan.nodes.items():
-        hz = pull_rate_of(node_id, node)
+        hz = pull_rate_of(node_id, node, plan.wiring(node_id))
         if hz is not None:
             drivers[node_id] = hz
     return drivers

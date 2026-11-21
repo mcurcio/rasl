@@ -239,9 +239,9 @@ class Runtime:
         if not self._undriven:
             return
         if self._rate_drivers:
-            reason = "not upstream of any sink that declares a rate"
+            reason = "not upstream of any node that drives the graph at a rate"
         else:
-            reason = "no sink in the graph declares a rate"
+            reason = "no node drives the graph at a rate"
         logger.warning("nodes_never_pulled", nodes=list(self._undriven), reason=reason)
 
     async def run(self) -> None:
