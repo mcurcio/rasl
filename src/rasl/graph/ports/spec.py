@@ -88,6 +88,10 @@ class InputPortSpec:
             - (min, max): Variable with bounds
             - None: Variable with no bounds (default)
         description: Optional human-readable description of the port.
+        values_multiple_of: The total number of values supplied (rows × components)
+            must be a multiple of this; None for no such rule. Checked when the graph
+            is built where every source's rows and width are known (a ``ConnectError``
+            with ``MULTIPLE``); otherwise the node checks it on each frame.
 
     Examples:
         >>> from rasl.color import ColorPayload
@@ -102,9 +106,12 @@ class InputPortSpec:
     accepts: AcceptsSpec
     count: CountSpec = None
     description: str = ""
+    values_multiple_of: int | None = None
 
     def __post_init__(self) -> None:
         _parse_count_spec(self.count)
+        if self.values_multiple_of is not None and self.values_multiple_of < 1:
+            raise ValueError(f"values_multiple_of must be at least 1, got {self.values_multiple_of}")
 
     @property
     def accepted_types(self) -> tuple[str, ...]:

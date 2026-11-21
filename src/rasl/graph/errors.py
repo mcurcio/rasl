@@ -32,6 +32,12 @@ class ConnectProblem(str, Enum):
         OVERLAP: It writes rows of the target port an earlier connection writes.
         COMPONENTS: A source coerced into a more specific type has another number of
             columns than that type's components.
+        NOT_SLICEABLE: It slices or repeats a source, or joins a second source into one
+            port, when the source's payload is not a matrix (owner, 2026-11-20: refused
+            at load rather than delivering nothing).
+        MULTIPLE: The total number of values a port is supplied (rows times components,
+            padding included) is not a multiple of what the port declares
+            (``InputPortSpec.values_multiple_of``).
     """
 
     UNKNOWN_NODE = "unknown-node"
@@ -44,6 +50,8 @@ class ConnectProblem(str, Enum):
     DUPLICATE = "duplicate"
     OVERLAP = "overlap"
     COMPONENTS = "components"
+    NOT_SLICEABLE = "not-sliceable"
+    MULTIPLE = "multiple"
 
 
 @dataclass(frozen=True)
@@ -75,9 +83,11 @@ class ConnectError(Exception):
             ``(start, end)``, end None for "to the end"; else None.
         other_rows: For ``OVERLAP``, the rows the earlier connection writes; else None.
         supplied: For ``COUNT``, the rows the source supplies (repeats included); for
-            ``COMPONENTS``, the columns it supplies.
+            ``COMPONENTS``, the columns it supplies; for ``MULTIPLE``, the total values
+            the port is supplied.
         takes: For ``COUNT``, the rows the target takes; for ``COMPONENTS``, the
-            components of the color type it takes.
+            components of the color type it takes; for ``MULTIPLE``, the number the
+            total must be a multiple of.
     """
 
     def __init__(

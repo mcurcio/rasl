@@ -3,11 +3,13 @@
 - ``Frame``: an immutable container, a payload with a topic, a timestamp and metadata
 - ``FramePayload``: the base of every payload type
 - ``MatrixPayload``: numeric data, one row per element; ``BoolPayload``: a mask
+- ``RollingCounter``: a count that wraps (not a matrix)
 - the payload registry: payload types by name (``@payload``, ``get_payload_type``)
 
 Color payloads build on these and live in ``rasl.color``.
 """
 
+from rasl.signal.counter import RollingCounter
 from rasl.signal.frame import EMPTY_METADATA, Frame, Metadata
 from rasl.signal.matrix import BoolPayload, MatrixPayload
 from rasl.signal.payload import FramePayload, PayloadCoercionError, PayloadDescriptor
@@ -22,6 +24,7 @@ __all__ = [
     "Metadata",
     "PayloadCoercionError",
     "PayloadDescriptor",
+    "RollingCounter",
     "get_payload_registry",
     "get_payload_type",
     "list_payload_types",

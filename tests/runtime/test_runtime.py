@@ -422,3 +422,37 @@ class TestMonitorOnUpdates:
         assert monitor.get_stats("a") is None
         b = monitor.get_stats("b")
         assert b is not None and b.consecutive_failures == 0 and b.failure_count == 2
+
+
+class TestNonMatrixPayloads:
+    async def test_a_counter_reaches_its_reader_through_a_passthrough_untouched(self) -> None:
+        from rasl.signal import RollingCounter
+
+        class Counter(BaseNode):
+            def __init__(self) -> None:
+                self.id = "count"
+                self.inputs = PortGroup.inputs()
+                self.outputs = PortGroup.outputs(out=OutputPortSpec(RollingCounter))
+                self.written: list[RollingCounter] = []
+
+            async def pull(self, tick: TickContext) -> None:
+                counter = RollingCounter(len(self.written))
+                self.written.append(counter)
+                self.outputs.out.write(Frame(topic="count", timestamp=0.0, payload=counter))
+
+        class Reader(BaseNode):
+            def __init__(self) -> None:
+                self.id = "reader"
+                self.inputs = PortGroup.inputs(**{"in": InputPortSpec(RollingCounter)})
+                self.outputs = PortGroup.outputs()
+                self.read: list[object] = []
+
+            @pull_rate(lambda self: 50.0)
+            async def pull(self, tick: TickContext) -> None:
+                frame = self.inputs.get("in").read()
+                self.read.append(None if frame is None else frame.payload)
+
+        counter, reader = Counter(), Reader()
+        await _run(Runtime(_plan([counter, reader], [("count", "reader")])), 0.15)
+        assert reader.read and len(reader.read) == len(counter.written)
+        assert all(got is sent for got, sent in zip(reader.read, counter.written))
