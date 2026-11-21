@@ -379,3 +379,28 @@ class TestRawChannelsIntoColor:
     def test_the_same_count_through_reshape_gets_the_same_hint(self) -> None:
         with pytest.raises(ConfigError, match=r"connect u\.dmx\[0~510\]"):
             parse_config("graph {\n    node SacnUniverse u { universe 1; }\n    node Reshape r { components 3; connect u; }\n}\n")
+
+
+async def test_a_start_that_fails_partway_gives_back_what_it_acquired(registry: ResourceRegistry) -> None:
+    """Review fix: the receive port is taken, so the half-acquired output is released."""
+    blocker = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    blocker.bind(("", 0))
+    port = blocker.getsockname()[1]
+    try:
+        node = universe_node(f"universe 1; bind \"127.0.0.1\"; port {port};")
+        c = Context(registry, Wiring(inputs=frozenset({"dmx"}), outputs=frozenset({"dmx"})))
+        with pytest.raises(OSError):
+            await node.start(c.ctx)
+        assert node._output is None and node._receiver is None
+        assert registry._entries == {}
+    finally:
+        blocker.close()
+
+
+def test_two_senders_of_one_universe_warn_even_from_different_local_ports() -> None:
+    details = _warnings(
+        "graph {\n    node SineSource s { output_channels 4; }\n"
+        "    node SacnUniverse a { universe 5; connect s; }\n"
+        "    node SacnUniverse b { universe 5; send_port 46001; connect s; }\n}\n"
+    )
+    assert any("rasl/sacn-duplicate" in d for d in details)

@@ -132,6 +132,8 @@ async def test_the_first_subscriber_joins_the_group_and_the_last_leaves(registry
     assert calls == ["join 239.255.1.2"]
     b.close()
     zero.close()
+    assert calls == ["join 239.255.1.2"]  # left at the end of the tick, not at once
+    receiver.end_tick(None)
     assert calls == ["join 239.255.1.2", "leave 239.255.1.2"]
 
 
@@ -392,3 +394,42 @@ async def test_the_receiver_joins_a_sync_universes_group_when_data_names_it(regi
     assert calls == ["join 239.255.0.1", "join 239.255.1.244"]
     await lease.release()
     assert sorted(calls[2:]) == ["leave 239.255.0.1", "leave 239.255.1.244"]
+
+
+async def test_a_universe_resubscribed_within_a_tick_keeps_its_group_and_arbitration(registry: ResourceRegistry) -> None:
+    """Review fix: a live reload restarts the node between ticks; nothing is left and rejoined."""
+    lease = await SacnReceiver.acquire(registry, "127.0.0.1", 0)
+    receiver = lease.value
+    calls: list[str] = []
+    receiver._socket.join_multicast = lambda group: calls.append(f"join {group}")
+    receiver._socket.leave_multicast = lambda group: calls.append(f"leave {group}")
+    first = receiver.subscribe(1, lambda u: None)
+    arbiter = receiver._arbiters[1]
+    first.close()  # the old node stops...
+    receiver.subscribe(1, lambda u: None)  # ...and its successor starts, before any tick
+    receiver.end_tick(None)
+    assert calls == ["join 239.255.0.1"]
+    assert receiver._arbiters[1] is arbiter
+
+
+async def test_a_universe_nobody_resubscribes_is_left_at_the_end_of_the_tick(registry: ResourceRegistry) -> None:
+    lease = await SacnReceiver.acquire(registry, "127.0.0.1", 0)
+    receiver = lease.value
+    calls: list[str] = []
+    receiver._socket.join_multicast = lambda group: calls.append(f"join {group}")
+    receiver._socket.leave_multicast = lambda group: calls.append(f"leave {group}")
+    receiver.subscribe(1, lambda u: None).close()
+    assert calls == ["join 239.255.0.1"]
+    receiver.end_tick(None)
+    assert calls == ["join 239.255.0.1", "leave 239.255.0.1"]
+    assert 1 not in receiver._arbiters
+
+
+async def test_a_target_is_resolved_once_when_the_output_opens(registry: ResourceRegistry) -> None:
+    lease = await SacnOutput.acquire(registry, "127.0.0.1", 0, 1, "localhost")
+    assert lease.value._address == "127.0.0.1"
+
+
+async def test_a_target_that_cannot_be_resolved_names_itself(registry: ResourceRegistry) -> None:
+    with pytest.raises(OSError, match="target '10.0.0.300' cannot be resolved"):
+        await SacnOutput.acquire(registry, "127.0.0.1", 0, 1, "10.0.0.300")

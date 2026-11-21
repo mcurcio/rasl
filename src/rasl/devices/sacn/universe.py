@@ -163,10 +163,13 @@ class SacnUniverseNode(BaseNode):
         """
         senders = [n for n in node_ids if "dmx" in plan.wiring(n).inputs]
         warnings: list[tuple[str, str, str]] = []
-        by_target: dict[tuple[str, int, int, Optional[str]], list[str]] = {}
+        # Keyed on where packets go, not where they leave from: one CID per runtime,
+        # so two local sockets sending one universe still interleave at receivers
+        by_target: dict[tuple[int, Optional[str]], list[str]] = {}
         for node_id in senders:
-            by_target.setdefault(plan.nodes[node_id].send_target, []).append(node_id)  # type: ignore[attr-defined]
-        for (_, _, universe, destination), ids in by_target.items():
+            _, _, universe, destination = plan.nodes[node_id].send_target  # type: ignore[attr-defined]
+            by_target.setdefault((universe, destination), []).append(node_id)
+        for (universe, destination), ids in by_target.items():
             for node_id in ids[1:]:
                 where = destination or "its multicast group"
                 warnings.append((node_id, "rasl/sacn-duplicate", (
@@ -199,13 +202,18 @@ class SacnUniverseNode(BaseNode):
         if not (sends or receives):
             ctx.logger.info("sacn_universe_unwired", universe=self._universe)
             return
-        if sends:
-            self._output = await SacnOutput.acquire(
-                ctx.resources, self._bind_address, self._send_port, self._universe, self._destination
-            )
-        if receives:
-            self._receiver = await SacnReceiver.acquire(ctx.resources, self._bind_address, self._port)
-            self._subscription = self._receiver.value.subscribe(self._universe, self._on_update)
+        try:
+            if sends:
+                self._output = await SacnOutput.acquire(
+                    ctx.resources, self._bind_address, self._send_port, self._universe, self._destination
+                )
+            if receives:
+                self._receiver = await SacnReceiver.acquire(ctx.resources, self._bind_address, self._port)
+                self._subscription = self._receiver.value.subscribe(self._universe, self._on_update)
+        except BaseException:
+            # Half started is not started: give back what was acquired
+            await self.stop(ctx)
+            raise
 
     @pull_rate(lambda self, wiring: self._fps if "dmx" in wiring.inputs else None, wiring=True)
     async def pull(self, tick: TickContext) -> None:

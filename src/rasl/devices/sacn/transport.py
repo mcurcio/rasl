@@ -167,6 +167,10 @@ class SacnReceiver:
     delivered at once. The packet counter advances when data is accepted, and subscribers
     see it with the released data. The receiver joins a synchronization universe's
     multicast group the first time data names it, and leaves at close.
+
+    A universe whose last subscriber leaves keeps its multicast group, its source
+    arbitration and its counter until the end of the tick (``EndOfTick``), so a live
+    reload that restarts its node (between ticks) keeps them.
     """
 
     def __init__(self, bind_address: str, port: int, cid: Lease[bytes], loop: asyncio.AbstractEventLoop) -> None:
@@ -182,6 +186,8 @@ class SacnReceiver:
         self._last_sync: Dict[tuple[bytes, int], float] = {}
         self._sync_sequences: Dict[int, protocol.SequenceTracker] = {}
         self._held: Dict[tuple[bytes, int], Dict[int, UniverseUpdate]] = {}
+        self._idle: set[int] = set()
+        """Universes whose last subscriber left; dropped at the end of the tick."""
         self._listener = _Listener(loop, self._on_frame)
 
     @classmethod
@@ -241,7 +247,8 @@ class SacnReceiver:
         subscription = Subscription(self, universe, callback)
         subscribers = self._subscribers.setdefault(universe, [])
         subscribers.append(subscription)
-        if len(subscribers) == 1:
+        self._idle.discard(universe)
+        if universe not in self._arbiters:
             self._arbiters[universe] = protocol.UniverseArbiter()
             self._counters.setdefault(universe, RollingCounter())
             self._join(universe)
@@ -271,8 +278,20 @@ class SacnReceiver:
             subscribers.remove(subscription)
         if subscribers:
             return
-        universe = subscription.universe
-        self._subscribers.pop(universe, None)
+        # Kept until the end of the tick: a live reload's swap (between ticks) that
+        # restarts the node subscribes again before then, and keeps the group and
+        # the source arbitration (end_tick)
+        self._subscribers.pop(subscription.universe, None)
+        self._idle.add(subscription.universe)
+
+    def end_tick(self, tick: TickContext) -> None:
+        """Leave the groups of universes nobody subscribed to again since the last
+        tick (``EndOfTick``), and forget their arbitration."""
+        for universe in list(self._idle):
+            self._drop_universe(universe)
+        self._idle.clear()
+
+    def _drop_universe(self, universe: int) -> None:
         self._arbiters.pop(universe, None)
         if universe in self._joined and universe not in self._sync_joined and self._socket is not None:
             self._socket.leave_multicast(protocol.multicast_group(universe))
@@ -475,6 +494,20 @@ class SacnSender:
             raise error
 
 
+async def _resolve(host: str) -> str:
+    """``host`` as an IPv4 address, looked up once (not on every packet).
+
+    Raises:
+        OSError: If it cannot be resolved; the message names it.
+    """
+    loop = asyncio.get_running_loop()
+    try:
+        infos = await loop.getaddrinfo(host, protocol.E131_PORT, family=socket.AF_INET, type=socket.SOCK_DGRAM)
+    except OSError as e:
+        raise OSError(f"sACN target {host!r} cannot be resolved: {e}") from e
+    return str(infos[0][4][0])
+
+
 class SacnOutput:
     """One universe sent to one destination through a shared sender.
 
@@ -491,6 +524,8 @@ class SacnOutput:
         self.destination = destination
         self._sequence = 0
         self._last: Optional[tuple[bytes, int, str, int, int]] = None
+        self._address: Optional[str] = destination
+        """``destination`` resolved to an IPv4 address once, when the output opened."""
 
     @classmethod
     async def acquire(
@@ -505,8 +540,11 @@ class SacnOutput:
         (``bind_address``, ``send_port``), opening both if needed."""
 
         async def _open() -> SacnOutput:
+            address = await _resolve(destination) if destination is not None else None
             sender = await SacnSender.acquire(resources, bind_address, send_port)
-            return cls(sender, universe, destination)
+            output = cls(sender, universe, destination)
+            output._address = address
+            return output
 
         async def _close(output: SacnOutput) -> None:
             await output.close()
@@ -535,9 +573,9 @@ class SacnOutput:
             sync_address=sync_universe,
         )
         self._last = (slots, priority, source_name, ttl, sync_universe)
-        sender.sendto(packet, self.universe, self.destination, ttl)
+        sender.sendto(packet, self.universe, self._address, ttl)
         if sync_universe:
-            sender.note_sync(sync_universe, self.destination, ttl)
+            sender.note_sync(sync_universe, self._address, ttl)
 
     def terminate(self) -> None:
         """Send the stream-terminated packets, if this output ever sent data; errors are
@@ -552,7 +590,7 @@ class SacnOutput:
                     sender.cid, self.universe, self._next_sequence(), priority, source_name, slots,
                     terminated=True, sync_address=sync_universe,
                 )
-                sender.sendto(packet, self.universe, self.destination, ttl)
+                sender.sendto(packet, self.universe, self._address, ttl)
         except OSError as e:
             logger.warning("sacn_termination_failed", universe=self.universe, error=str(e))
         self._last = None
