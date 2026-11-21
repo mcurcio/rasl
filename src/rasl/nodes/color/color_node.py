@@ -117,6 +117,14 @@ class ColorNode(BaseNode):
         super().__init__(config)
         self._model = config.model
         self._frame_cls = self._frame_class_for(self._model)
+        # A plain matrix is regrouped into this model's elements, so its values must
+        # divide by the model's width (checked at load when known)
+        width = getattr(self._frame_cls, "components", None)
+        self.inputs = PortGroup.inputs(
+            color=InputPortSpec(
+                (MatrixPayload, ColorPayload), values_multiple_of=width if isinstance(width, int) else None
+            )
+        )
 
     @staticmethod
     def _frame_class_for(model: str) -> type[ColorPayload]:

@@ -674,16 +674,47 @@ class GraphBuilder:
                 multiple = None if port is None else port.spec.values_multiple_of
                 if port is None or multiple is None:
                     continue
+                # A source whose type fixes its own width (a color) is converted, not
+                # regrouped: the rule is for plain values
+                if any(
+                    isinstance(getattr(self._declared_type(e), "components", None), int) for e in port_edges
+                ):
+                    continue
                 total = self._supplied_values(port.spec, port_edges)
                 if total is None or total % multiple == 0:
                     continue
                 raise PortValuesError(
                     port_edges[0],
-                    f"Value count mismatch: {node_id}.{port_name} is supplied {total} values "
-                    f"(rows × components), which is not a multiple of {multiple}",
+                    self._values_message(node_id, port_name, port_edges, total, multiple),
                     supplied=total,
                     takes=multiple,
                 )
+
+    def _values_message(
+        self, node_id: str, port_name: str, edges: List[Edge], total: int, multiple: int
+    ) -> str:
+        """The MULTIPLE error: what supplies the values, and how to make them fit."""
+        sources = []
+        for edge in edges:
+            spec = get_outputs(self._nodes[edge.source]).get(edge.source_port).spec
+            rows = self._supplied_rows(edge, spec)
+            sources.append(f"{self._label(edge.source, edge.source_port, edge.source_slice)} "
+                           f"({rows} rows × {spec.known_components})")
+        message = (
+            f"Value count mismatch: {node_id}.{port_name} is supplied {total} values by "
+            f"{', '.join(sources)}, which is not a multiple of {multiple}"
+        )
+        only = edges[0]
+        if len(edges) == 1 and only.source_slice is None and only.repeat <= 1:
+            spec = get_outputs(self._nodes[only.source]).get(only.source_port).spec
+            width = spec.known_components or 1
+            fits = (total // multiple) * multiple // width
+            if fits:
+                message += (
+                    f"; supply a multiple of {multiple} values, e.g. connect "
+                    f"{only.source}.{only.source_port}[0~{fits}]"
+                )
+        return message
 
     def _supplied_values(self, spec: InputPortSpec, edges: List[Edge]) -> Optional[int]:
         """Values (rows × columns) in the frame a port receives, or None when unknown.

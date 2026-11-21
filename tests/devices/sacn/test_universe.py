@@ -360,3 +360,22 @@ async def test_a_node_wired_both_ways_sends_at_its_own_rate_whatever_reads_its_o
     finally:
         rx.close()
     assert 2 <= len(data) <= 4  # about 5 a second, not 50
+
+
+class TestRawChannelsIntoColor:
+    """Color regroups plain values into its model's elements; a count that cannot divide is refused at load."""
+
+    def test_a_count_that_divides_loads(self) -> None:
+        parse_config("graph {\n    node SacnUniverse u { universe 1; channels 510; }\n    node Color c rgb { connect u; }\n}\n")
+
+    def test_the_default_512_into_rgb_is_a_located_error_that_says_what_fits(self) -> None:
+        with pytest.raises(ConfigError) as caught:
+            parse_config("graph {\n    node SacnUniverse u { universe 1; }\n    node Color c rgb { connect u; }\n}\n")
+        message = str(caught.value)
+        assert "rasl/connect" in message and ":3:" in message
+        assert "512 values by u.dmx (512 rows × 1)" in message
+        assert "e.g. connect u.dmx[0~510]" in message
+
+    def test_the_same_count_through_reshape_gets_the_same_hint(self) -> None:
+        with pytest.raises(ConfigError, match=r"connect u\.dmx\[0~510\]"):
+            parse_config("graph {\n    node SacnUniverse u { universe 1; }\n    node Reshape r { components 3; connect u; }\n}\n")
