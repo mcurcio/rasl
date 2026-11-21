@@ -611,3 +611,15 @@ class TestRestartOnWiringChange:
         assert update.restarted == ("other",)
         assert update.rerouted == ("out",)
         assert "wave" not in update.restarted  # its wiring did not change
+
+
+def test_a_node_updated_in_place_whose_wiring_changes_is_restarted(config: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review round: restart_on_wiring_change covers nodes with update_config too."""
+    from rasl.nodes.effects.smooth import SmoothNode
+
+    monkeypatch.setattr(SmoothNode, "restart_on_wiring_change", True)
+    session = ConfigSession(config)
+    edit(config, "smooth_period 50ms; connect wave input; }", "smooth_period 80ms; connect wave input; connect other reset; }")
+    update = session.reload()
+    assert "smooth" in update.restarted
+    assert "smooth" not in update.updated

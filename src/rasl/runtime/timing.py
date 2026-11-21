@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import math
 from collections import defaultdict
 from typing import Dict, Iterable, List, Optional, Set, Tuple
@@ -32,14 +33,18 @@ def pull_rate_of(node_id: str, node: object, wiring: Optional[Wiring] = None) ->
         wants_wiring = getattr(pull, "_pull_rate_wiring", False)
         if wants_wiring and wiring is None:
             raise ValueError(f"Node '{node_id}' declares a rate that depends on its wiring; none given")
+        args = (node, wiring) if wants_wiring else (node,)
         try:
-            hz = hz(node, wiring) if wants_wiring else hz(node)
+            inspect.signature(hz).bind(*args)
         except TypeError as e:
             shape = "(self, wiring)" if wants_wiring else "(self)"
             raise ValueError(
                 f"Node '{node_id}' ({type(node).__name__}): its @pull_rate function must take {shape}"
                 f"{'' if wants_wiring else '; pass wiring=True for one that takes (self, wiring)'}: {e}"
             ) from e
+        except ValueError:
+            pass  # no signature to inspect (a builtin): call it and see
+        hz = hz(*args)
         if hz is None:
             return None
     try:

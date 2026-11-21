@@ -226,14 +226,15 @@ class ConfigSession:
         # changed, whoever's connect line changed it (restart_on_wiring_change)
         rewired = {
             node_id
-            for node_id, node in keep.items()
+            for node_id, node in {**keep, **update}.items()
             if getattr(node, "restart_on_wiring_change", False)
             and self.plan.wiring(node_id) != plan.wiring(node_id)
         }
         if rewired:
             restarted |= rewired
             for node_id in rewired:
-                del keep[node_id]
+                keep.pop(node_id, None)
+                update.pop(node_id, None)
             plan, configs = build_plan(tree, keep=keep, update=update)
 
         return PlanUpdate(

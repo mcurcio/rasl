@@ -454,3 +454,27 @@ class TestDirectionWarnings:
             "graph {\n    node SacnUniverse a { universe 1; channels 6; }\n"
             "    node SacnUniverse b { universe 2; channels 6; connect a; }\n}\n"
         ) == []
+
+
+def test_the_multiple_hint_suggests_rows_that_really_fit() -> None:
+    """5 rows x 2 columns into Reshape 3: 3 rows (6 values) fit, not 4 (8 values)."""
+    from rasl.graph import GraphBuilder, PortValuesError
+    from rasl.graph.node import BaseNode, TickContext
+    from rasl.graph.ports import OutputPortSpec, PortGroup
+    from rasl.nodes.effects.reshape import ReshapeNode
+
+    class Src(BaseNode):
+        def __init__(self) -> None:
+            self.id = "src"
+            self.inputs = PortGroup.inputs()
+            self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload, count=5, components=2))
+
+        async def pull(self, tick: TickContext) -> None:
+            """Do nothing."""
+
+    builder = GraphBuilder()
+    builder.add_node(Src())
+    builder.add_node(ReshapeNode(ReshapeNode.Config(id="r", components=3)))
+    builder.connect("src", "out", "r", "input")
+    with pytest.raises(PortValuesError, match=r"connect src\.out\[0~3\]"):
+        builder.build()

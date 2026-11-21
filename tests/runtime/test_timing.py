@@ -81,3 +81,16 @@ def test_a_rate_function_of_the_wrong_shape_names_the_node_and_the_fix() -> None
         pull_rate_of("a", _TwoArgsNoFlag())
     with pytest.raises(ValueError, match=r"_OneArgWithFlag.*take \(self, wiring\)"):
         pull_rate_of("b", _OneArgWithFlag(), Wiring())
+
+
+def test_an_error_inside_a_rate_function_is_not_reported_as_a_wrong_shape() -> None:
+    class _Buggy(BaseNode):
+        @pull_rate(lambda self: 1000 / self.interval)
+        async def pull(self, tick: TickContext) -> None:
+            """Do nothing."""
+
+        def __init__(self) -> None:
+            self.interval = None
+
+    with pytest.raises(TypeError, match="unsupported operand"):
+        pull_rate_of("n", _Buggy())

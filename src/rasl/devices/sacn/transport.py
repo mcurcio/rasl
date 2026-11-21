@@ -183,6 +183,7 @@ class SacnReceiver:
         self._counters: Dict[int, RollingCounter] = {}
         self._joined: set[int] = set()
         self._sync_joined: set[int] = set()
+        self._sync_join_failed: set[int] = set()
         self._last_sync: Dict[tuple[bytes, int], float] = {}
         self._sync_sequences: Dict[int, protocol.SequenceTracker] = {}
         self._held: Dict[tuple[bytes, int], Dict[int, UniverseUpdate]] = {}
@@ -338,7 +339,10 @@ class SacnReceiver:
             if last is not None and now - last <= protocol.LOSS_TIMEOUT_S:
                 self._held.setdefault(key, {})[frame.universe] = update
                 return
-            self._held.pop(key, None)  # synchronization stopped: deliver as it comes
+            # Synchronization stopped: what was held goes out now, then data as it comes
+            for held in self._held.pop(key, {}).values():
+                if held.universe != frame.universe:
+                    self._deliver(held)
         self._deliver(update)
 
     def _on_sync(self, frame: protocol.SyncFrame, now: float) -> None:
@@ -352,14 +356,20 @@ class SacnReceiver:
             self._deliver(update)
 
     def _join_sync(self, sync_universe: int) -> None:
-        if sync_universe in self._sync_joined or self._socket is None:
+        if (
+            sync_universe in self._sync_joined
+            or sync_universe in self._sync_join_failed
+            or self._socket is None
+        ):
             return
-        self._sync_joined.add(sync_universe)
         if sync_universe in self._joined:
-            return  # already a member for its data
+            self._sync_joined.add(sync_universe)  # already a member for its data
+            return
         try:
             self._socket.join_multicast(protocol.multicast_group(sync_universe))
         except OSError as e:
+            # Not retried for every packet; a data subscription to it still tries
+            self._sync_join_failed.add(sync_universe)
             logger.warning(
                 "sacn_multicast_join_failed",
                 universe=sync_universe,
@@ -367,6 +377,8 @@ class SacnReceiver:
                 error=str(e),
                 note="synchronization packets for it arrive by unicast only",
             )
+            return
+        self._sync_joined.add(sync_universe)
 
     def _deliver(self, update: UniverseUpdate) -> None:
         for subscription in list(self._subscribers.get(update.universe, [])):
@@ -436,11 +448,11 @@ class SacnSender:
         self._socket = sock
 
     async def close(self) -> None:
-        """Close the socket and release the CID. Closing twice does nothing."""
+        """Close the socket (if it opened) and release the CID. Closing twice does nothing."""
         sock, self._socket = self._socket, None
         if sock is not None:
             sock.close()
-            await self._cid.release()
+        await self._cid.release()  # a lease releases once, whatever is called after
 
     def sendto(self, packet: bytes, universe: int, destination: Optional[str], ttl: int) -> None:
         """Send one packet now, to ``destination`` or else ``universe``'s multicast group.

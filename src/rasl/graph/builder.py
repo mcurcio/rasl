@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import math
 import warnings
 from typing import Callable, Dict, List, Optional, Type
 
@@ -708,7 +709,9 @@ class GraphBuilder:
         if len(edges) == 1 and only.source_slice is None and only.repeat <= 1:
             spec = get_outputs(self._nodes[only.source]).get(only.source_port).spec
             width = spec.known_components or 1
-            fits = (total // multiple) * multiple // width
+            rows = total // width
+            step = multiple // math.gcd(multiple, width)  # rows per whole multiple of values
+            fits = rows - rows % step
             if fits:
                 message += (
                     f"; supply a multiple of {multiple} values, e.g. connect "

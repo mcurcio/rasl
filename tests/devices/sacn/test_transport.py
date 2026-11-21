@@ -433,3 +433,49 @@ async def test_a_target_is_resolved_once_when_the_output_opens(registry: Resourc
 async def test_a_target_that_cannot_be_resolved_names_itself(registry: ResourceRegistry) -> None:
     with pytest.raises(OSError, match="target '10.0.0.300' cannot be resolved"):
         await SacnOutput.acquire(registry, "127.0.0.1", 0, 1, "10.0.0.300")
+
+
+# ---- review round 2026-11-21 ----------------------------------------------------------
+
+async def test_when_sync_stops_the_other_universes_held_data_is_delivered_not_dropped(
+    registry: ResourceRegistry,
+) -> None:
+    lease = await SacnReceiver.acquire(registry, "127.0.0.1", 0)
+    receiver = lease.value
+    got: list[UniverseUpdate] = []
+    receiver.subscribe(1, got.append)
+    receiver.subscribe(2, got.append)
+    receiver._on_frame(protocol.decode_sync(protocol.encode_sync(OTHER_CID, 500, 0)), 0.0)
+    receiver._on_frame(protocol.decode(synced(1, 0, b"\x01")), 0.1)
+    receiver._on_frame(protocol.decode(synced(2, 0, b"\x02")), 0.1)
+    assert got == []
+    receiver._on_frame(protocol.decode(synced(1, 1, b"\x03")), 3.0)  # sync stopped 3 s ago
+    assert sorted((u.universe, u.slots) for u in got) == [(1, b"\x03"), (2, b"\x02")]
+
+
+async def test_a_failed_sync_join_does_not_stop_a_data_subscription_joining(registry: ResourceRegistry) -> None:
+    lease = await SacnReceiver.acquire(registry, "127.0.0.1", 0)
+    receiver = lease.value
+    calls: list[str] = []
+    fail = {"239.255.0.5"}
+
+    def join(group: str) -> None:
+        calls.append(f"join {group}")
+        if group in fail:
+            raise OSError("No such device")
+
+    receiver._socket.join_multicast = join
+    receiver._socket.leave_multicast = lambda group: None
+    receiver.subscribe(1, lambda u: None)
+    receiver._on_frame(protocol.decode(synced(1, 0, b"\x01", sync=5)), 0.0)
+    receiver._on_frame(protocol.decode(synced(1, 1, b"\x01", sync=5)), 0.0)  # not retried per packet
+    fail.clear()  # the interface came up
+    receiver.subscribe(5, lambda u: None)
+    assert calls == ["join 239.255.0.1", "join 239.255.0.5", "join 239.255.0.5"]
+    assert 5 in receiver._joined
+
+
+async def test_a_sender_whose_socket_cannot_bind_releases_the_cid(registry: ResourceRegistry) -> None:
+    with pytest.raises(OSError):
+        await SacnOutput.acquire(registry, "10.9.9.9", 0, 1, None)  # not a local address
+    assert registry._entries == {}
