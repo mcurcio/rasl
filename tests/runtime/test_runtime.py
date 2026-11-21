@@ -456,3 +456,34 @@ class TestNonMatrixPayloads:
         await _run(Runtime(_plan([counter, reader], [("count", "reader")])), 0.15)
         assert reader.read and len(reader.read) == len(counter.written)
         assert all(got is sent for got, sent in zip(reader.read, counter.written))
+
+
+class TestEndOfTick:
+    """A shared resource with end_tick acts once per tick, after that tick's pulls."""
+
+    async def test_end_tick_runs_after_every_due_pull_of_each_tick(self) -> None:
+        from rasl.graph.node import ResourceKey
+
+        log: list[str] = []
+
+        class Recorder:
+            def end_tick(self, tick: TickContext) -> None:
+                log.append(f"end {round(tick.t, 6)}")
+
+        class Holder(Sink):
+            async def start(self, ctx) -> None:
+                async def _open():
+                    return Recorder()
+
+                async def _close(value):
+                    return None
+
+                self._lease = await ctx.resources.acquire(ResourceKey("test.recorder"), _open, _close)
+
+            @pull_rate(lambda self: self.hz)
+            async def pull(self, tick: TickContext) -> None:
+                log.append(f"pull {self.id} {round(tick.t, 6)}")
+
+        a, b = Holder("a", 20), Holder("b", 20)
+        await _run(Runtime(_plan([a, b])), 0.12)
+        assert log[:6] == ["pull a 0.0", "pull b 0.0", "end 0.0", "pull a 0.05", "pull b 0.05", "end 0.05"]

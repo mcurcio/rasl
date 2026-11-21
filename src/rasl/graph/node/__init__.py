@@ -24,13 +24,14 @@ from rasl.graph.node.registry import (
     node,
     reset_registries,
 )
-from rasl.graph.node.resources import Lease, ResourceKey, Resources
+from rasl.graph.node.resources import EndOfTick, Lease, ResourceKey, Resources
 from rasl.graph.node.tick import TickContext, pull_rate
 from rasl.graph.node.wiring import Wiring
 
 __all__ = [
     "BaseNode",
     "BaseNodeConfig",
+    "EndOfTick",
     "InjectCallable",
     "Lease",
     "Node",

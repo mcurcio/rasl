@@ -23,6 +23,17 @@ Data packet layout (byte offsets; all integers big-endian):
     119-120 first property address 0   121-122 address increment 1
     123-124 property value count (1 + number of slots)
     125     DMX start code              126-    slots (0..512 bytes)
+
+Synchronization packet layout (E1.31 6.3; 49 bytes):
+
+    0-37    as above, with root vector 0x00000008
+    38-39   framing flags and length    40-43   framing vector 0x00000001
+    44      sequence number             45-46   synchronization address (1..63999)
+    47-48   reserved (0)
+
+A data packet whose synchronization address is not 0 asks receivers that support
+synchronization to hold its data until a synchronization packet for that address arrives
+from the same source, so that several universes change at once (E1.31 6.6.1, 11).
 """
 
 from __future__ import annotations
@@ -40,6 +51,9 @@ _ACN_IDENTIFIER = b"ASC-E1.17\x00\x00\x00"
 _PREAMBLE = b"\x00\x10\x00\x00"
 _VECTOR_ROOT_E131_DATA = 0x00000004
 _VECTOR_E131_DATA_PACKET = 0x00000002
+_VECTOR_ROOT_E131_EXTENDED = 0x00000008
+_VECTOR_E131_EXTENDED_SYNCHRONIZATION = 0x00000001
+_SYNC_LEN = 49
 _VECTOR_DMP_SET_PROPERTY = 0x02
 _DMP_ADDRESS_AND_DATA_TYPE = 0xA1
 _HEADER_LEN = 126  # bytes up to and including the start code
@@ -235,6 +249,80 @@ def decode(raw: bytes) -> DataFrame | None:
         preview=bool(options & _OPTION_PREVIEW),
         sync_address=int.from_bytes(raw[109:111], "big"),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class SyncFrame:
+    """A decoded E1.31 synchronization packet.
+
+    Attributes:
+        cid: The sender's 16-byte component identifier.
+        sync_universe: The synchronization address it releases (1..63999).
+        sequence: Its sequence number (0..255), counted per source and address.
+    """
+
+    cid: bytes
+    sync_universe: int
+    sequence: int
+
+
+def encode_sync(cid: bytes, sync_universe: int, sequence: int) -> bytes:
+    """Encode an E1.31 synchronization packet (49 bytes).
+
+    Args:
+        cid: The sender's 16-byte component identifier.
+        sync_universe: The synchronization address, 1..63999.
+        sequence: The sequence number, 0..255.
+
+    Raises:
+        ValueError: If an argument is out of range.
+    """
+    if len(cid) != 16:
+        raise ValueError(f"cid must be 16 bytes, got {len(cid)}")
+    if not 1 <= sync_universe <= _MAX_UNIVERSE:
+        raise ValueError(f"sync_universe must be 1..{_MAX_UNIVERSE}, got {sync_universe}")
+    if not 0 <= sequence <= 255:
+        raise ValueError(f"sequence must be 0..255, got {sequence}")
+    return b"".join(
+        (
+            _PREAMBLE,
+            _ACN_IDENTIFIER,
+            _flags_and_length(_SYNC_LEN - 16),
+            _VECTOR_ROOT_E131_EXTENDED.to_bytes(4, "big"),
+            bytes(cid),
+            _flags_and_length(_SYNC_LEN - 38),
+            _VECTOR_E131_EXTENDED_SYNCHRONIZATION.to_bytes(4, "big"),
+            bytes((sequence,)),
+            sync_universe.to_bytes(2, "big"),
+            b"\x00\x00",
+        )
+    )
+
+
+def decode_sync(raw: bytes) -> SyncFrame | None:
+    """Decode an E1.31 synchronization packet; return None for anything that is not one.
+
+    Never raises. Bytes after the 49th are ignored; a synchronization address outside
+    1..63999 or disagreeing PDU lengths give None.
+    """
+    try:
+        raw = bytes(raw)
+    except (TypeError, ValueError):
+        return None
+    if len(raw) < _SYNC_LEN:
+        return None
+    if raw[0:4] != _PREAMBLE or raw[4:16] != _ACN_IDENTIFIER:
+        return None
+    if int.from_bytes(raw[18:22], "big") != _VECTOR_ROOT_E131_EXTENDED:
+        return None
+    if int.from_bytes(raw[40:44], "big") != _VECTOR_E131_EXTENDED_SYNCHRONIZATION:
+        return None
+    if _pdu_length(raw, 16) != _SYNC_LEN - 16 or _pdu_length(raw, 38) != _SYNC_LEN - 38:
+        return None
+    sync_universe = int.from_bytes(raw[45:47], "big")
+    if not 1 <= sync_universe <= _MAX_UNIVERSE:
+        return None
+    return SyncFrame(cid=raw[22:38], sync_universe=sync_universe, sequence=raw[44])
 
 
 def sequence_accepts(last: int, new: int) -> bool:

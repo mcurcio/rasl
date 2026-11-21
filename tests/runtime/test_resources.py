@@ -238,3 +238,48 @@ async def test_nested_deferral_closes_only_when_the_outermost_ends(nesting: int)
         else:
             await lease.release()
     assert t.events[-1] == "close thing"
+
+
+class TestEndOfTick:
+    """ResourceRegistry.end_tick: resources that act once per tick."""
+
+    class Ticking:
+        def __init__(self, name: str, log: list[str], fail: bool = False) -> None:
+            self.name, self.log, self.fail = name, log, fail
+
+        def end_tick(self, tick) -> None:
+            self.log.append(self.name)
+            if self.fail:
+                raise OSError("unreachable")
+
+    async def _open(self, registry: ResourceRegistry, name: str, value: object):
+        async def _o():
+            return value
+
+        async def _c(v):
+            return None
+
+        return await registry.acquire(ResourceKey(f"test.{name}"), _o, _c)
+
+    async def test_open_resources_with_end_tick_are_called_in_open_order(self) -> None:
+        registry, log = ResourceRegistry(), []
+        await self._open(registry, "a", self.Ticking("a", log))
+        await self._open(registry, "plain", object())
+        await self._open(registry, "b", self.Ticking("b", log))
+        registry.end_tick(None)
+        assert log == ["a", "b"]
+
+    async def test_one_that_raises_does_not_stop_the_others(self) -> None:
+        registry, log = ResourceRegistry(), []
+        await self._open(registry, "a", self.Ticking("a", log, fail=True))
+        await self._open(registry, "b", self.Ticking("b", log))
+        registry.end_tick(None)
+        registry.end_tick(None)
+        assert log == ["a", "b", "a", "b"]
+
+    async def test_a_closed_resource_is_not_called(self) -> None:
+        registry, log = ResourceRegistry(), []
+        lease = await self._open(registry, "a", self.Ticking("a", log))
+        await lease.release()
+        registry.end_tick(None)
+        assert log == []

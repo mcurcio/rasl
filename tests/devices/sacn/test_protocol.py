@@ -477,3 +477,51 @@ def test_preview_and_per_address_priority_are_ignored(overrides: dict) -> None:
     assert arbiter.winner is not None and arbiter.winner.cid == CID_A
     # Ignored packets left the sequence record alone: A's next level packet is in order
     assert arbiter.accept(_frame(CID_A, sequence=1), now=0.4) is Verdict.DATA
+
+
+class TestSyncPackets:
+    """E1.31 synchronization packets (6.3)."""
+
+    CID = bytes(range(16))
+
+    def test_round_trip(self) -> None:
+        from rasl.devices.sacn.protocol import SyncFrame, decode_sync, encode_sync
+
+        raw = encode_sync(self.CID, 4000, 17)
+        assert len(raw) == 49
+        assert decode_sync(raw) == SyncFrame(cid=self.CID, sync_universe=4000, sequence=17)
+
+    def test_bytes_match_the_sacn_library(self) -> None:
+        from sacn.messages.sync_packet import SyncPacket
+
+        from rasl.devices.sacn.protocol import encode_sync
+
+        oracle = bytes(SyncPacket(cid=tuple(self.CID), syncAddr=63999, sequence=200).getBytes())
+        assert encode_sync(self.CID, 63999, 200) == oracle
+
+    def test_a_data_packet_is_not_a_sync_packet_and_the_reverse(self) -> None:
+        from rasl.devices.sacn.protocol import decode, decode_sync, encode_data, encode_sync
+
+        data = encode_data(self.CID, 1, 0, 100, "x", b"\x01")
+        assert decode_sync(data) is None
+        assert decode(encode_sync(self.CID, 1, 0)) is None
+
+    @pytest.mark.parametrize("bad", [b"", b"\x00" * 49])
+    def test_garbage_is_none(self, bad: bytes) -> None:
+        from rasl.devices.sacn.protocol import decode_sync
+
+        assert decode_sync(bad) is None
+
+    def test_an_address_of_zero_is_none(self) -> None:
+        from rasl.devices.sacn.protocol import decode_sync, encode_sync
+
+        raw = bytearray(encode_sync(self.CID, 1, 0))
+        raw[45:47] = b"\x00\x00"
+        assert decode_sync(bytes(raw)) is None
+
+    @pytest.mark.parametrize("args", [(b"short", 1, 0), (bytes(16), 0, 0), (bytes(16), 64000, 0), (bytes(16), 1, 256)])
+    def test_bad_arguments_raise(self, args) -> None:
+        from rasl.devices.sacn.protocol import encode_sync
+
+        with pytest.raises(ValueError):
+            encode_sync(*args)

@@ -16,13 +16,14 @@ from __future__ import annotations
 
 import contextlib
 import itertools
+import time
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Awaitable, Callable, Dict, Generic, Literal, Optional, TypeVar
 
 import anyio
 import structlog
 
-from rasl.graph.node import Lease, ResourceKey
+from rasl.graph.node import EndOfTick, Lease, ResourceKey, TickContext
 
 logger = structlog.get_logger()
 
@@ -77,6 +78,7 @@ class ResourceRegistry:
         self._entries: Dict[ResourceKey[Any], _Entry] = {}
         self._deferring = 0
         self._seq = itertools.count(1)
+        self._end_tick_errors: Dict[ResourceKey[Any], float] = {}
 
     async def acquire(
         self,
@@ -194,3 +196,22 @@ class ResourceRegistry:
             if entry.holders:
                 logger.warning("resource_leaked", resource=str(key), holders=entry.holders)
             await self._close(key, entry)
+
+    END_TICK_ERROR_LOG_SECONDS = 10.0
+    """A resource whose ``end_tick`` keeps failing is logged at most once per this many seconds."""
+
+    def end_tick(self, tick: TickContext) -> None:
+        """Call ``end_tick`` on every open resource that implements ``EndOfTick``, in the
+        order they opened. One that raises is logged (at most once per
+        ``END_TICK_ERROR_LOG_SECONDS`` each) and the rest still run."""
+        for key, entry in sorted(self._entries.items(), key=lambda item: item[1].open_seq):
+            if entry.state != "open" or not isinstance(entry.value, EndOfTick):
+                continue
+            try:
+                entry.value.end_tick(tick)
+            except Exception as e:
+                now = time.monotonic()
+                last = self._end_tick_errors.get(key)
+                if last is None or now - last >= self.END_TICK_ERROR_LOG_SECONDS:
+                    self._end_tick_errors[key] = now
+                    logger.error("resource_end_tick_failed", resource=str(key), error=str(e))

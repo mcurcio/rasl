@@ -229,10 +229,13 @@ class Runtime:
         return self._pending_update is not None
 
     async def _tick(self, tick: TickContext, sinks: Tuple[str, ...]) -> None:
-        """One tick: pull each sink that is due, and what feeds it."""
+        """One tick: pull each sink that is due, and what feeds it; then let shared
+        resources finish the tick (``EndOfTick``)."""
         self.executor.begin_tick()
         for sink_id in sinks:
             await self.executor.pull_sink(sink_id, tick)
+        # Shared resources act once the tick's pulls are done (EndOfTick)
+        self.resources.end_tick(tick)
 
     def _warn_undriven(self) -> None:
         """Say which nodes will never run, if any (see ``find_undriven``)."""

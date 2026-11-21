@@ -12,7 +12,20 @@ passes on ``NodeContext``, not from a module-level cache.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Generic, Hashable, Protocol, Tuple, TypeVar
+from typing import (
+    TYPE_CHECKING,
+    Awaitable,
+    Callable,
+    Generic,
+    Hashable,
+    Protocol,
+    Tuple,
+    TypeVar,
+    runtime_checkable,
+)
+
+if TYPE_CHECKING:
+    from rasl.graph.node.tick import TickContext
 
 T = TypeVar("T")
 
@@ -77,4 +90,20 @@ class Resources(Protocol):
                 cancelled instead, the callers waiting on it are not: one of them opens
                 the resource itself.
         """
+        ...
+
+
+@runtime_checkable
+class EndOfTick(Protocol):
+    """A shared resource that acts once per tick, after every due node has been pulled.
+
+    The runtime calls ``end_tick`` on each open resource that has it (owner, 2026-11-21,
+    rasl-2lg.5: an sACN sender sends one synchronization packet per group that sent data
+    in the tick). It runs on every tick, also when a pull failed, and never during a plan
+    update.
+    """
+
+    def end_tick(self, tick: "TickContext") -> None:
+        """Act on the tick just pulled. Synchronous and must not block; an exception is
+        logged by the runtime and does not stop the tick or the other resources."""
         ...
