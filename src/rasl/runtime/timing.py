@@ -2,24 +2,51 @@
 
 from __future__ import annotations
 
+import inspect
 import math
 from collections import defaultdict
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from rasl.graph import ExecutionPlan
+from rasl.graph.node import Wiring
 
 
-def pull_rate_of(node_id: str, node: object) -> Optional[float]:
-    """The rate in Hz a node's pull() declares with @pull_rate, or None if it declares none.
+def pull_rate_of(node_id: str, node: object, wiring: Optional[Wiring] = None) -> Optional[float]:
+    """The rate in Hz a node's pull() declares with @pull_rate, or None if it declares
+    none or its rate callable returns None (this instance drives nothing).
+
+    Args:
+        node_id: The node's id, for error messages.
+        node: The node.
+        wiring: The node's wiring in the plan; required when the node declares
+            ``@pull_rate(..., wiring=True)``.
 
     Raises:
-        ValueError: If the declared rate is not a positive, finite number.
+        ValueError: If the declared rate is not None and not a positive, finite
+            number, or the rate needs ``wiring`` and none was given.
     """
-    hz = getattr(getattr(node, "pull", None), "_pull_rate_hz", None)
+    pull = getattr(node, "pull", None)
+    hz = getattr(pull, "_pull_rate_hz", None)
     if hz is None:
         return None
     if callable(hz):
-        hz = hz(node)
+        wants_wiring = getattr(pull, "_pull_rate_wiring", False)
+        if wants_wiring and wiring is None:
+            raise ValueError(f"Node '{node_id}' declares a rate that depends on its wiring; none given")
+        args = (node, wiring) if wants_wiring else (node,)
+        try:
+            inspect.signature(hz).bind(*args)
+        except TypeError as e:
+            shape = "(self, wiring)" if wants_wiring else "(self)"
+            raise ValueError(
+                f"Node '{node_id}' ({type(node).__name__}): its @pull_rate function must take {shape}"
+                f"{'' if wants_wiring else '; pass wiring=True for one that takes (self, wiring)'}: {e}"
+            ) from e
+        except ValueError:
+            pass  # no signature to inspect (a builtin): call it and see
+        hz = hz(*args)
+        if hz is None:
+            return None
     try:
         hz = float(hz)
     except (TypeError, ValueError):
@@ -39,7 +66,7 @@ def find_rate_drivers(plan: ExecutionPlan) -> Dict[str, float]:
     """
     drivers: Dict[str, float] = {}
     for node_id, node in plan.nodes.items():
-        hz = pull_rate_of(node_id, node)
+        hz = pull_rate_of(node_id, node, plan.wiring(node_id))
         if hz is not None:
             drivers[node_id] = hz
     return drivers
@@ -49,7 +76,9 @@ def find_undriven(plan: ExecutionPlan, drivers: Optional[Dict[str, float]] = Non
     """The nodes nothing pulls: not a rate driver, and not upstream of one.
 
     Such a node is loaded and started but its pull() never runs. With no rate
-    driver at all, that is every node.
+    driver at all, that is every node. A node that a driver reads only through a
+    pushed output (``OutputPortSpec.pushed``) delivers without being pulled, so it
+    counts as driven, but what feeds it is not reached through it.
 
     Args:
         plan: The compiled plan.
@@ -60,18 +89,24 @@ def find_undriven(plan: ExecutionPlan, drivers: Optional[Dict[str, float]] = Non
     """
     if drivers is None:
         drivers = find_rate_drivers(plan)
-    upstream: Dict[str, List[str]] = defaultdict(list)
+    upstream: Dict[str, List[Tuple[str, bool]]] = defaultdict(list)
     for source, edges in plan.adjacency.items():
         for edge in edges:
-            upstream[edge.target].append(source)
+            upstream[edge.target].append((source, plan.is_pushed(edge)))
     driven: Set[str] = set()
+    delivers: Set[str] = set()  # read through a pushed output: needs no pull
     pending = list(drivers)
     while pending:
         node_id = pending.pop()
-        if node_id not in driven:
-            driven.add(node_id)
-            pending.extend(upstream[node_id])
-    return [node_id for node_id in plan.topological_order if node_id not in driven]
+        if node_id in driven:
+            continue
+        driven.add(node_id)
+        for source, pushed in upstream[node_id]:
+            if pushed:
+                delivers.add(source)
+            else:
+                pending.append(source)
+    return [n for n in plan.topological_order if n not in driven and n not in delivers]
 
 
 class DueTimes:

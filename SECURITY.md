@@ -36,7 +36,7 @@ These are how rasl works today, not vulnerabilities:
 - Outside the container, the web server listens on `127.0.0.1` unless `--api-host` (with `--api-port`) or the
   `ui` block's `host` says otherwise. The container's
   default command passes `--api-host 0.0.0.0`, so it listens on every interface of the container.
-- sACN input (`SacnSource`) listens on UDP port 5568 on `0.0.0.0` by default and accepts data from any sender, as
-  the protocol does.
+- sACN input (`SacnUniverse`) listens on UDP port 5568 on `0.0.0.0` by default, joins the multicast group of each
+  universe it receives, and accepts data from any sender, as the protocol does (only its own packets are dropped).
 
 Keep rasl on a trusted network, or put it behind a proxy that checks who is signing in.

@@ -12,6 +12,9 @@ by node:
   **updated** in place: it keeps running and is handed its new config;
 - a node whose ``connect`` lines alone changed is **rerouted**: it keeps running
   and only the routing around it is rebuilt;
+- a node whose class sets ``restart_on_wiring_change`` and whose wiring (which of
+  its ports have edges) changed, by its own ``connect`` lines or another node's,
+  is **restarted**;
 - every other node is untouched and keeps running.
 
 A node is known by its id, so moving its lines around changes nothing, and a
@@ -219,6 +222,20 @@ class ConfigSession:
         }
 
         plan, configs = build_plan(tree, keep=keep, update=update)
+        # A node whose behaviour follows its wiring is restarted when its wiring
+        # changed, whoever's connect line changed it (restart_on_wiring_change)
+        rewired = {
+            node_id
+            for node_id, node in {**keep, **update}.items()
+            if getattr(node, "restart_on_wiring_change", False)
+            and self.plan.wiring(node_id) != plan.wiring(node_id)
+        }
+        if rewired:
+            restarted |= rewired
+            for node_id in rewired:
+                keep.pop(node_id, None)
+                update.pop(node_id, None)
+            plan, configs = build_plan(tree, keep=keep, update=update)
 
         return PlanUpdate(
             plan=plan,

@@ -109,7 +109,7 @@ outputs = PortGroup.outputs(out=OutputPortSpec(BoolPayload))
 The keyword is the port's name, the one a config's `connect` line uses. A source leaves out `inputs`; a sink
 leaves out `outputs`.
 
-`InputPortSpec(accepts, count=None, description="")`:
+`InputPortSpec(accepts, count=None, description="", values_multiple_of=None)`:
 
 - `accepts` is a payload class, a registered payload name such as `"matrix"` or `"color:rgb"`, or a tuple of
   either (all classes or all names). A connection is refused at load time, with the file and line, when the
@@ -120,6 +120,9 @@ leaves out `outputs`.
   - A specific model such as `RgbColorPayload` accepts only that model.
   - `BoolPayload` accepts only bools.
 - `count` is the number of elements: an `int` (fixed), `(min,)`, `(min, max)`, or `None` (any).
+- `values_multiple_of`, when set, is a number the total values supplied (rows × components) must be a
+  multiple of. Where every source's rows and width are known at load, a total that is not is refused there
+  (`Reshape` uses it); otherwise the node checks each frame.
 
 `OutputPortSpec(produces, count=None, description="", same_as=None)` takes exactly one payload class or name; a
 tuple raises `ValueError`. Declare what the port really emits: a node whose output type depends on its settings
@@ -165,9 +168,19 @@ async def pull(self, tick: TickContext) -> None:
     ...
 ```
 
-The rate is read when the runtime is built and after each reload. It must be a positive, finite number;
-otherwise rasl stops with a `ValueError` when it starts. Validate the setting in the `Config` so the config is
-refused with its line number instead.
+The rate is read when the runtime is built and after each reload. It must be a positive, finite number, or
+None: a function that returns None says this node does not drive the graph (it runs only when a driver
+downstream pulls it). Anything else stops rasl with a `ValueError` when it starts. Validate the setting in the
+`Config` so the config is refused with its line number instead.
+
+A node whose rate depends on what is connected asks for its wiring, the names of its ports that have edges
+(`Wiring.inputs`, `Wiring.outputs`):
+
+```python
+@pull_rate(lambda self, wiring: self._fps if "dmx" in wiring.inputs else None, wiring=True)
+async def pull(self, tick: TickContext) -> None:
+    ...  # drives the graph only when something feeds dmx (SacnUniverse)
+```
 
 ### What `pull` does
 
@@ -222,6 +235,11 @@ port from that task whenever data arrives. Each write is kept as that port's lat
 tick; it never causes a tick. `ctx.inject(port_name, frame)` does the same by port name. Only a node with no
 connected inputs is treated this way. `SineSource` is a push source.
 
+A node with inputs that also pushes (one that sends what its input carries and receives on its outputs, like
+`SacnUniverse`) declares those outputs `OutputPortSpec(..., pushed=True)` and writes them with `ctx.inject`. A node
+reading a pushed output gets its latest frame without pulling the writer, so the writer runs only at its own
+rate (if it declares one), not whenever a reader is due.
+
 ## Lifecycle
 
 | Method | When | Use |
@@ -233,8 +251,21 @@ connected inputs is treated this way. `SineSource` is a push source.
 | `update_config(config)` | On a reload that changes this node's settings, if the method exists | Take new settings without a restart. |
 
 `NodeContext` has `node_id`, `logger` (a structlog logger bound to the node, used as
-`ctx.logger.info(event="...", key=value)`), `start_background` and `inject`. Background tasks are cancelled when
-the node stops, whether or not `stop` ends them. An exception from `stop` is suppressed.
+`ctx.logger.info(event="...", key=value)`), `start_background`, `inject`, `wiring` (which of the node's ports
+the running plan connects) and `resources`. Background tasks are cancelled when the node stops, whether or not
+`stop` ends them. An exception from `stop` is suppressed.
+
+`ctx.resources` shares things such as sockets between nodes. `await ctx.resources.acquire(key, open, close)`
+returns a lease on the resource that `key` (a `ResourceKey(kind, params)`) names: the first node to ask opens
+it, later ones share it, and it closes when the last lease is released, so release it in `stop`. During a live
+reload a resource whose holders are all replaced stays open across the swap. A resource whose value has
+`end_tick(tick)` (the `EndOfTick` protocol) is called once after every tick's pulls; the sACN sender sends its
+synchronization packets there.
+
+A class whose behaviour follows its wiring sets `restart_on_wiring_change = True`: a reload that changes which of
+its ports have edges restarts it, even when another node's `connect` line made the change. A class can also
+define `plan_warnings(cls, plan, node_ids)`, returning `(node id, "rasl/<code>", message)` for problems only
+visible across its nodes (two nodes sending one sACN universe); the loader logs each on the node's line.
 
 Nodes start in graph order, sources first, and stop in the reverse order.
 
@@ -270,6 +301,7 @@ The payload types:
 | `BoolPayload` | `rasl.signal` | `bool`, `boolean` | A mask: any input becomes 1.0 where non-zero, else 0.0. |
 | `ColorPayload` | `rasl.color` | `color` | A matrix tagged with a color model (`.model`). |
 | `RgbColorPayload` and one class per model | `rasl.color` | `color:rgb`, `color:srgb`, `color:hsl`, `color:okhsl`, `color:oklch`, ... | Three components per element (four for `rgbw` and `hsbk`). |
+| `RollingCounter` | `rasl.signal` | `counter` | Not a matrix: an immutable `value` that wraps at `modulus` (default 65536). `advanced(by)` returns the next counter; `advanced_since(previous)` the steps between two readings. A counter cannot be sliced, repeated or share an input with another connection (refused at load). |
 
 `payload.data` is the backing array itself, not a copy: do not change an input's data in place, because other
 nodes may read the same frame. `payload.count` is the number of elements (rows) and `payload.channels` the

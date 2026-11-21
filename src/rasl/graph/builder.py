@@ -3,8 +3,9 @@
 
 from __future__ import annotations
 
+import math
 import warnings
-from typing import Dict, List, Optional, Type
+from typing import Callable, Dict, List, Optional, Type
 
 from rasl.graph.edge import Edge
 from rasl.graph.errors import (
@@ -20,27 +21,56 @@ from rasl.graph.plan import ExecutionPlan
 from rasl.graph.ports.spec import InputPortSpec, OutputPortSpec
 from rasl.graph.routing import compile_input_programs
 from rasl.graph.slices import Slice
-from rasl.signal import FramePayload
+from rasl.signal import FramePayload, MatrixPayload
 
 
 class PortTypeError(ConnectTypeError):
-    """A connection whose payload types do not match, found when the graph is built.
+    """A connection the graph refuses once every edge is known, found when it is built.
+
+    Its problem is ``TYPE`` (payload types that do not match) unless the caller or a
+    subclass names another: ``NOT_SLICEABLE`` for a pass-through output carrying a
+    non-matrix into a slice, a repeat or a second edge; ``MULTIPLE`` (``PortValuesError``).
 
     Attributes:
         node: The id of the node the connection feeds, where the error belongs.
         edge: The connection.
     """
 
-    def __init__(self, edge: Edge, message: str) -> None:
-        """Record the connection and the message."""
+    def __init__(
+        self,
+        edge: Edge,
+        message: str,
+        *,
+        problem: ConnectProblem = ConnectProblem.TYPE,
+        supplied: int | None = None,
+        takes: int | None = None,
+    ) -> None:
+        """Record the connection, the message, the problem and its numbers."""
         super().__init__(
-            ConnectProblem.TYPE,
+            problem,
             message,
             source=Endpoint(edge.source, edge.source_port, edge.source_slice),
             target=Endpoint(edge.target, edge.target_port, edge.target_slice),
+            supplied=supplied,
+            takes=takes,
         )
         self.node = edge.target
         self.edge = edge
+
+
+class PortValuesError(PortTypeError):
+    """A port supplied a total number of values that is not a multiple of what it declares.
+
+    Problem ``MULTIPLE``: ``supplied`` is the total values (rows × components, padding
+    included) and ``takes`` the port's ``InputPortSpec.values_multiple_of``. It carries
+    the first edge into the port, so the config loader places it on that connect line.
+    """
+
+    def __init__(self, edge: Edge, message: str, *, supplied: int, takes: int) -> None:
+        """Record the first edge into the port, the message and both numbers."""
+        super().__init__(
+            edge, message, problem=ConnectProblem.MULTIPLE, supplied=supplied, takes=takes
+        )
 
 
 class CycleWarning(UserWarning):
@@ -238,6 +268,16 @@ class GraphBuilder:
             repeat,
             repeat_until,
         )
+        # A pass-through output's type is not known yet: build() checks those edges
+        problem = self._not_sliceable(
+            edge,
+            [e for e in self._edges if e.target == target and e.target_port == target_port],
+            self._declared_type,
+        )
+        if problem is not None:
+            raise ConnectTypeError(
+                ConnectProblem.NOT_SLICEABLE, problem, source=src_end, target=tgt_end
+            )
         self._check_count(edge, src_port_spec, tgt_port_spec)
         self._check_no_overlap(edge, src_port_spec, tgt_port_spec)
 
@@ -308,6 +348,58 @@ class GraphBuilder:
                 supplied=src_components,
                 takes=takes,
             )
+
+    def _declared_type(self, edge: Edge) -> Optional[Type[FramePayload]]:
+        """The type an edge's source declares; None for a pass-through or unresolved output."""
+        spec = get_outputs(self._nodes[edge.source]).get(edge.source_port)
+        if spec is None or spec.spec.same_as is not None:
+            return None
+        return self._get_primary_type(spec.spec)
+
+    @staticmethod
+    def _not_sliceable(
+        edge: Edge,
+        earlier: List[Edge],
+        type_of: Callable[[Edge], Optional[Type[FramePayload]]],
+    ) -> str | None:
+        """Why ``edge`` cannot be routed because a source is not a matrix; None when it can.
+
+        Owner, 2026-11-20 (Q13): only a matrix has rows to slice, repeat or merge, so a
+        slice, a repeat, or a second edge into one port (``earlier`` holds the edges
+        already into it) is refused when a source involved is not a ``MatrixPayload``.
+        A source whose type is unknown (``type_of`` returns None) is not judged.
+        """
+
+        def not_matrix(candidate: Edge) -> Optional[Type[FramePayload]]:
+            kind = type_of(candidate)
+            return None if kind is None or issubclass(kind, MatrixPayload) else kind
+
+        label = GraphBuilder._label
+        kind = not_matrix(edge)
+        if kind is not None and (
+            edge.source_slice is not None
+            or edge.target_slice is not None
+            or edge.repeat > 1
+            or edge.repeat_until is not None
+        ):
+            return (
+                f"Not sliceable: {label(edge.source, edge.source_port, edge.source_slice)} emits "
+                f"{kind.__name__}, which is not a matrix, so it cannot be sliced or repeated "
+                f"into {label(edge.target, edge.target_port, edge.target_slice)}"
+            )
+        if not earlier:
+            return None
+        culprit = edge
+        if kind is None:
+            culprit = next((e for e in earlier if not_matrix(e) is not None), edge)
+            kind = not_matrix(culprit)
+            if kind is None:
+                return None
+        return (
+            f"Not sliceable: {label(culprit.source, culprit.source_port, culprit.source_slice)} "
+            f"emits {kind.__name__}, which is not a matrix, so it cannot share "
+            f"{edge.target}.{edge.target_port} with another connection"
+        )
 
     @staticmethod
     def _supplied_rows(edge: Edge, src_spec: OutputPortSpec) -> Optional[int]:
@@ -531,6 +623,142 @@ class GraphBuilder:
             except ConnectTypeError as error:
                 raise PortTypeError(edge, error.message) from error
 
+    def _check_pass_through_sliceable(self, incoming_by_node: Dict[str, List[Edge]]) -> None:
+        """Apply the not-sliceable rule to edges involving pass-through outputs, now typed.
+
+        ``connect`` judges sources that declare their type; a pass-through output's type
+        is known only once every edge is.
+
+        Raises:
+            PortTypeError: With ``NOT_SLICEABLE``, carrying the edge that slices or
+                repeats a non-matrix, or the later of two edges into one port.
+        """
+        resolved: Dict[tuple[str, str], Optional[Type[FramePayload]]] = {}
+
+        def is_pass_through(edge: Edge) -> bool:
+            spec = get_outputs(self._nodes[edge.source]).get(edge.source_port)
+            return spec is not None and spec.spec.same_as is not None
+
+        def type_of(edge: Edge) -> Optional[Type[FramePayload]]:
+            return self._output_type(edge.source, edge.source_port, incoming_by_node, resolved, set())
+
+        for index, edge in enumerate(self._edges):
+            earlier = [
+                e
+                for e in self._edges[:index]
+                if e.target == edge.target and e.target_port == edge.target_port
+            ]
+            if not any(is_pass_through(e) for e in (edge, *earlier)):
+                continue
+            problem = self._not_sliceable(edge, earlier, type_of)
+            if problem is not None:
+                raise PortTypeError(edge, problem, problem=ConnectProblem.NOT_SLICEABLE)
+
+    def _check_value_multiples(self, incoming_by_node: Dict[str, List[Edge]]) -> None:
+        """Check each port declaring ``values_multiple_of`` against the values it is supplied.
+
+        Owner, 2026-11-20 (Q18): the total counts the frame the port receives, padding
+        included (``_supplied_values``). When any edge into the port has unknown rows or
+        an unknown source width, nothing is checked here: the node checks on each frame.
+
+        Raises:
+            PortValuesError: If the total is not a multiple of the port's
+                ``values_multiple_of``; it carries the first edge into the port.
+        """
+        for node_id, edges in incoming_by_node.items():
+            inputs = get_inputs(self._nodes[node_id])
+            by_port: Dict[str, List[Edge]] = {}
+            for edge in edges:
+                by_port.setdefault(edge.target_port, []).append(edge)
+            for port_name, port_edges in by_port.items():
+                port = inputs.get(port_name)
+                multiple = None if port is None else port.spec.values_multiple_of
+                if port is None or multiple is None:
+                    continue
+                # A source whose type fixes its own width (a color) is converted, not
+                # regrouped: the rule is for plain values
+                if any(
+                    isinstance(getattr(self._declared_type(e), "components", None), int) for e in port_edges
+                ):
+                    continue
+                total = self._supplied_values(port.spec, port_edges)
+                if total is None or total % multiple == 0:
+                    continue
+                raise PortValuesError(
+                    port_edges[0],
+                    self._values_message(node_id, port_name, port_edges, total, multiple),
+                    supplied=total,
+                    takes=multiple,
+                )
+
+    def _values_message(
+        self, node_id: str, port_name: str, edges: List[Edge], total: int, multiple: int
+    ) -> str:
+        """The MULTIPLE error: what supplies the values, and how to make them fit."""
+        sources = []
+        for edge in edges:
+            spec = get_outputs(self._nodes[edge.source]).get(edge.source_port).spec
+            rows = self._supplied_rows(edge, spec)
+            sources.append(f"{self._label(edge.source, edge.source_port, edge.source_slice)} "
+                           f"({rows} rows × {spec.known_components})")
+        message = (
+            f"Value count mismatch: {node_id}.{port_name} is supplied {total} values by "
+            f"{', '.join(sources)}, which is not a multiple of {multiple}"
+        )
+        only = edges[0]
+        if len(edges) == 1 and only.source_slice is None and only.repeat <= 1:
+            spec = get_outputs(self._nodes[only.source]).get(only.source_port).spec
+            width = spec.known_components or 1
+            rows = total // width
+            step = multiple // math.gcd(multiple, width)  # rows per whole multiple of values
+            fits = rows - rows % step
+            if fits:
+                message += (
+                    f"; supply a multiple of {multiple} values, e.g. connect "
+                    f"{only.source}.{only.source_port}[0~{fits}]"
+                )
+        return message
+
+    def _supplied_values(self, spec: InputPortSpec, edges: List[Edge]) -> Optional[int]:
+        """Values (rows × columns) in the frame a port receives, or None when unknown.
+
+        Sized as ``compile_input_programs`` and ``InputPortProgram.populate`` size it,
+        with every source holding a frame. One edge with no slice and no repeat hands its
+        frame over as it is: its rows × its width. Otherwise the frame is a buffer of
+        ``max(port's fixed count, each edge's last row written)`` rows and, unless every
+        type the port accepts fixes the width, ``max(1, each source's width)`` columns.
+        None when an edge's supplied rows (``_supplied_rows``) or its source's width is
+        not known before the graph runs.
+        """
+        widths: list[int] = []
+        ends: list[int] = []
+        for edge in edges:
+            src_spec = get_outputs(self._nodes[edge.source]).get(edge.source_port)
+            if src_spec is None or self._supplied_rows(edge, src_spec.spec) is None:
+                return None
+            width = src_spec.spec.known_components
+            _, end = self._written_rows(edge)
+            if width is None or end is None:
+                return None
+            widths.append(width)
+            ends.append(end)
+        only = edges[0]
+        if (
+            len(edges) == 1
+            and only.source_slice is None
+            and only.target_slice is None
+            and only.repeat <= 1
+            and only.repeat_until is None
+        ):
+            return ends[0] * widths[0]
+        rows = max([spec.fixed_count or 0, *ends])
+        accepted = [getattr(t, "components", None) for t in spec.resolve_payload_types()]
+        if accepted and all(c is not None and c == accepted[0] for c in accepted):
+            cols = int(accepted[0])
+        else:
+            cols = max([1, *widths])
+        return rows * cols
+
     def build(self, allow_cycles: bool = True) -> ExecutionPlan:
         """Validate the graph and compile it into an ExecutionPlan.
 
@@ -549,7 +777,10 @@ class GraphBuilder:
             ValueError: If allow_cycles is False and the graph contains a cycle,
                 or if any node's connection requirements are not satisfied.
             PortTypeError: If a pass-through output carries a type its target does
-                not accept.
+                not accept (``TYPE``), or a non-matrix into a slice, a repeat or a
+                port another edge feeds (``NOT_SLICEABLE``).
+            PortValuesError: If a port declaring ``values_multiple_of`` is supplied a
+                total number of values that is not a multiple of it (``MULTIPLE``).
         """
         adjacency: Dict[str, List[Edge]] = {node_id: [] for node_id in self._nodes}
         for edge in self._edges:
@@ -577,6 +808,8 @@ class GraphBuilder:
             incoming_by_node[edge.target].append(edge)
 
         self._check_pass_through_types(incoming_by_node)
+        self._check_pass_through_sliceable(incoming_by_node)
+        self._check_value_multiples(incoming_by_node)
 
         for node_id, node in self._nodes.items():
             if hasattr(node, "validate_connections"):

@@ -615,3 +615,30 @@ class TestMatrixIntoColor:
         delivered = program.populate(0, lambda *_: frame, None)
         assert isinstance(delivered.payload, BoolPayload)
         assert delivered.payload.data.tolist() == [[0.0], [1.0]]
+
+
+class TestPlanWiring:
+    """ExecutionPlan.wiring: which of a node's ports have edges."""
+
+    def test_wiring_lists_connected_inputs_and_outputs(self) -> None:
+        from rasl.graph import GraphBuilder
+        from rasl.graph.node import BaseNode, TickContext, Wiring
+        from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
+        from rasl.signal import MatrixPayload
+
+        class _Node(BaseNode):
+            def __init__(self, node_id: str) -> None:
+                self.id = node_id
+                self.inputs = PortGroup.inputs(a=InputPortSpec(MatrixPayload), b=InputPortSpec(MatrixPayload))
+                self.outputs = PortGroup.outputs(x=OutputPortSpec(MatrixPayload), y=OutputPortSpec(MatrixPayload))
+
+            async def pull(self, tick: TickContext) -> None:
+                """Do nothing."""
+
+        builder = GraphBuilder()
+        for node_id in ("one", "two"):
+            builder.add_node(_Node(node_id))
+        builder.connect("one", "x", "two", "a")
+        plan = builder.build()
+        assert plan.wiring("one") == Wiring(outputs=frozenset({"x"}))
+        assert plan.wiring("two") == Wiring(inputs=frozenset({"a"}))

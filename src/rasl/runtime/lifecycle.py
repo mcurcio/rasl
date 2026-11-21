@@ -13,7 +13,7 @@ import anyio
 import structlog
 
 from rasl.graph import ExecutionPlan
-from rasl.graph.node import Node, NodeContext, get_inputs, get_outputs
+from rasl.graph.node import Node, NodeContext, Resources, get_inputs, get_outputs
 from rasl.graph.ports import InputPort, OutputPort, PortGroup
 from rasl.signal import Frame
 
@@ -32,6 +32,8 @@ class NodeRuntime:
     """The tick time this node last ran at (its start time before its first run)."""
     background: List[anyio.CancelScope] = field(default_factory=list)
     """One scope per background task the node started; cancelled when it is stopped."""
+    stopped: bool = False
+    """Set once the node is stopped, so stopping it again does nothing."""
 
 
 class NodeHost:
@@ -46,15 +48,18 @@ class NodeHost:
         *,
         on_push_write: Callable[[OutputPort], None],
         inject: Callable[[str, str, Frame], None],
+        resources: Resources,
     ) -> None:
         """
         Args:
             on_push_write: Called when a push source writes an output port.
             inject: Called with (node id, port, frame) when a node injects a frame.
+            resources: The shared resources every node's context hands out.
         """
         self.runtimes: Dict[str, NodeRuntime] = {}
         self._on_push_write = on_push_write
         self._inject = inject
+        self._resources = resources
         self._task_group: Optional[anyio.abc.TaskGroup] = None
 
     def attach(self, task_group: anyio.abc.TaskGroup) -> None:
@@ -122,6 +127,8 @@ class NodeHost:
         ctx = NodeContext(
             node_id=node_id,
             logger=node_logger,
+            resources=self._resources,
+            wiring=plan.wiring(node_id),
             _start_background=_start_background,
             _inject=_inject,
         )
@@ -147,7 +154,8 @@ class NodeHost:
         in a plan update would go on writing frames under its successor's id.
         """
         runtime = self.runtimes.get(node_id)
-        if runtime:
+        if runtime and not runtime.stopped:
+            runtime.stopped = True
             with anyio.CancelScope(shield=True):
                 with contextlib.suppress(Exception):
                     await runtime.node.stop(runtime.ctx)
@@ -160,6 +168,9 @@ class NodeHost:
                         output_port._on_write = None
 
     async def stop_all(self, plan: ExecutionPlan) -> None:
-        """Stop every node, downstream first."""
+        """Stop every node, downstream first, then any started node ``plan`` does not
+        name (one a plan update stopped partway through had not removed yet)."""
         for node_id in reversed(plan.topological_order):
+            await self.stop(node_id)
+        for node_id in [n for n in self.runtimes if n not in plan.nodes]:
             await self.stop(node_id)
