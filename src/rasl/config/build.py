@@ -19,6 +19,7 @@ from rasl.config.document import (
     Rendered,
     children,
     config_error,
+    config_warning,
     load_document,
     parse_document,
 )
@@ -119,7 +120,21 @@ def build_plan(
             raise config_error(
                 node_directives[node_id], str(e), code="rasl/rate", tree=tree
             ) from e
+    _log_plan_warnings(plan, node_directives, tree)
     return plan, configs
+
+
+def _log_plan_warnings(plan: ExecutionPlan, node_directives: dict[str, Directive], tree: Rendered) -> None:
+    """Log each node class's ``plan_warnings`` on its node's line, as ``config.warning``."""
+    by_class: dict[type, list[str]] = {}
+    for node_id, node in plan.nodes.items():
+        by_class.setdefault(type(node), []).append(node_id)
+    for node_class, node_ids in by_class.items():
+        finder = getattr(node_class, "plan_warnings", None)
+        if finder is None:
+            continue
+        for node_id, code, message in finder(plan, node_ids):
+            config_warning(node_directives[node_id], message, code=code, tree=tree)
 
 
 def _connect_error(line: Directive, node_id: str, error: Exception, tree: Rendered) -> ConfigError:

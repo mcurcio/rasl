@@ -135,7 +135,186 @@ async def test_a_stopped_node_writes_nothing(registry: ResourceRegistry) -> None
     await keeper.stop(other.ctx)
 
 
-def test_its_ports_are_dmx_count_and_terminated() -> None:
+def test_its_ports_are_dmx_in_and_dmx_count_and_terminated_out() -> None:
     node = universe_node()
     assert list(node.outputs.names) == ["dmx", "count", "terminated"]
-    assert list(node.inputs.names) == []
+    assert list(node.inputs.names) == ["dmx"]
+
+
+# ---- sending ---------------------------------------------------------------------------
+
+from structlog.testing import capture_logs  # noqa: E402
+
+from rasl.config.document import ConfigError  # noqa: E402
+from rasl.runtime import pull_rate_of  # noqa: E402
+from rasl.signal import Frame, MatrixPayload  # noqa: E402
+
+
+class FakeSocket:
+    """Records what a sender sends."""
+
+    def __init__(self) -> None:
+        self.sent: list[tuple[bytes, tuple[str, int]]] = []
+
+    def sendto(self, packet: bytes, address: tuple[str, int]) -> None:
+        self.sent.append((packet, address))
+
+    def setsockopt(self, *args) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
+async def started_sender(registry: ResourceRegistry, settings: str = "universe 3; channels 4;") -> tuple[Any, Context, FakeSocket]:
+    node = universe_node(settings)
+    c = Context(registry, Wiring(inputs=frozenset({"dmx"})))
+    await node.start(c.ctx)
+    sender = node._output.value._sender.value
+    real, sender._socket = sender._socket, FakeSocket()
+    real.close()
+    return node, c, sender._socket
+
+
+def feed(node, values) -> None:
+    """Put a frame on the node's dmx input, as routing would."""
+    node.inputs.dmx._frame = Frame(topic="t", timestamp=0.0, payload=MatrixPayload(np.asarray(values, dtype=np.float32)))
+
+
+async def test_a_wired_input_opens_only_the_output_and_sends_encoded_slots(registry: ResourceRegistry) -> None:
+    node, c, sock = await started_sender(registry)
+    assert node._receiver is None
+    await node.pull(None)
+    assert sock.sent == []  # nothing before the first frame
+    feed(node, [[1.0, 0.5], [-1.0, 2.0], [0.2, 0.0], [0.9, 0.9]])  # 8 values for 4 channels
+    await node.pull(None)
+    packet, address = sock.sent[0]
+    frame = protocol.decode(packet)
+    assert address == ("239.255.0.3", 5568)
+    assert list(frame.slots) == [255, 127, 0, 255]  # row-major, clipped, truncated, cut
+    feed(node, [[1.0]])
+    await node.pull(None)
+    assert list(protocol.decode(sock.sent[1][0]).slots) == [255, 0, 0, 0]  # padded
+    await node.stop(c.ctx)
+    assert [protocol.decode(p).terminated for p, _ in sock.sent[2:]] == [True, True, True]
+
+
+async def test_both_directions_open_both(registry: ResourceRegistry) -> None:
+    node = universe_node()
+    c = Context(registry, Wiring(inputs=frozenset({"dmx"}), outputs=frozenset({"dmx"})))
+    await node.start(c.ctx)
+    assert node._output is not None and node._receiver is not None
+    await node.stop(c.ctx)
+
+
+def test_it_drives_the_graph_only_when_it_sends() -> None:
+    node = universe_node("universe 1; min_interval_ms 50;")
+    assert pull_rate_of("u", node, Wiring(inputs=frozenset({"dmx"}))) == 20.0
+    assert pull_rate_of("u", node, Wiring(outputs=frozenset({"dmx"}))) is None
+    assert pull_rate_of("u", universe_node("universe 1; min_interval_ms 0;"), Wiring(inputs=frozenset({"dmx"}))) == 40.0
+
+
+def test_dmx_is_the_input_as_a_target_and_the_output_as_a_source() -> None:
+    plan = parse_config(
+        "graph {\n"
+        "    node SineSource s { output_channels 4; }\n"
+        "    node SacnUniverse u { universe 1; connect s; }\n"
+        "    node ConsoleSink c { fps 1; connect u; }\n"
+        "}\n"
+    )
+    (into,) = plan.adjacency["s"]
+    (out_of,) = plan.adjacency["u"]
+    assert (into.target, into.target_port) == ("u", "dmx")
+    assert (out_of.source_port, out_of.target) == ("dmx", "c")
+
+
+def test_sending_universe_0_needs_a_destination() -> None:
+    with pytest.raises((ConfigError, ValueError), match="destination"):
+        parse_config("graph {\n    node SineSource s { output_channels 4; }\n    node SacnUniverse u { universe 0; connect s; }\n}\n")
+    parse_config(
+        "graph {\n    node SineSource s { output_channels 4; }\n"
+        "    node SacnUniverse u { universe 0; destination \"10.0.0.2\"; connect s; }\n}\n"
+    )
+
+
+def test_a_source_name_longer_than_63_bytes_is_refused() -> None:
+    with pytest.raises(ConfigError, match="63 bytes"):
+        universe_node(f"universe 1; source_name \"{'é' * 32}\";")
+
+
+def _warnings(config: str) -> list[str]:
+    with capture_logs() as logs:
+        parse_config(config)
+    return [entry["detail"] for entry in logs if entry["event"] == "config.warning"]
+
+
+def test_two_nodes_sending_one_universe_load_with_a_warning() -> None:
+    """Owner, Q20: a warning, not an error."""
+    details = _warnings(
+        "graph {\n    node SineSource s { output_channels 4; }\n"
+        "    node SacnUniverse a { universe 5; connect s; }\n"
+        "    node SacnUniverse b { universe 5; connect s; }\n"
+        "    node SacnUniverse c { universe 5; destination \"10.0.0.2\"; connect s; }\n}\n"
+    )
+    assert len(details) == 1
+    assert "rasl/sacn-duplicate" in details[0] and "'b' and 'a' both send universe 5" in details[0]
+
+
+@pytest.mark.parametrize(
+    ("intervals", "warned"),
+    [((25, 25), False), ((25, 50), False), ((25, 100), False), ((25, 33), True)],
+)
+def test_sync_groups_warn_when_rates_rarely_share_a_tick(intervals: tuple[int, int], warned: bool) -> None:
+    a, b = intervals
+    details = _warnings(
+        "graph {\n    node SineSource s { output_channels 4; }\n"
+        f"    node SacnUniverse a {{ universe 1; sync_universe 9; min_interval_ms {a}; connect s; }}\n"
+        f"    node SacnUniverse b {{ universe 2; sync_universe 9; min_interval_ms {b}; connect s; }}\n}}\n"
+    )
+    assert any("rasl/sacn-sync-rate" in d for d in details) is warned
+
+
+async def test_end_to_end_two_synchronized_universes_send_data_then_one_sync_per_tick() -> None:
+    """Over loopback: each tick sends universe 1, universe 2, then one sync packet."""
+    from rasl.runtime import Runtime
+
+    rx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        rx.bind(("127.0.0.1", 5568))
+    except OSError:
+        rx.close()
+        pytest.skip("port 5568 is in use")
+    rx.setblocking(False)
+    plan = parse_config(
+        "graph {\n    node SineSource s { output_channels 6; }\n"
+        "    node SacnUniverse a { universe 1; destination \"127.0.0.1\"; sync_universe 9; min_interval_ms 50; connect s; }\n"
+        "    node SacnUniverse b { universe 2; destination \"127.0.0.1\"; sync_universe 9; min_interval_ms 50; connect s; }\n"
+        "}\n"
+    )
+    runtime = Runtime(plan)
+    try:
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(runtime.run)
+            await anyio.sleep(0.13)
+            tg.cancel_scope.cancel()
+        packets = []
+        while True:
+            try:
+                packets.append(rx.recv(2048))
+            except BlockingIOError:
+                break
+    finally:
+        rx.close()
+    kinds = []
+    for raw in packets:
+        data, sync = protocol.decode(raw), protocol.decode_sync(raw)
+        if sync is not None:
+            kinds.append(f"sync {sync.sync_universe}")
+        elif data.terminated:
+            kinds.append(f"end {data.universe}")
+        else:
+            kinds.append(f"data {data.universe}")
+    # Three ticks (0, 50, 100 ms), then three termination packets per universe at stop
+    ticks = [k for k in kinds if not k.startswith("end")]
+    assert ticks[:6] == ["data 1", "data 2", "sync 9"] * 2
+    assert kinds.count("end 1") == 3 and kinds.count("end 2") == 3

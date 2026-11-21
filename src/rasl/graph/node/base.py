@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from rasl.graph.node.config import BaseNodeConfig
     from rasl.graph.node.context import NodeContext
     from rasl.graph.node.tick import TickContext
+    from rasl.graph.plan import ExecutionPlan
 
 
 class BaseNode(ABC):
@@ -182,6 +183,23 @@ class BaseNode(ABC):
             ctx: Node context providing identity and runtime services.
         """
         pass
+
+    @classmethod
+    def plan_warnings(cls, plan: "ExecutionPlan", node_ids: Sequence[str]) -> list[tuple[str, str, str]]:
+        """Warnings about this class's nodes taken together, found when a config loads.
+
+        For a problem no single node can see (two nodes using the same thing). The
+        config loader calls it once per node class in the plan and logs each warning on
+        its node's line; the plan still loads. The default finds nothing.
+
+        Args:
+            plan: The built plan.
+            node_ids: The ids of this class's nodes in it.
+
+        Returns:
+            (node id, code ``rasl/<name>``, message) for each warning.
+        """
+        return []
 
     def validate_connections(self, incoming_edges: Sequence["Edge"]) -> None:
         """Validate that this node's connection requirements are met.
