@@ -21,7 +21,7 @@ class Probe(BaseNode):
     def __init__(self, node_id: str, *, work: float = 0.0) -> None:
         self.id = node_id
         self.inputs = PortGroup.inputs(**{"in": InputPortSpec(MatrixPayload)})
-        self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
+        self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload, count=1))
         self.ticks: list[TickContext] = []
         self.seen: list[float | None] = []
         self.work = work
@@ -373,7 +373,8 @@ class TestNodesOwnTheirPorts:
         assert a.outputs.out is not b.outputs.out
         assert a.inputs.phase is not b.inputs.phase
         assert a.outputs.out is not WaveformNode.outputs.out
-        assert a.outputs.out.spec is WaveformNode.outputs.out.spec
+        # Its element count comes from its config (rasl-00l)
+        assert a.outputs.out.spec.count == 2 and a.outputs.out.spec.produces is WaveformNode.outputs.out.spec.produces
 
     async def test_three_sources_of_one_class_keep_their_own_values(self) -> None:
         from rasl.config.build import parse_config
@@ -499,7 +500,7 @@ class TestPushedOutputs:
             def __init__(self, node_id: str) -> None:
                 super().__init__(node_id)
                 self.outputs = PortGroup.outputs(
-                    out=OutputPortSpec(MatrixPayload), live=OutputPortSpec(MatrixPayload, pushed=True)
+                    out=OutputPortSpec(MatrixPayload, count=1), live=OutputPortSpec(MatrixPayload, count=1, pushed=True)
                 )
 
             @pull_rate(5)
@@ -533,7 +534,7 @@ class TestRoutedInputs:
                 self.id = node_id
                 self.value = value
                 self.inputs = PortGroup.inputs()
-                self.outputs = PortGroup.outputs(out=OutputPortSpec(RgbColorPayload))
+                self.outputs = PortGroup.outputs(out=OutputPortSpec(RgbColorPayload, count=2))
 
             async def pull(self, tick: TickContext) -> None:
                 data = np.full((2, 3), self.value, dtype=np.float32)
@@ -607,6 +608,7 @@ class _ticking:
         self._tg = anyio.create_task_group()
         tg = await self._tg.__aenter__()
         runtime = self.runtime
+        runtime.scheduler.start()
         runtime._host.attach(tg)
         runtime._host.bind_ports(runtime.plan)
         for node_id in runtime.plan.topological_order:
@@ -629,7 +631,7 @@ class PushSource(BaseNode):
     def __init__(self, node_id: str = "src") -> None:
         self.id = node_id
         self.inputs = PortGroup.inputs()
-        self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
+        self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload, count=2))
 
     def push(self, value: float) -> np.ndarray:
         buf = self.outputs.out.acquire(2)
@@ -721,7 +723,7 @@ class TestPortPublishing:
             def __init__(self) -> None:
                 self.id = "count"
                 self.inputs = PortGroup.inputs()
-                self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
+                self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload, count=2))
                 self.n = 0
 
             async def pull(self, tick: TickContext) -> None:
@@ -744,7 +746,7 @@ class TestPortPublishing:
             def __init__(self) -> None:
                 self.id = "flaky"
                 self.inputs = PortGroup.inputs()
-                self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
+                self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload, count=2))
                 self.n = 0
 
             async def pull(self, tick: TickContext) -> None:
@@ -795,7 +797,7 @@ class TestDebugFrames:
                 self.id = "fwd"
                 self.detach = detach
                 self.inputs = PortGroup.inputs(**{"in": InputPortSpec(MatrixPayload)})
-                self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
+                self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload, count=2))
 
             async def pull(self, tick: TickContext) -> None:
                 frame = self.inputs.get("in").read()
@@ -830,3 +832,128 @@ class TestDebugFrames:
             computed = Frame(topic="t", timestamp=0.0, payload=MatrixPayload(np.full((2, 1), np.nan, dtype=np.float32)))
             runtime.executor.latest[("src", "out")] = computed
             assert runtime.executor._resolve("src", "out", True, 0) is computed
+
+
+class TestStartRetries:
+    """A node a plan update cannot start is retried (owner, 2026-11-21, rasl-blc)."""
+
+    def test_the_delay_doubles_from_one_second_to_a_minute(self) -> None:
+        from rasl.runtime.runtime import start_retry_delay
+
+        assert [start_retry_delay(n) for n in range(1, 9)] == [1, 2, 4, 8, 16, 32, 60, 60]
+
+    async def test_a_node_whose_start_fails_is_not_pulled_and_starts_on_a_later_retry(self) -> None:
+        from rasl.runtime import PlanUpdate
+
+        class Flaky(BaseNode):
+            """Fails to start ``failures`` times, then writes 7 every pull."""
+
+            def __init__(self, failures: int) -> None:
+                self.id = "flaky"
+                self.inputs = PortGroup.inputs()
+                self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload, count=2))
+                self.failures = failures
+                self.starts = self.stops = self.pulls = 0
+
+            async def start(self, ctx) -> None:
+                self.starts += 1
+                if self.starts <= self.failures:
+                    raise OSError("address in use")
+
+            async def stop(self, ctx) -> None:
+                self.stops += 1
+
+            async def pull(self, tick: TickContext) -> None:
+                self.pulls += 1
+                self.outputs.out.write(Frame(topic="f", timestamp=0.0, payload=MatrixPayload(_matrix(7.0))))
+
+        clock = [1000.0]
+
+        reader = Reader()
+        runtime = Runtime(_plan([reader]))
+        runtime._clock = lambda: clock[0]  # the runtime's clock only, not the event loop's
+        async with _ticking(runtime) as ticker:
+            await ticker.tick()
+            flaky = Flaky(failures=2)
+            new_plan = _plan([flaky, reader], [("flaky", "reader")])
+            runtime._plan = new_plan
+            runtime._derive_from_plan()
+            await runtime._swap_nodes(PlanUpdate(plan=new_plan, tree=None, added=("flaky",)), _plan([Reader()]))
+            assert runtime.unstarted == ["flaky"] and flaky.stops == 1  # half-started node stopped
+
+            await ticker.tick()  # retry not due yet (1 s)
+            assert flaky.starts == 1 and flaky.pulls == 0 and reader.read[-1] is None
+            clock[0] += 1.0
+            await ticker.tick()  # second attempt fails: next in 2 s
+            assert flaky.starts == 2 and runtime.unstarted == ["flaky"]
+            clock[0] += 1.0
+            await ticker.tick()
+            assert flaky.starts == 2
+            clock[0] += 1.0
+            await ticker.tick()  # third attempt starts it, and it is pulled in the same tick
+            assert flaky.starts == 3 and runtime.unstarted == []
+            assert flaky.pulls == 1 and reader.read[-1] == [7.0, 7.0]
+
+    async def test_a_later_update_that_removes_the_node_stops_retrying_it(self) -> None:
+        from rasl.runtime import PlanUpdate
+
+        class Broken(BaseNode):
+            def __init__(self) -> None:
+                self.id = "broken"
+                self.inputs = PortGroup.inputs()
+                self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload, count=2))
+                self.starts = 0
+
+            async def start(self, ctx) -> None:
+                self.starts += 1
+                raise OSError("no device")
+
+        reader = Reader()
+        old = _plan([reader])
+        runtime = Runtime(old)
+        async with _ticking(runtime):
+            broken = Broken()
+            with_broken = _plan([broken, reader], [("broken", "reader")])
+            runtime._plan = with_broken
+            runtime._derive_from_plan()
+            await runtime._swap_nodes(PlanUpdate(plan=with_broken, tree=None, added=("broken",)), old)
+            assert runtime.unstarted == ["broken"]
+            without = _plan([reader])
+            runtime._plan = without
+            runtime._derive_from_plan()
+            await runtime._swap_nodes(PlanUpdate(plan=without, tree=None, removed=("broken",)), with_broken)
+            assert runtime.unstarted == [] and runtime._start_retries == {}
+
+    async def test_with_nothing_ticking_starts_are_still_retried(self) -> None:
+        from rasl.runtime import PlanUpdate
+
+        class LateSource(BaseNode):
+            """A push source whose first start fails."""
+
+            def __init__(self) -> None:
+                self.id = "late"
+                self.inputs = PortGroup.inputs()
+                self.outputs = PortGroup.outputs()
+                self.starts = 0
+
+            async def start(self, ctx) -> None:
+                self.starts += 1
+                if self.starts == 1:
+                    raise OSError("address in use")
+
+        late = LateSource()
+        runtime = Runtime(_plan([]))
+        async with _ticking(runtime):
+            new_plan = _plan([late])
+            runtime._plan = new_plan
+            runtime._derive_from_plan()
+            await runtime._swap_nodes(PlanUpdate(plan=new_plan, tree=None, added=("late",)), _plan([]))
+            assert runtime.unstarted == ["late"] and not runtime.rate_drivers
+            for retry in runtime._start_retries.values():
+                retry.due_at = runtime._clock()  # due now
+            with anyio.fail_after(2):
+                while runtime.unstarted:
+                    with anyio.move_on_after(0.05):
+                        await runtime._idle()
+        assert late.starts == 2
+

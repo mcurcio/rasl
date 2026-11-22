@@ -12,7 +12,8 @@ The status, worst first:
   moment the scheduler last began running. The scheduler is wedged. ``GET /health``
   answers 503, so a container health check marks the container unhealthy.
 - ``degraded``: the graph runs, but a node has been disabled for failing again and
-  again, or the last config reload failed and the previous graph is still running.
+  again, a node a config reload added or restarted has not started (it is retried),
+  or the last config reload failed and the previous graph is still running.
   ``GET /health`` answers 200: the server works, and the problem is in the config or
   a device.
 - ``ok``: neither.
@@ -60,6 +61,8 @@ class HealthReport:
         stall_after_seconds: How long without a tick counts as a stall for the graph
             now running; None when it has no rate driver and cannot stall.
         disabled_nodes: Ids of the nodes disabled for failing again and again, sorted.
+        unstarted_nodes: Ids of the nodes a config reload added or restarted whose start
+            failed, sorted; the runtime retries them.
         last_reload_ok: Whether the last config reload succeeded; None if none has
             been attempted (or the config is not watched).
         last_reload_error: Why the last reload failed; None unless it failed.
@@ -73,6 +76,7 @@ class HealthReport:
     last_tick_age_seconds: float | None
     stall_after_seconds: float | None
     disabled_nodes: tuple[str, ...]
+    unstarted_nodes: tuple[str, ...]
     last_reload_ok: bool | None
     last_reload_error: str | None
     last_reload_at: float | None
@@ -102,6 +106,7 @@ def assess(
     run_started_at: float,
     disabled_nodes: Collection[str],
     last_reload: ReloadOutcome | None,
+    unstarted_nodes: Collection[str] = (),
     uptime_seconds: float,
     now: float,
 ) -> HealthReport:
@@ -115,6 +120,7 @@ def assess(
             seconds); a tick has been due since then. 0.0 if it has not begun.
         disabled_nodes: Nodes disabled for failing again and again.
         last_reload: How the last config reload ended, or None.
+        unstarted_nodes: Nodes a config reload added or restarted whose start failed.
         uptime_seconds: Seconds since the server was created.
         now: The current time on the same monotonic clock as ``last_tick_at``.
 
@@ -125,7 +131,7 @@ def assess(
     last_tick_age = None if last_tick_at is None else now - last_tick_at
 
     status = HealthStatus.OK
-    if disabled_nodes or (last_reload is not None and not last_reload.ok):
+    if disabled_nodes or unstarted_nodes or (last_reload is not None and not last_reload.ok):
         status = HealthStatus.DEGRADED
     if threshold is not None and run_started_at > 0.0:
         since = max(last_tick_at or 0.0, run_started_at)
@@ -139,6 +145,7 @@ def assess(
         last_tick_age_seconds=last_tick_age,
         stall_after_seconds=threshold,
         disabled_nodes=tuple(sorted(disabled_nodes)),
+        unstarted_nodes=tuple(sorted(unstarted_nodes)),
         last_reload_ok=None if last_reload is None else last_reload.ok,
         last_reload_error=None if last_reload is None else last_reload.error,
         last_reload_at=None if last_reload is None else last_reload.at,

@@ -149,7 +149,8 @@ class TestReload:
         edit(
             config,
             "node Smooth smooth { smooth_period 50ms; connect wave input; }",
-            "node Color smooth rgb { connect wave; }",
+            # wave has 8 values: 6 of them make two RGB elements (counts are checked at load)
+            "node Color smooth rgb { connect wave[0~6]; }",
         )
 
         update = session.reload()

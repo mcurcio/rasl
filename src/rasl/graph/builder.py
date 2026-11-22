@@ -7,6 +7,7 @@ import math
 import warnings
 from typing import Callable, Dict, List, Optional, Type
 
+from rasl.graph.counts import CountResolver, PortCountError
 from rasl.graph.edge import Edge
 from rasl.graph.errors import (
     ConnectKeyError,
@@ -781,6 +782,9 @@ class GraphBuilder:
                 port another edge feeds (``NOT_SLICEABLE``).
             PortValuesError: If a port declaring ``values_multiple_of`` is supplied a
                 total number of values that is not a multiple of it (``MULTIPLE``).
+            PortTypeError: With ``COUNT``, if a connected port's element count cannot be
+                resolved from config, or a connection does not fit the resolved counts
+                (``rasl.graph.counts``).
         """
         adjacency: Dict[str, List[Edge]] = {node_id: [] for node_id in self._nodes}
         for edge in self._edges:
@@ -816,7 +820,19 @@ class GraphBuilder:
                 node.validate_connections(incoming_by_node[node_id])
 
         back_edges = find_back_edges(adjacency)
-        input_programs = compile_input_programs(self._nodes, incoming_by_node, back_edges)
+        # Every connected port's element count, fixed now (rasl-00l)
+        counts = CountResolver(self._nodes, incoming_by_node, order, back_edges)
+        try:
+            counts.resolve()
+        except PortCountError as error:
+            raise PortTypeError(
+                error.edge,
+                error.message,
+                problem=ConnectProblem.COUNT,
+                supplied=error.supplied,
+                takes=error.takes,
+            ) from error
+        input_programs = compile_input_programs(self._nodes, incoming_by_node, back_edges, counts.inputs)
 
         return ExecutionPlan(
             nodes=self._nodes.copy(),
@@ -824,6 +840,8 @@ class GraphBuilder:
             topological_order=order,
             input_programs=input_programs,
             back_edges=frozenset(back_edges),
+            input_counts=dict(counts.inputs),
+            output_counts={k: v for k, v in counts.outputs.items() if v is not None},
         )
 
 

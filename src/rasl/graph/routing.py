@@ -430,6 +430,7 @@ def compile_input_programs(
     nodes: Mapping[str, Node],
     incoming_by_node: Dict[str, List[Edge]],
     back_edges: Set[Tuple[str, str, str, str]],
+    input_counts: Mapping[Tuple[str, str], int] | None = None,
 ) -> Dict[Tuple[str, str], InputPortProgram]:
     """Compile an ``InputPortProgram`` for every connected input port.
 
@@ -438,6 +439,8 @@ def compile_input_programs(
         incoming_by_node: Target node ID to the edges that end at that node.
         back_edges: The edges that close a cycle, as (source, source_port, target,
             target_port).
+        input_counts: Each input port's element count resolved when the plan is built;
+            a buffered port's frame always has that many elements.
 
     Returns:
         The programs, keyed by (target node ID, input port name). Edges to a port name the
@@ -458,7 +461,9 @@ def compile_input_programs(
             if port is None or not isinstance(port, InputPort):
                 continue
 
-            fixed_rows = port.spec.fixed_count
+            # The count resolved when the plan was built (rasl-00l): a built frame always
+            # has it, and a source that has not written leaves its elements zero
+            fixed_rows = (input_counts or {}).get((target_node_id, port_name), port.spec.fixed_count)
 
             fixed_cols: int | None = None
             resolved = port.spec.resolve_payload_types()

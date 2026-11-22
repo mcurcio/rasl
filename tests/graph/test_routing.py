@@ -80,9 +80,16 @@ class TestRepeatSliceOp:
 class _Node:
     """A node with ``out`` and ``in`` ports of the given specs."""
 
-    def __init__(self, node_id: str, *, out: OutputPortSpec | None = None, inp: InputPortSpec | None = None) -> None:
+    def __init__(
+        self,
+        node_id: str,
+        *,
+        out: OutputPortSpec | None = None,
+        inp: InputPortSpec | None = None,
+        count: int | None = None,
+    ) -> None:
         self.id = node_id
-        self.outputs = PortGroup.outputs(out=out or OutputPortSpec(MatrixPayload))
+        self.outputs = PortGroup.outputs(out=out or OutputPortSpec(MatrixPayload, count=count))
         self.inputs = PortGroup.inputs(**{"in": inp or InputPortSpec(MatrixPayload)})
 
     async def start(self, ctx: NodeContext) -> None:
@@ -127,18 +134,18 @@ def _program(nodes, connections, target: str = "b") -> _Run:
 
 class TestInputPortProgram:
     def test_one_whole_connection_hands_over_the_upstream_frame_itself(self) -> None:
-        run = _program([_Node("a"), _Node("b")], [(("a", "out", "b", "in"), {})])
+        run = _program([_Node("a", count=3), _Node("b")], [(("a", "out", "b", "in"), {})])
         assert run.program.passthrough == ("a", "out") and run.program.ops == ()
         sent = _frame(_rows(3))
         assert run({"a": sent}) is sent
 
     def test_no_upstream_frame_builds_no_frame(self) -> None:
-        run = _program([_Node("a"), _Node("b")], [(("a", "out", "b", "in", Slice(0, 2)), {})])
+        run = _program([_Node("a", count=2), _Node("b")], [(("a", "out", "b", "in", Slice(0, 2)), {})])
         assert run({}) is None
 
     def test_sliced_connections_are_assembled_in_one_frame(self) -> None:
         run = _program(
-            [_Node("a"), _Node("c"), _Node("b")],
+            [_Node("a", count=5), _Node("c", count=2), _Node("b")],
             [
                 (("a", "out", "b", "in", Slice(1, 3), Slice(0, 2)), {}),
                 (("c", "out", "b", "in", None, Slice(4, None)), {}),
@@ -152,7 +159,7 @@ class TestInputPortProgram:
     def test_rows_no_connection_wrote_this_pull_are_zero_not_last_pulls(self) -> None:
         fixed = InputPortSpec(MatrixPayload, count=4)
         run = _program(
-            [_Node("a"), _Node("c"), _Node("b", inp=fixed)],
+            [_Node("a", count=2), _Node("c", count=2), _Node("b", inp=fixed)],
             [
                 (("a", "out", "b", "in", None, Slice(0, 2)), {}),
                 (("c", "out", "b", "in", None, Slice(2, 4)), {}),
@@ -162,19 +169,17 @@ class TestInputPortProgram:
         built = run({"a": _frame(_rows(2, start=1))})
         assert np.asarray(built.payload).ravel().tolist() == [1, 2, 0, 0]
 
-    def test_a_variable_port_is_as_long_as_the_connections_that_wrote_this_pull(self) -> None:
-        # Current behaviour, pinned: a source with no frame adds no rows, so the frame
-        # shrinks while that source has not written yet.
+    def test_a_ports_length_is_fixed_and_a_silent_source_leaves_zeros(self) -> None:
+        # rasl-00l / rasl-vs5: the length comes from the plan, not from who wrote
         run = _program(
-            [_Node("a"), _Node("c"), _Node("b")],
+            [_Node("a", count=2), _Node("c", count=2), _Node("b")],
             [
                 (("a", "out", "b", "in", None, Slice(0, 2)), {}),
                 (("c", "out", "b", "in", None, Slice(2, 4)), {}),
             ],
         )
-        assert np.asarray(run({"a": _frame(_rows(2, start=1))}).payload).shape == (2, 1)
-        both = run({"a": _frame(_rows(2, start=1)), "c": _frame(_rows(2, start=5))})
-        assert np.asarray(both.payload).shape == (4, 1)
+        assert run.program.fixed_rows == 4
+        assert np.asarray(run({"a": _frame(_rows(2, start=1))}).payload).ravel().tolist() == [1, 2, 0, 0]
 
     def test_a_sliced_repeat_through_the_builder_keeps_the_slice(self) -> None:
         run = _program(
@@ -187,7 +192,7 @@ class TestInputPortProgram:
     def test_a_built_frame_has_the_type_the_port_takes(self) -> None:
         rgb = InputPortSpec(RgbColorPayload)
         run = _program(
-            [_Node("a", out=OutputPortSpec(RgbColorPayload)), _Node("b", inp=rgb)],
+            [_Node("a", out=OutputPortSpec(RgbColorPayload, count=3)), _Node("b", inp=rgb)],
             [(("a", "out", "b", "in", Slice(0, 2)), {"repeat": 2})],
         )
         built = run({"a": _frame(_rows(3, cols=3), payload_type=RgbColorPayload)})
@@ -196,7 +201,7 @@ class TestInputPortProgram:
 
     def test_a_back_edge_is_read_as_one(self) -> None:
         builder = GraphBuilder()
-        for node in (_Node("a"), _Node("b")):
+        for node in (_Node("a", count=2), _Node("b", count=2)):
             builder.add_node(node)
         builder.connect("a", "out", "b", "in", None, Slice(0, 2))
         builder.connect("b", "out", "a", "in", None, Slice(0, 2))
@@ -208,7 +213,7 @@ class TestInputPortProgram:
         assert sorted(flags.values()) == [[False], [True]]
 
     def test_a_built_frame_is_unchanged_by_the_next_pull_and_reused_at_the_one_after(self) -> None:
-        run = _program([_Node("a"), _Node("b")], [(("a", "out", "b", "in", Slice(0, 2)), {})])
+        run = _program([_Node("a", count=2), _Node("b")], [(("a", "out", "b", "in", Slice(0, 2)), {})])
         first = run({"a": _frame(_rows(2, start=1))})
         second = run({"a": _frame(_rows(2, start=7))})
         assert np.asarray(first.payload).ravel().tolist() == [1, 2]
@@ -221,7 +226,7 @@ class TestInputPortProgram:
 
         rgb = InputPortSpec(RgbColorPayload)
         run = _program(
-            [_Node("a", out=OutputPortSpec(RgbColorPayload)), _Node("b", inp=rgb)],
+            [_Node("a", out=OutputPortSpec(RgbColorPayload, count=2)), _Node("b", inp=rgb)],
             [(("a", "out", "b", "in", Slice(0, 2)), {})],
         )
         good = run({"a": _frame(_rows(2, cols=3), payload_type=RgbColorPayload)})

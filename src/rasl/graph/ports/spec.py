@@ -274,10 +274,14 @@ class OutputPortSpec:
         count: Count specification, as for ``InputPortSpec.count``.
         description: Optional human-readable description of the port.
         same_as: The name of one of the node's input ports, for an output that passes on
-            the payload type it receives there (a filter that keeps colors colors). When
-            the graph is built, the output is typed as whatever feeds that input; when
-            nothing does, or its sources disagree, as ``produces``. None for an output
-            that always emits ``produces``.
+            the payload type and the element count it receives there (a filter that keeps
+            colors colors). When the graph is built, the output is typed as whatever feeds
+            that input; when nothing does, or its sources disagree, as ``produces``. Its
+            element count is that input's (owner, 2026-11-21, rasl-00l). None for an
+            output that always emits ``produces``.
+        count_of: The name of one of the node's input ports whose element count this
+            output has, when its type is its own (a node that converts to a color model
+            keeps the number of elements). None otherwise; ``same_as`` implies it.
         components: Columns per element the output always emits, when its type does
             not fix them (a plain matrix of known width); None when unknown until it
             runs. A color type's own ``components`` needs no declaration here.
@@ -294,6 +298,7 @@ class OutputPortSpec:
     same_as: str | None = None
     components: int | None = None
     pushed: bool = False
+    count_of: str | None = None
 
     def __post_init__(self) -> None:
         _parse_count_spec(self.count)
@@ -309,6 +314,12 @@ class OutputPortSpec:
         if isinstance(self.produces, str):
             return self.produces
         return getattr(self.produces, "domain", self.produces.__name__)
+
+    @property
+    def count_follows(self) -> str | None:
+        """The input port whose element count this output has (``count_of``, else
+        ``same_as``), or None."""
+        return self.count_of or self.same_as
 
     @property
     def known_components(self) -> int | None:

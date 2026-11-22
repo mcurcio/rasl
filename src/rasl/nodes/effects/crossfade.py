@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 import numpy as np
 from pydantic import Field
 
 from rasl.color import ColorPayload, HslColorPayload
+from rasl.graph import InputCountError, InputSize
 from rasl.graph.node import BaseNode, TickContext, TransformNodeConfig, node
 from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.signal import BoolPayload
@@ -37,7 +39,7 @@ class CrossfadeNode(BaseNode):
         input1=InputPortSpec(ColorPayload),
         selector=InputPortSpec(BoolPayload, count=1),
     )
-    outputs = PortGroup.outputs(out=OutputPortSpec(HslColorPayload))
+    outputs = PortGroup.outputs(out=OutputPortSpec(HslColorPayload, count_of="input0"))
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)
@@ -54,6 +56,20 @@ class CrossfadeNode(BaseNode):
         for required in ("input0", "input1", "selector"):
             if required not in connected_ports:
                 raise ValueError(f"Crossfade requires input '{required}' to be connected")
+
+    def output_counts(self, inputs: Mapping[str, InputSize]) -> dict[str, int | None]:
+        """Check ``input0`` and ``input1`` have one element count (the output's, via
+        ``count_of``), when the plan is built.
+
+        Raises:
+            InputCountError: On ``input1``, when the two counts differ.
+        """
+        c0, c1 = inputs["input0"].count, inputs["input1"].count
+        if c0 is not None and c1 is not None and c0 != c1:
+            raise InputCountError(
+                "input1", f"Crossfade inputs must have one element count, got input0={c0}, input1={c1}"
+            )
+        return {}
 
     def _shortest_circular_delta(
         self, a: NDArray[np.float32], b: NDArray[np.float32]

@@ -42,7 +42,7 @@ class Source(BaseNode):
         self.buffered = buffered
         self.data = np.random.default_rng(0).random((rows, 3), dtype=np.float32)
         self.inputs = PortGroup.inputs()
-        self.outputs = PortGroup.outputs(out=OutputPortSpec(RgbColorPayload))
+        self.outputs = PortGroup.outputs(out=OutputPortSpec(RgbColorPayload, count=rows))
 
     async def pull(self, tick: TickContext) -> None:
         """Write this tick's frame."""
@@ -63,7 +63,7 @@ class Pushed(BaseNode):
         self.rows = rows
         self.data = np.random.default_rng(0).random((rows, 3), dtype=np.float32)
         self.inputs = PortGroup.inputs()
-        self.outputs = PortGroup.outputs(out=OutputPortSpec(RgbColorPayload))
+        self.outputs = PortGroup.outputs(out=OutputPortSpec(RgbColorPayload, count=rows))
 
     def push(self) -> None:
         """Commit one frame from outside a tick, as a background task would."""
@@ -79,7 +79,7 @@ class Forward(BaseNode):
     def __init__(self, node_id: str) -> None:
         self.id = node_id
         self.inputs = PortGroup.inputs(**{"in": InputPortSpec(MatrixPayload)})
-        self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
+        self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload, same_as="in"))
 
     async def pull(self, tick: TickContext) -> None:
         """Forward the input frame, if any."""

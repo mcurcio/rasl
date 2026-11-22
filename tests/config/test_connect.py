@@ -226,11 +226,10 @@ class TestConnectErrorsArePlaced:
         assert (connection.rows, connection.other_rows) == ((0, 1), (0, 1))
 
     def test_a_repeat_of_a_source_of_unknown_length_is_a_config_error(self):
+        # Smooth's count follows its input, which nothing feeds
         config = """
         graph {
-            node Waveform hue {
-                output_channels 4;
-            }
+            node Smooth hue {}
             node ConsoleSink sink {
                 fps 1;
                 connect hue[2~] dmx[0~] {
@@ -239,8 +238,20 @@ class TestConnectErrorsArePlaced:
             }
         }
         """
-        with pytest.raises(ConfigError, match=r"Node 'sink': repeat 3 needs the length of hue\[2:\]"):
+        with pytest.raises(ConfigError, match=r"Node 'sink': Element count unknown: hue\.output"):
             parse_config(config)
+
+    def test_a_repeat_of_a_source_with_a_count_from_config_loads(self):
+        plan = parse_config("""
+        graph {
+            node Waveform hue { output_channels 4; }
+            node ConsoleSink sink {
+                fps 1;
+                connect hue[2~] dmx[0~] { repeat 3; }
+            }
+        }
+        """)
+        assert plan.input_counts[("sink", "dmx")] == 6
 
     def test_an_unknown_source_node_is_a_config_error_on_its_connect_line(self):
         config = """

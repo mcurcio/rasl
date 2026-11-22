@@ -14,7 +14,7 @@ class MockSourceNode:
     """Mock source node for testing."""
 
     # Source: no inputs, single output
-    outputs = PortGroup.outputs(output=OutputPortSpec(MatrixPayload))
+    outputs = PortGroup.outputs(output=OutputPortSpec(MatrixPayload, count=4))
 
     def __init__(self, node_id: str) -> None:
         """Initialize mock source node."""
@@ -37,7 +37,7 @@ class MockTransformNode:
     """Mock transform node for testing."""
 
     inputs = PortGroup.inputs(input=InputPortSpec(MatrixPayload))
-    outputs = PortGroup.outputs(output=OutputPortSpec(MatrixPayload))
+    outputs = PortGroup.outputs(output=OutputPortSpec(MatrixPayload, count=4))
 
     def __init__(self, node_id: str) -> None:
         """Initialize mock transform node."""
@@ -569,7 +569,7 @@ class TestMatrixIntoColor:
         from rasl.graph import CoercionError
         from rasl.signal import Frame
 
-        builder = self._builder(OutputPortSpec(MatrixPayload), InputPortSpec(HsbkColorPayload))
+        builder = self._builder(OutputPortSpec(MatrixPayload, count=2), InputPortSpec(HsbkColorPayload))
         builder.connect("a", "out", "b", "in")
         program = builder.build().input_programs[("b", "in")]
 
@@ -591,7 +591,7 @@ class TestMatrixIntoColor:
         from rasl.graph import CoercionError
         from rasl.signal import Frame
 
-        builder = self._builder(OutputPortSpec(ColorPayload), InputPortSpec(RgbColorPayload))
+        builder = self._builder(OutputPortSpec(ColorPayload, count=2), InputPortSpec(RgbColorPayload))
         builder.connect("a", "out", "b", "in")
         program = builder.build().input_programs[("b", "in")]
 
@@ -608,7 +608,7 @@ class TestMatrixIntoColor:
 
         from rasl.signal import BoolPayload, Frame
 
-        builder = self._builder(OutputPortSpec(MatrixPayload), InputPortSpec(BoolPayload))
+        builder = self._builder(OutputPortSpec(MatrixPayload, count=2), InputPortSpec(BoolPayload))
         builder.connect("a", "out", "b", "in")
         program = builder.build().input_programs[("b", "in")]
         frame = Frame(topic="t", timestamp=0.0, payload=MatrixPayload(np.array([[0.0], [0.4]], dtype=np.float32)))
@@ -630,7 +630,9 @@ class TestPlanWiring:
             def __init__(self, node_id: str) -> None:
                 self.id = node_id
                 self.inputs = PortGroup.inputs(a=InputPortSpec(MatrixPayload), b=InputPortSpec(MatrixPayload))
-                self.outputs = PortGroup.outputs(x=OutputPortSpec(MatrixPayload), y=OutputPortSpec(MatrixPayload))
+                self.outputs = PortGroup.outputs(
+                    x=OutputPortSpec(MatrixPayload, count=1), y=OutputPortSpec(MatrixPayload, count=1)
+                )
 
             async def pull(self, tick: TickContext) -> None:
                 """Do nothing."""

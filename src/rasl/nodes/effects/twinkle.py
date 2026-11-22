@@ -101,7 +101,7 @@ class TwinkleEffectNode(BaseNode):
 
     # Class-level ports
     inputs = PortGroup.inputs(input=InputPortSpec(ColorPayload))
-    outputs = PortGroup.outputs(out=OutputPortSpec(ColorPayload))
+    outputs = PortGroup.outputs(out=OutputPortSpec(ColorPayload, count_of="input"))
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)

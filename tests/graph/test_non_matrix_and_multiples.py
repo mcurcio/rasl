@@ -118,7 +118,8 @@ class TestNotSliceable:
         assert caught.value.edge.source == "r"
 
     def test_slicing_matrices_is_unchanged(self) -> None:
-        builder = _builder(_Ported("a"), _Ported("m"), _Ported("b"))
+        three = OutputPortSpec(MatrixPayload, count=3)
+        builder = _builder(_Ported("a", out=three), _Ported("m", out=three), _Ported("b"))
         builder.connect("a", "out", "b", "in", None, Slice(0, 3))
         builder.connect("m", "out", "b", "in", None, Slice(3, 6), 1)
         builder.build()
@@ -194,9 +195,10 @@ class TestValuesMultipleOf:
         delivered = program.populate(0, lambda node, *_: frames[node])
         assert delivered.payload.data.size == expected == 15
 
-    @pytest.mark.parametrize(
-        "spec",
-        [OutputPortSpec(MatrixPayload, components=1), OutputPortSpec(MatrixPayload, count=512)],
-    )
-    def test_an_unknown_count_or_width_is_left_to_the_node(self, spec: OutputPortSpec) -> None:
-        self._into(3, (spec, None)).build()
+    def test_an_unknown_width_is_left_to_the_node(self) -> None:
+        self._into(3, (OutputPortSpec(MatrixPayload, count=512), None)).build()
+
+    def test_an_unknown_count_is_a_load_error(self) -> None:
+        # Element counts are fixed when the plan is built (rasl-00l)
+        with pytest.raises(PortTypeError, match="Element count unknown: s0.out"):
+            self._into(3, (OutputPortSpec(MatrixPayload, components=1), None)).build()

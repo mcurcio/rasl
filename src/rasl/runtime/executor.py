@@ -44,6 +44,8 @@ class Executor:
 
     Attributes:
         disabled: Nodes no longer pulled because they kept failing.
+        unstarted: Nodes a plan update added or restarted whose ``start`` failed; not
+            pulled until a retry starts them (see ``Runtime``).
         latest: The last frame each output port wrote, by (node id, port).
     """
 
@@ -72,6 +74,7 @@ class Executor:
         self._timing = timing
         self._max_consecutive_errors = max_consecutive_errors
         self.disabled: Set[str] = set()
+        self.unstarted: Set[str] = set()
 
         # Frame cache (per-tick): (node_id, port_name) -> Frame
         self._frame_cache: Dict[Tuple[str, str], Frame] = {}
@@ -151,6 +154,7 @@ class Executor:
         for key in [k for k in self.latest if k[0] in node_ids]:
             del self.latest[key]
         self.disabled -= node_ids
+        self.unstarted -= node_ids
 
     def _is_back_edge(self, edge: Edge) -> bool:
         """Check if an edge is a back-edge (creates a cycle)."""
@@ -283,8 +287,9 @@ class Executor:
         node = runtime.node
 
         # A disabled node is not pulled, and pulls nothing: what reads it goes
-        # on with the last frames it wrote
-        if node_id in self.disabled:
+        # on with the last frames it wrote. Nor is one whose start failed: it
+        # has written nothing, so its readers see no frame (zeros in a slice)
+        if node_id in self.disabled or node_id in self.unstarted:
             return
 
         # First, pull all upstream nodes (non back-edge), so frames exist in cache.

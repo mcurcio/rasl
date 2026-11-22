@@ -302,16 +302,41 @@ def resolve_connections(
                 target=target_end,
             )
 
-        # Determine source slice and length for repeat
+        # A repeat with no target slice, or an open one, is one edge: the graph repeats the source slice and
+        # sizes the copies from the source's count once every count is resolved (rasl-00l)
         source_slice = source_ref.slice_
+        count = src_spec.spec.fixed_count
+        if source_slice is not None and count is not None and source_slice.start >= count:
+            raise ConnectValueError(
+                ConnectProblem.SLICE_RANGE,
+                f"Slice [{source_slice.start}:{'' if source_slice.end is None else source_slice.end}] "
+                f"is out of range for port {source_node_id}.{source_port}, which has {count} elements",
+                source=source_end,
+                target=target_end,
+            )
+        if desc.repeat > 1 and (target_slice_base is None or target_slice_base.end is None):
+            # An open target slice only says where the copies start
+            builder.connect(
+                source_node_id,
+                source_port,
+                target_node_id,
+                target_port,
+                source_slice,
+                target_slice_base,
+                repeat=desc.repeat,
+            )
+            continue
+
+        # Determine source slice and length for repeat
         if source_slice and source_slice.end is not None:
             slice_length = source_slice.end - source_slice.start
-        elif src_spec.spec.fixed_count is not None:
-            # No slice specified - use full port channel count
-            slice_length = src_spec.spec.fixed_count
-            # Create implicit full-port slice for repeat offset calculation
+        elif count is not None:
+            # No end: the slice (or the whole port) runs to the port's last element. Keep
+            # its start (rasl-pd0.11: [2~] of 4 elements is 2 elements from 2, not all 4)
+            start = source_slice.start if source_slice is not None else 0
+            slice_length = count - start
             if desc.repeat > 1:
-                source_slice = Slice(0, slice_length)
+                source_slice = Slice(start, count)
         else:
             slice_length = None
 

@@ -6,9 +6,12 @@
 - ``GraphBuilder``: add nodes, connect them, validate, and ``build()``
 - ``ConnectError``: why a connection is refused, with both of its ends
 - ``ExecutionPlan``: the compiled graph a runtime executes
+- ``InputCountError``: what a node's ``output_counts`` hook raises when its inputs' element
+  counts do not fit together
 """
 
 from rasl.graph.builder import CycleWarning, GraphBuilder, PortTypeError, PortValuesError
+from rasl.graph.counts import InputCountError, InputSize
 from rasl.graph.edge import Edge
 from rasl.graph.errors import (
     CoercionError,
@@ -37,6 +40,8 @@ __all__ = [
     "Endpoint",
     "ExecutionPlan",
     "GraphBuilder",
+    "InputCountError",
+    "InputSize",
     "InputPortProgram",
     "PortTypeError",
     "PortValuesError",

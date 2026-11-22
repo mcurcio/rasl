@@ -83,6 +83,11 @@ class TestAssess:
         assert report.status is HealthStatus.DEGRADED
         assert report.disabled_nodes == ("dmx", "wled")
 
+    def test_a_node_that_has_not_started_is_degraded(self) -> None:
+        report = _assess(unstarted_nodes={"sacn", "dmx"})
+        assert report.status is HealthStatus.DEGRADED
+        assert report.unstarted_nodes == ("dmx", "sacn")
+
     def test_a_failed_reload_is_degraded_and_says_why(self) -> None:
         report = _assess(last_reload=ReloadOutcome(ok=False, at=1.5, error="bad line"))
         assert report.status is HealthStatus.DEGRADED
@@ -132,6 +137,7 @@ class TestHealthResponse:
             "last_tick_age_seconds",
             "stall_after_seconds",
             "disabled_nodes",
+            "unstarted_nodes",
             "last_reload_ok",
             "last_reload_error",
             "last_reload_at",
