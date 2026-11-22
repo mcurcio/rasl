@@ -304,14 +304,16 @@ def resolve_connections(
 
         # Determine source slice and length for repeat
         source_slice = source_ref.slice_
+        count = src_spec.spec.fixed_count
         if source_slice and source_slice.end is not None:
             slice_length = source_slice.end - source_slice.start
-        elif src_spec.spec.fixed_count is not None:
-            # No slice specified - use full port channel count
-            slice_length = src_spec.spec.fixed_count
-            # Create implicit full-port slice for repeat offset calculation
+        elif count is not None:
+            # No end: the slice (or the whole port) runs to the port's last element. Keep
+            # its start (rasl-pd0.11: [2~] of 4 elements is 2 elements from 2, not all 4)
+            start = source_slice.start if source_slice is not None else 0
+            slice_length = count - start
             if desc.repeat > 1:
-                source_slice = Slice(0, slice_length)
+                source_slice = Slice(start, count)
         else:
             slice_length = None
 

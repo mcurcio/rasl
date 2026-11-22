@@ -124,20 +124,37 @@ leaves out `outputs`.
   multiple of. Where every source's rows and width are known at load, a total that is not is refused there
   (`Reshape` uses it); otherwise the node checks each frame.
 
-`OutputPortSpec(produces, count=None, description="", same_as=None)` takes exactly one payload class or name; a
-tuple raises `ValueError`. Declare what the port really emits: a node whose output type depends on its settings
-(like `Compose`'s `output_type`) sets `self.outputs` in `__init__` with the resolved class.
+`OutputPortSpec(produces, count=None, description="", same_as=None, count_of=None)` takes exactly one payload
+class or name; a tuple raises `ValueError`. Declare what the port really emits: a node whose output type depends
+on its settings (like `Compose`'s `output_type`) sets `self.outputs` in `__init__` with the resolved class.
 
-`same_as="input"` marks a pass-through output: one that passes on whatever payload type arrives at the named
-input, as a filter that keeps colors colors does (`Smooth`, `RangeMap`). When the graph is built, the output is
-typed as whatever feeds that input, followed through chains of such nodes, so `Color → Smooth → LifxSink` loads
-and `Waveform → Smooth → LifxSink` is refused. With nothing feeding the input, or sources of different types,
-the output has its `produces` type.
+`same_as="input"` marks a pass-through output: one that passes on whatever payload type and element count
+arrive at the named input, as a filter that keeps colors colors does (`Smooth`, `RangeMap`). When the graph is
+built, the output is typed as whatever feeds that input, followed through chains of such nodes, so
+`Color → Smooth → LifxSink` loads and `Waveform → Smooth → LifxSink` is refused. With nothing feeding the input,
+or sources of different types, the output has its `produces` type.
 
 A name that no payload is registered under makes the connection fail with a list of the registered names.
-`count` is checked when a config connects a slice to the port (a slice past the end is refused), and a fixed
-input count sets the number of rows of an input assembled from slices or several connections. Nothing checks the size of a frame at
-run time.
+
+### Element counts
+
+Every connected port's element count is fixed when the config is loaded, and never depends on which sources
+have written. A node says where each output's count comes from, in one of three ways:
+
+- **From its config:** `count=` on the output, set in `__init__` from a setting (`Waveform`'s `output_channels`,
+  a literal's value).
+- **From an input:** `same_as="input"` (type and count) or `count_of="input"` (count only, for an output whose
+  type is its own, such as `ColorCorrection`'s).
+- **Computed:** an `output_counts(self, inputs)` method. It receives each input's `InputSize(count, components)`
+  (either may be None: not connected, or unknown) and returns counts by output port name. Raise
+  `InputCountError(port, message)` (from `rasl.graph`) when the inputs do not fit together; the error is placed on
+  a connect line into that port. `Reshape`, `Math`, `Compose` and `ColorNode` do this.
+
+An input's count is the furthest element its connections write: a target slice's end, or its start plus what
+the source supplies (the source slice of its count, times `repeat`). A fixed input `count` must hold them. A
+connection is refused at load, on its connect line, when its source's count cannot be resolved, when it supplies
+another number of elements than its target slice takes, or when it writes past the end of its port. A frame
+built for an input always has the input's count; elements a source has not written yet are zero.
 
 `connect <source>;` with no port name works only when the receiving node has exactly one input. Give a node
 with several inputs a short, clear name for each.

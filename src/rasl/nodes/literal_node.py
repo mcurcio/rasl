@@ -172,11 +172,14 @@ class LiteralNode(BaseNode):
                 f"Cannot create {config.payload_kind} payload in node '{config.id}': {e}"
             ) from e
         
-        # The output carries the literal's own type, so connections are checked against it
+        # The output carries the literal's own type and element count, so connections are
+        # checked against them (rasl-00l)
+        data = getattr(self._payload, "data", None)
         self.outputs = PortGroup.outputs(
             out=OutputPortSpec(
                 type(self._payload),
-                components=int(self._payload.data.shape[1]) if hasattr(self._payload, "data") else None,
+                components=int(data.shape[1]) if data is not None else None,
+                count=int(data.shape[0]) if data is not None else None,
             )
         )
 

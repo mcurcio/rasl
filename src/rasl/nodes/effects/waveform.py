@@ -140,6 +140,10 @@ class WaveformNode(BaseNode):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
         self._channels = config.output_channels
+        # The element count is fixed by config (rasl-00l)
+        self.outputs = PortGroup.outputs(
+            out=OutputPortSpec(MatrixPayload, components=1, count=config.output_channels)
+        )
         self._shape = config.shape
         self._frequency_hz = config.frequency_hz
         self._attack_ratio = config.attack_ratio

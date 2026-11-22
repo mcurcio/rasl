@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import numpy as np
 from pydantic import Field
 
+from rasl.graph import InputSize
 from rasl.graph.node import BaseNode, TickContext, TransformNodeConfig, node
 from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.signal import MatrixPayload
@@ -50,6 +53,14 @@ class ReshapeNode(BaseNode):
         self.outputs = PortGroup.outputs(
             output=OutputPortSpec(MatrixPayload, components=self._components)
         )
+
+    def output_counts(self, inputs: Mapping[str, InputSize]) -> dict[str, int | None]:
+        """The output's element count, when the plan is built: the input's values
+        (elements times components) divided by ``components``; None when either is unknown."""
+        size = inputs["input"]
+        if size.count is None or size.components is None:
+            return {"output": None}
+        return {"output": size.count * size.components // self._components}
 
     async def pull(self, tick: TickContext) -> None:
         """Write the input's values, regrouped into rows of ``components``, to ``output``.

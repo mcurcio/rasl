@@ -14,7 +14,7 @@ Example config:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
 import numpy as np
@@ -32,6 +32,7 @@ from rasl.color import (
     RgbColorPayload,
     RgbwColorPayload,
 )
+from rasl.graph import InputSize
 from rasl.graph.node import BaseNode, TickContext, TransformNodeConfig, node
 from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.signal import MatrixPayload
@@ -126,6 +127,18 @@ class ColorNode(BaseNode):
                 (MatrixPayload, ColorPayload), values_multiple_of=width if isinstance(width, int) else None
             )
         )
+
+    def output_counts(self, inputs: Mapping[str, InputSize]) -> dict[str, int | None]:
+        """The output's element count, when the plan is built: the input's, or, for a
+        plain single-column matrix regrouped into this model's elements, its values divided
+        by the model's width."""
+        size = inputs["color"]
+        width = getattr(self._frame_cls, "components", None)
+        if size.count is None:
+            return {"color": None}
+        if size.components == 1 and isinstance(width, int) and width > 1:
+            return {"color": size.count // width}
+        return {"color": size.count}
 
     @staticmethod
     def _frame_class_for(model: str) -> type[ColorPayload]:

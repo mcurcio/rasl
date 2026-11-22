@@ -6,12 +6,14 @@ operations between two input arrays or between an input and a constant.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Literal
 
 import numpy as np
 from numpy.typing import NDArray
 from pydantic import Field
 
+from rasl.graph import InputCountError, InputSize
 from rasl.graph.node import BaseNode, TickContext, TransformNodeConfig, node
 from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.signal import MatrixPayload
@@ -111,6 +113,26 @@ class MathNode(BaseNode):
         frame = frame_a if frame_a is not None else frame_b
         assert frame is not None
         self.outputs.out.write(frame.with_payload(MatrixPayload(result.astype(np.float32, copy=False))))
+
+    def output_counts(self, inputs: Mapping[str, InputSize]) -> dict[str, int | None]:
+        """The output's element count, when the plan is built (owner, 2026-11-21).
+
+        The connected input's count when only one is connected (the other being a
+        constant, or the same input); with both, they must be equal or one of them 1
+        (broadcast), and the output has the larger.
+
+        Raises:
+            InputCountError: On ``b``, when both are connected with other counts, neither 1.
+        """
+        a, b = inputs["a"].count, inputs["b"].count
+        if a is None or b is None:
+            return {"out": a if b is None else b}
+        if a != b and 1 not in (a, b):
+            raise InputCountError(
+                "b",
+                f"Math inputs must have one element count, or one of them 1, got a={a}, b={b}",
+            )
+        return {"out": max(a, b)}
 
     @staticmethod
     def _align(

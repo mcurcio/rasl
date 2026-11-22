@@ -121,11 +121,22 @@ class TestAtLoad:
             "}",
         ))
 
-    def test_an_unknown_count_loads(self) -> None:
-        parse_config(_graph(
-            "node TestFixedRowsSource dmx;",
+    def test_a_source_with_no_count_is_a_located_error(self) -> None:
+        # Element counts are fixed when the plan is built (rasl-00l)
+        with pytest.raises(ConfigError, match=r"Element count unknown: dmx\.out has no element count") as caught:
+            parse_config(_graph(
+                "node TestFixedRowsSource dmx;",
+                "node Reshape rgb { components 3; connect dmx; }",
+            ))
+        assert caught.value.line == 3
+
+    def test_the_output_count_is_the_values_over_components(self) -> None:
+        plan = parse_config(_graph(
+            "node Waveform dmx { output_channels 12; }",
             "node Reshape rgb { components 3; connect dmx; }",
+            "node ConsoleSink sink { fps 1; connect rgb; }",
         ))
+        assert plan.output_counts[("rgb", "output")] == 4
 
     def test_components_0_is_a_located_config_error(self) -> None:
         with pytest.raises(ConfigError, match="components: Input should be greater than or equal to 1") as caught:

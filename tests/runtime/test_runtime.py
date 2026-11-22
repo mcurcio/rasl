@@ -21,7 +21,7 @@ class Probe(BaseNode):
     def __init__(self, node_id: str, *, work: float = 0.0) -> None:
         self.id = node_id
         self.inputs = PortGroup.inputs(**{"in": InputPortSpec(MatrixPayload)})
-        self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
+        self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload, count=1))
         self.ticks: list[TickContext] = []
         self.seen: list[float | None] = []
         self.work = work
@@ -373,7 +373,8 @@ class TestNodesOwnTheirPorts:
         assert a.outputs.out is not b.outputs.out
         assert a.inputs.phase is not b.inputs.phase
         assert a.outputs.out is not WaveformNode.outputs.out
-        assert a.outputs.out.spec is WaveformNode.outputs.out.spec
+        # Its element count comes from its config (rasl-00l)
+        assert a.outputs.out.spec.count == 2 and a.outputs.out.spec.produces is WaveformNode.outputs.out.spec.produces
 
     async def test_three_sources_of_one_class_keep_their_own_values(self) -> None:
         from rasl.config.build import parse_config
@@ -499,7 +500,7 @@ class TestPushedOutputs:
             def __init__(self, node_id: str) -> None:
                 super().__init__(node_id)
                 self.outputs = PortGroup.outputs(
-                    out=OutputPortSpec(MatrixPayload), live=OutputPortSpec(MatrixPayload, pushed=True)
+                    out=OutputPortSpec(MatrixPayload, count=1), live=OutputPortSpec(MatrixPayload, count=1, pushed=True)
                 )
 
             @pull_rate(5)
@@ -533,7 +534,7 @@ class TestRoutedInputs:
                 self.id = node_id
                 self.value = value
                 self.inputs = PortGroup.inputs()
-                self.outputs = PortGroup.outputs(out=OutputPortSpec(RgbColorPayload))
+                self.outputs = PortGroup.outputs(out=OutputPortSpec(RgbColorPayload, count=2))
 
             async def pull(self, tick: TickContext) -> None:
                 data = np.full((2, 3), self.value, dtype=np.float32)
@@ -629,7 +630,7 @@ class PushSource(BaseNode):
     def __init__(self, node_id: str = "src") -> None:
         self.id = node_id
         self.inputs = PortGroup.inputs()
-        self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
+        self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload, count=2))
 
     def push(self, value: float) -> np.ndarray:
         buf = self.outputs.out.acquire(2)
@@ -721,7 +722,7 @@ class TestPortPublishing:
             def __init__(self) -> None:
                 self.id = "count"
                 self.inputs = PortGroup.inputs()
-                self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
+                self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload, count=2))
                 self.n = 0
 
             async def pull(self, tick: TickContext) -> None:
@@ -744,7 +745,7 @@ class TestPortPublishing:
             def __init__(self) -> None:
                 self.id = "flaky"
                 self.inputs = PortGroup.inputs()
-                self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
+                self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload, count=2))
                 self.n = 0
 
             async def pull(self, tick: TickContext) -> None:
@@ -795,7 +796,7 @@ class TestDebugFrames:
                 self.id = "fwd"
                 self.detach = detach
                 self.inputs = PortGroup.inputs(**{"in": InputPortSpec(MatrixPayload)})
-                self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
+                self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload, count=2))
 
             async def pull(self, tick: TickContext) -> None:
                 frame = self.inputs.get("in").read()
@@ -850,7 +851,7 @@ class TestStartRetries:
             def __init__(self, failures: int) -> None:
                 self.id = "flaky"
                 self.inputs = PortGroup.inputs()
-                self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
+                self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload, count=2))
                 self.failures = failures
                 self.starts = self.stops = self.pulls = 0
 
@@ -900,7 +901,7 @@ class TestStartRetries:
             def __init__(self) -> None:
                 self.id = "broken"
                 self.inputs = PortGroup.inputs()
-                self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload))
+                self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload, count=2))
                 self.starts = 0
 
             async def start(self, ctx) -> None:

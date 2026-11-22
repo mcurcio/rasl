@@ -9,12 +9,14 @@ Pull-based: Reads all input ports, interleaves data, writes output.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Sequence, Type
 
 import numpy as np
 from numpy.typing import NDArray
 from pydantic import Field, field_validator
 
+from rasl.graph import InputCountError, InputSize
 from rasl.graph.node import BaseNode, TickContext, TransformNodeConfig, node
 from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.signal import Frame, FramePayload, MatrixPayload, get_payload_type
@@ -122,6 +124,32 @@ class ComposeNode(BaseNode):
         # Runtime state - use configured output_channels if provided
         self._resolved_length: int | None = config.output_channels
         self._last_frame: Frame | None = None
+
+    def output_counts(self, inputs: Mapping[str, InputSize]) -> dict[str, int | None]:
+        """The output's element count, when the plan is built (owner, 2026-11-21).
+
+        Every connected input has one count, which is the output's; fill ports take it.
+        With only fill ports, ``output_channels`` gives it.
+
+        Raises:
+            InputCountError: On the first input whose count differs from an earlier one's,
+                or from ``output_channels`` when that is set.
+        """
+        count = self._output_channels
+        named = "output_channels" if count is not None else None
+        for name in self._port_names:
+            size = inputs.get(name)
+            if size is None or size.count is None:
+                continue
+            if count is None:
+                count, named = size.count, f"'{name}'"
+            elif size.count != count:
+                raise InputCountError(
+                    name,
+                    f"Compose inputs must have one element count: '{name}' has {size.count}, "
+                    f"but {named} has {count}",
+                )
+        return {"out": count}
 
     def validate_connections(self, incoming_edges: Sequence[Edge]) -> None:
         """Ensure all non-fill ports have connections."""

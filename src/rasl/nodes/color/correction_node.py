@@ -114,7 +114,7 @@ class ColorCorrectionNode(BaseNode):
 
     # Class-level ports
     inputs = PortGroup.inputs(input=InputPortSpec((MatrixPayload, ColorPayload)))
-    outputs = PortGroup.outputs(out=OutputPortSpec(ColorPayload))
+    outputs = PortGroup.outputs(out=OutputPortSpec(ColorPayload, count_of="input"))
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)

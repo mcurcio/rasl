@@ -50,6 +50,13 @@ class ExecutionPlan:
     """The edges that close a cycle, as (source, source_port, target, target_port).
     A node reads such an edge's frame from the previous tick."""
 
+    input_counts: Dict[Tuple[str, str], int] = field(default_factory=dict)
+    """Each connected input port's element count, by (node id, port), fixed when the plan
+    was built (``rasl.graph.counts``). Ports that carry no elements (a counter) are absent."""
+
+    output_counts: Dict[Tuple[str, str], int] = field(default_factory=dict)
+    """Each output port's element count, by (node id, port), where it is known."""
+
     def is_pushed(self, edge: Edge) -> bool:
         """Whether ``edge`` starts at a pushed output (``OutputPortSpec.pushed``): its
         frames are read as last written, without pulling the source node."""
