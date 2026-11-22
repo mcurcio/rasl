@@ -170,12 +170,12 @@ class TwinkleEffectNode(BaseNode):
         assert self._phase_offsets is not None
         assert self._speed_multipliers is not None
 
-        # Calculate current phase for each pixel using scheduler time
-        t = tick.t
-        base_phase = t * self._frequency_hz
+        # Phase is computed in float64 and cast after the modulo: tick.t grows for as long as
+        # the process runs, and a float32 product loses the fraction after about a day.
+        base_phase = float(tick.t) * self._frequency_hz
         pixel_phases = (
-            base_phase * self._speed_multipliers + self._phase_offsets
-        ) % 1.0
+            (base_phase * self._speed_multipliers.astype(np.float64) + self._phase_offsets) % 1.0
+        ).astype(np.float32)
 
         # Generate envelope [0, 1]
         envelope = attack_decay_wave(pixel_phases, self._attack_ratio)

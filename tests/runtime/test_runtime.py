@@ -616,6 +616,7 @@ class _ticking:
         return _Ticker(runtime, tg)
 
     async def __aexit__(self, *exc) -> None:
+        self.runtime.scheduler.stop()
         await self.runtime._host.stop_all(self.runtime.plan)
         self._tg.cancel_scope.cancel()
         await self._tg.__aexit__(*exc)

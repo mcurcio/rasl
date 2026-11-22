@@ -434,3 +434,38 @@ class TestWaveformNodeConfig:
             duty=0.3,
         )
         assert config.duty == 0.3
+
+
+# ─────────────────────────────────────────────────────────────────────
+# TwinkleEffect
+# ─────────────────────────────────────────────────────────────────────
+
+
+async def _twinkle_envelope(t: float) -> float:
+    """The brightness TwinkleEffect gives one white pixel at scheduler time ``t`` seconds."""
+    from rasl.color import RgbColorPayload
+    from rasl.graph.node import TickContext
+    from rasl.nodes.effects.twinkle import TwinkleEffectNode
+    from rasl.signal import Frame
+
+    node = TwinkleEffectNode(
+        TwinkleEffectNode.Config(id="tw", frequency_hz=1.0, min_speed=3.0, max_speed=3.0)
+    )
+    white = Frame(topic="t", timestamp=0.0, payload=RgbColorPayload(np.ones((1, 3), dtype=np.float32)))
+    node.inputs.input._write(white)
+    await node.pull(TickContext(tick=0, t=t, dt=0.0, wall_time=t))
+    return float(np.asarray(node.outputs.out._publish().payload.data)[0, 0])
+
+
+@pytest.mark.parametrize("days", [1, 7, 30])
+async def test_twinkle_is_the_same_after_long_uptime(days: int) -> None:
+    """Eight consecutive 60 fps frames are the ones the runtime gave at its start.
+
+    A day is a whole number of 1/3 s cycles, so the envelope repeats exactly. In float32 the
+    phase at t = 7 days moved in steps of 0.25 and 0.5 (rasl-pd0.29).
+    """
+    offsets = [i / 60.0 for i in range(8)]
+    at_start = [await _twinkle_envelope(x) for x in offsets]
+    later = [await _twinkle_envelope(days * 86_400.0 + x) for x in offsets]
+    np.testing.assert_allclose(later, at_start, atol=1e-4)
+    assert len(set(np.round(later, 3))) == 8  # each frame moves

@@ -8,23 +8,25 @@ The cron expression supports a dynamic number of fields (1-5):
 
 Any missing trailing fields are treated as "*" (don't care).
 
-Field grammar (minimal):
-- "*"
-- "*/n"
-- "a"
-- "a-b"
-- "a-b/n"
-- "a,b,c"
+Field grammar:
+- "*"        every value
+- "*/n"      every n-th value, counted from the field's lowest
+- "a"        one value
+- "a-b"      a range, both ends included
+- "a-b/n"    every n-th value of a range, counted from a
+- "a/n"      every n-th value from a to the field's highest
+- "a,b-c"    a list of any of the above
 
-Day-of-week accepts 0-7 where 0 and 7 both mean Sunday.
+Day-of-week runs 0-6 from Sunday, and 7 is Sunday too, so "*/2" is Sunday, Tuesday,
+Thursday and Saturday, and "0-5" is Sunday to Friday. Every field must match: a day of
+month and a day of week given together are both required (cron itself takes either).
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 from pydantic import Field
@@ -33,10 +35,7 @@ from rasl.graph.node import BaseNode, SourceNodeConfig, TickContext, node
 from rasl.graph.ports import OutputPortSpec, PortGroup
 from rasl.signal import BoolPayload, Frame
 
-
-@dataclass(frozen=True, slots=True)
-class _CronField:
-    match: Callable[[int], bool]
+_SUNDAY_AS_SEVEN = 7
 
 
 def _parse_int(token: str) -> int:
@@ -46,83 +45,63 @@ def _parse_int(token: str) -> int:
         raise ValueError(f"Invalid cron field integer: {token!r}") from e
 
 
-def _build_part_matcher(part: str, *, min_v: int, max_v: int, normalize: Callable[[int], int]) -> Callable[[int], bool]:
-    part = part.strip()
-    if not part or part == "*":
-        return lambda _v: True
-
+def _expand_part(part: str, *, min_v: int, max_v: int) -> set[int]:
+    """The values one comma-separated part of a field names, each within [min_v, max_v]."""
     step = 1
-    if "/" in part:
-        base, step_s = part.split("/", 1)
+    stepped = "/" in part
+    if stepped:
+        part, step_s = part.split("/", 1)
         if not step_s:
-            raise ValueError(f"Invalid cron step: {part!r}")
+            raise ValueError(f"Invalid cron step: {part + '/'!r}")
         step = _parse_int(step_s)
         if step <= 0:
             raise ValueError(f"Cron step must be > 0, got {step}")
-        part = base or "*"
+        part = part or "*"
 
     if part == "*":
-        start = min_v
-        end = max_v
+        start, end = min_v, max_v
     elif "-" in part:
         start_s, end_s = part.split("-", 1)
-        if start_s == "":
-            start = min_v
-        else:
-            start = _parse_int(start_s)
-        if end_s == "":
-            end = max_v
-        else:
-            end = _parse_int(end_s)
+        start = _parse_int(start_s) if start_s else min_v
+        end = _parse_int(end_s) if end_s else max_v
     else:
-        value = normalize(_parse_int(part))
-        if value < min_v or value > max_v:
-            raise ValueError(f"Cron value {value} out of range [{min_v},{max_v}]")
-        return lambda v: normalize(v) == value
-
-    start = normalize(start)
-    end = normalize(end)
+        start = _parse_int(part)
+        end = max_v if stepped else start  # "a/n" runs from a to the field's highest value
 
     if start < min_v or start > max_v or end < min_v or end > max_v:
-        raise ValueError(f"Cron range {start}-{end} out of range [{min_v},{max_v}]")
+        shown = f"range {start}-{end}" if "-" in part else f"value {start}"
+        raise ValueError(f"Cron {shown} out of range [{min_v},{max_v}]")
     if end < start:
         raise ValueError(f"Cron range end < start: {start}-{end}")
-
-    def _matches(v: int) -> bool:
-        vv = normalize(v)
-        if vv < start or vv > end:
-            return False
-        return ((vv - start) % step) == 0
-
-    return _matches
+    return set(range(start, end + 1, step))
 
 
-def _build_field_matcher(token: str, *, min_v: int, max_v: int, normalize: Callable[[int], int]) -> _CronField:
-    token = token.strip()
-    if token == "" or token == "*":
-        return _CronField(match=lambda _v: True)
+def expand_field(token: str, *, min_v: int, max_v: int) -> frozenset[int]:
+    """Expand one cron field to the set of integers it matches.
 
+    ``token`` is a comma-separated list of ``*``, ``a``, ``a-b``, each optionally followed by
+    ``/n``; an empty token means ``*``. Every value must lie in ``[min_v, max_v]``.
+
+    Raises:
+        ValueError: for a value that is not an integer or is out of range, a range whose end
+            is below its start, or a step that is not positive.
+    """
     parts = [p.strip() for p in token.split(",") if p.strip()]
     if not parts:
-        return _CronField(match=lambda _v: True)
-
-    part_matchers = [
-        _build_part_matcher(p, min_v=min_v, max_v=max_v, normalize=normalize) for p in parts
-    ]
-
-    def _match(v: int) -> bool:
-        return any(m(v) for m in part_matchers)
-
-    return _CronField(match=_match)
+        return frozenset(range(min_v, max_v + 1))
+    values: set[int] = set()
+    for part in parts:
+        values |= _expand_part(part, min_v=min_v, max_v=max_v)
+    return frozenset(values)
 
 
-def _normalize_identity(v: int) -> int:
-    return v
+def expand_day_of_week(token: str) -> frozenset[int]:
+    """Expand a day-of-week field to a set of 0 (Sunday) to 6 (Saturday); 7 is read as Sunday.
 
-
-def _normalize_dow(v: int) -> int:
-    # Support 0-7 where 0 and 7 are Sunday.
-    return 7 if v == 0 else v
+    Raises:
+        ValueError: as :func:`expand_field`, for values outside 0-7.
+    """
+    return frozenset(v % _SUNDAY_AS_SEVEN for v in expand_field(token, min_v=0, max_v=_SUNDAY_AS_SEVEN))
 
 
 def _coerce_schedule(value: str | list[str]) -> list[str]:
@@ -176,19 +155,25 @@ class CronNode(BaseNode):
 
     outputs = PortGroup.outputs(out=OutputPortSpec(BoolPayload, count=1))
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, *, clock: Callable[[], datetime] | None = None) -> None:
+        """Expand the schedule's fields.
+
+        ``clock`` returns the local time the schedule is compared with; the default is
+        ``datetime.now``. Tests pass their own.
+
+        Raises:
+            ValueError: for a schedule field that is not valid (see :func:`expand_field`).
+        """
         super().__init__(config)
         self._topic = f"cron.{self.id}"
-        fields = _coerce_schedule(config.schedule)
+        self._clock = clock if clock is not None else datetime.now
+        minute_s, hour_s, dom_s, month_s, dow_s = _coerce_schedule(config.schedule)
 
-        minute_s, hour_s, dom_s, month_s, dow_s = fields
-
-        # Compile field matchers once.
-        self._minute = _build_field_matcher(minute_s, min_v=0, max_v=59, normalize=_normalize_identity)
-        self._hour = _build_field_matcher(hour_s, min_v=0, max_v=23, normalize=_normalize_identity)
-        self._dom = _build_field_matcher(dom_s, min_v=1, max_v=31, normalize=_normalize_identity)
-        self._month = _build_field_matcher(month_s, min_v=1, max_v=12, normalize=_normalize_identity)
-        self._dow = _build_field_matcher(dow_s, min_v=1, max_v=7, normalize=_normalize_dow)
+        self._minutes = expand_field(minute_s, min_v=0, max_v=59)
+        self._hours = expand_field(hour_s, min_v=0, max_v=23)
+        self._days_of_month = expand_field(dom_s, min_v=1, max_v=31)
+        self._months = expand_field(month_s, min_v=1, max_v=12)
+        self._days_of_week = expand_day_of_week(dow_s)
 
         # Output buffer (1x1)
         self._buf = np.zeros((1, 1), dtype=np.bool_)
@@ -196,24 +181,16 @@ class CronNode(BaseNode):
     async def pull(self, tick: TickContext) -> None:
         """Write a 1x1 BoolPayload to ``out``: True when the current minute matches the schedule.
 
-        The schedule is compared with the system's local time (``datetime.now()``), not the
-        tick's; the frame's timestamp is the tick's wall time.
+        The schedule is compared with the node's clock (the system's local time unless one was
+        passed in), not the tick's; the frame's timestamp is the tick's wall time.
         """
-        now = datetime.now()
-
-        minute = now.minute
-        hour = now.hour
-        dom = now.day
-        month = now.month
-        # ISO weekday: Monday=1 .. Sunday=7. This aligns with our dow normalization.
-        dow = now.isoweekday()
-
+        now = self._clock()
         matched = (
-            self._minute.match(minute)
-            and self._hour.match(hour)
-            and self._dom.match(dom)
-            and self._month.match(month)
-            and self._dow.match(dow)
+            now.minute in self._minutes
+            and now.hour in self._hours
+            and now.day in self._days_of_month
+            and now.month in self._months
+            and now.isoweekday() % _SUNDAY_AS_SEVEN in self._days_of_week
         )
 
         self._buf[0, 0] = matched

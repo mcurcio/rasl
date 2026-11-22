@@ -69,14 +69,15 @@ def toposort_with_cycles(
 ) -> Tuple[Tuple[str, ...], List[List[str]]]:
     """Compute execution order, handling cycles gracefully.
 
-    Uses Kahn's algorithm but handles cycles by breaking them
-    arbitrarily when no zero-indegree nodes remain.
+    Uses Kahn's algorithm; when no zero-indegree node remains, a cycle is broken at
+    its first remaining node in the order of ``nodes``.
 
     Returns:
         Tuple of (execution_order, cycles) where cycles is a list
         of detected cycles (each cycle is a list of node IDs).
     """
     cycles = find_cycles(nodes, edges)
+    cyclic = {node_id for cycle in cycles for node_id in cycle}
 
     indegree: Dict[str, int] = {node_id: 0 for node_id in nodes}
     adjacency: Dict[str, List[str]] = {node_id: [] for node_id in nodes}
@@ -92,8 +93,12 @@ def toposort_with_cycles(
         if queue:
             node = queue.pop(0)
         else:
-            # Cycle detected - pick an arbitrary remaining node
-            node = next(iter(remaining))
+            # Every remaining node is in or behind a cycle: break it at the first node of a
+            # cycle in the order given, so the same graph gets the same order in every process
+            node = next(
+                (n for n in nodes if n in remaining and n in cyclic),
+                next(n for n in nodes if n in remaining),
+            )
 
         if node not in remaining:
             continue
