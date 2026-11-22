@@ -55,7 +55,9 @@ class SineSourceNode(BaseNode):
         self._config = config
         self._channels = config.output_channels
         # The element count is fixed by config (rasl-00l)
-        self.outputs = PortGroup.outputs(dmx=OutputPortSpec(MatrixPayload, count=config.output_channels))
+        self.outputs = PortGroup.outputs(
+            dmx=OutputPortSpec(MatrixPayload, count=config.output_channels, components=1)
+        )
         self._frequency_hz = config.frequency_hz
         self._amplitude = config.amplitude
         self._offset = config.offset

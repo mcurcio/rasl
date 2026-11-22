@@ -9,8 +9,8 @@ comes from, in order:
 - the input its spec names in ``count_of`` or ``same_as`` (a node that keeps the number
   of elements);
 - the node's ``output_counts(inputs)`` hook, given each input's ``InputSize`` (a node
-  whose count is computed, such as one that regroups values), returning counts by output
-  port name.
+  whose count is computed, such as one that regroups values), returning by output port
+  name a count, or an ``InputSize`` when it also knows the output's components.
 
 An input's count is the furthest element its connections write: a target slice's end,
 ``start + repeat_until``, or ``start`` plus what the source supplies (its slice of the
@@ -179,17 +179,21 @@ class CountResolver:
         """
         # Repeated until nothing changes: a cycle's order and its back-edge need not agree,
         # so one pass can meet a node before what feeds it is counted
+        # A node's hook may see partial counts in an early pass (a back-edge not counted
+        # yet), so its errors count only in a last pass over the settled counts
         for _ in range(len(self._order) + 1):
-            before = (dict(self.inputs), dict(self.outputs))
+            before = (dict(self.inputs), dict(self.outputs), dict(self._out_components))
             for node_id in self._order:
-                self._resolve_node(node_id)
-            if (self.inputs, self.outputs) == before:
+                self._resolve_node(node_id, final=False)
+            if (self.inputs, self.outputs, self._out_components) == before:
                 break
+        for node_id in self._order:
+            self._resolve_node(node_id, final=True)
         for node_id in self._order:
             for edge in self._incoming.get(node_id, ()):
                 self._check_edge(edge)
 
-    def _resolve_node(self, node_id: str) -> None:
+    def _resolve_node(self, node_id: str, *, final: bool) -> None:
         node = self._nodes[node_id]
         edges_by_port: Dict[str, List[Edge]] = {}
         for edge in self._incoming.get(node_id, ()):
@@ -212,21 +216,23 @@ class CountResolver:
             if forward and all((e.source, e.source_port) in self._uncounted for e in forward):
                 sizes[port.name] = InputSize(None, None)  # carries no elements (a counter)
                 continue
-            count = self._input_count(spec.fixed_count, sizing)
+            # Until every back-edge into it is counted, a port's count is unknown, not partial
+            pending = len(sizing) < len(edges)
+            count = spec.fixed_count if pending else self._input_count(spec.fixed_count, sizing)
             sizes[port.name] = InputSize(count, self._input_components(spec, edges))
             if count is not None:
                 self.inputs[(node_id, port.name)] = count
 
         hook = getattr(node, "output_counts", None)
-        computed: Mapping[str, Optional[int]] = {}
+        computed: Mapping[str, object] = {}
         if hook is not None:
             try:
                 computed = hook(sizes)
             except InputCountError as error:
-                edges = edges_by_port.get(error.port) or list(self._incoming.get(node_id, ()))
-                if not edges:
-                    raise ValueError(f"Node '{node_id}': {error}") from error
-                raise PortCountError(edges[0], str(error)) from error
+                if not final:
+                    computed = {}
+                else:
+                    self._raise_hook_error(node_id, edges_by_port, error)
 
         for port in get_outputs(node):
             spec = port.spec
@@ -235,16 +241,30 @@ class CountResolver:
                 self._uncounted.add(key)
                 continue
             follows = sizes.get(spec.count_follows) if spec.count_follows is not None else None
+            # A hook returns a count, or an InputSize when it also knows the width
+            value = computed.get(port.name)
+            hooked = value if isinstance(value, InputSize) else InputSize(value, None)  # type: ignore[arg-type]
             if spec.fixed_count is not None:
                 self.outputs[key] = spec.fixed_count
             elif follows is not None:
                 self.outputs[key] = follows.count
             else:
-                self.outputs[key] = computed.get(port.name)
+                self.outputs[key] = hooked.count
             components = spec.known_components
             if components is None and spec.same_as is not None and follows is not None:
                 components = follows.components
+            if components is None:
+                components = hooked.components
             self._out_components[key] = components
+
+    def _raise_hook_error(
+        self, node_id: str, edges_by_port: Mapping[str, List[Edge]], error: InputCountError
+    ) -> None:
+        """Raise a hook's ``InputCountError`` on a connection into the port it names."""
+        edges = edges_by_port.get(error.port) or list(self._incoming.get(node_id, ()))
+        if not edges:
+            raise ValueError(f"Node '{node_id}': {error}") from error
+        raise PortCountError(edges[0], str(error)) from error
 
     def _input_components(self, spec: object, edges: List[Edge]) -> Optional[int]:
         """Values per element of the frame a port receives, or None when unknown.
@@ -336,5 +356,4 @@ class CountResolver:
                     f"Slice [{edge.source_slice.start}:{'' if edge.source_slice.end is None else edge.source_slice.end}] "
                     f"is out of range for port {_label(edge.source, edge.source_port)}, which has "
                     f"{source_count} elements",
-                    supplied=source_count,
                 )

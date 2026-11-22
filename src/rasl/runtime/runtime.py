@@ -120,8 +120,9 @@ class Runtime:
 
         # A plan update waiting for the next tick boundary (request_update)
         self._pending_update: Optional[Tuple[PlanUpdate, anyio.Event]] = None
-        # Nodes a plan update could not start, and when to try each again
+        # Nodes a plan update could not start, and when to try each again (on this clock)
         self._start_retries: Dict[str, _StartRetry] = {}
+        self._clock = time.monotonic
 
         self._rate_drivers: Dict[str, float] = {}
         self._undriven: List[str] = []
@@ -262,7 +263,7 @@ class Runtime:
                 retry.due_at = 0.0  # new settings: try again at the next tick
 
         self._host.bind_ports(self._plan)
-        now = time.monotonic()
+        now = self._clock()
         for node_id in self._plan.topological_order:
             if node_id not in self._host.runtimes:
                 if not await self._try_start(node_id, first=True):
@@ -301,7 +302,7 @@ class Runtime:
 
     async def _retry_starts(self) -> None:
         """At a tick boundary: try again to start each node whose retry is due."""
-        now = time.monotonic()
+        now = self._clock()
         for node_id, retry in list(self._start_retries.items()):
             if now < retry.due_at:
                 continue
@@ -318,6 +319,19 @@ class Runtime:
         InputPortProgram.enable_profiling(enabled)
         if enabled:
             logger.info("profiling_enabled")
+
+    async def _idle(self) -> None:
+        """With no rate driver, nothing ticks: wait for a plan update, and retry the
+        starts that fall due meanwhile (they otherwise run at tick boundaries)."""
+        while not self._update_pending():
+            if not self._start_retries:
+                await self.scheduler.idle(self._update_pending)
+                return
+            due = min(retry.due_at for retry in self._start_retries.values())
+            with anyio.move_on_after(max(0.0, due - self._clock())):
+                await self.scheduler.idle(self._update_pending)
+                return
+            await self._retry_starts()
 
     def _update_pending(self) -> bool:
         return self._pending_update is not None
@@ -359,8 +373,8 @@ class Runtime:
                 while True:
                     self._warn_undriven()
                     if not self._rate_drivers:
-                        # Nothing to pull: wait for a plan update
-                        await self.scheduler.idle(self._update_pending)
+                        # Nothing to pull: wait for a plan update, retrying starts meanwhile
+                        await self._idle()
                     else:
                         await self.scheduler.run(
                             self._rate_drivers, self._tick, self._update_pending, resume=resume

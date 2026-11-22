@@ -238,7 +238,7 @@ class TestConnectErrorsArePlaced:
             }
         }
         """
-        with pytest.raises(ConfigError, match=r"Node 'sink': repeat 3 needs the length of hue\[2:\]"):
+        with pytest.raises(ConfigError, match=r"Node 'sink': Element count unknown: hue\.output"):
             parse_config(config)
 
     def test_a_repeat_of_a_source_with_a_count_from_config_loads(self):

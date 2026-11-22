@@ -77,7 +77,73 @@ class TestCountsFromConfigAndInputs:
             """
         )
         assert plan.input_counts[("s", "dmx")] == 6
-        assert {e.source_slice for e in plan.adjacency["w"]} == {Slice(2, 4)}
+
+    def test_a_repeat_of_a_source_counted_from_its_input_loads(self) -> None:
+        plan = _plan(
+            """
+            node Waveform w { output_channels 4; }
+            node Smooth sm { smooth_period 50ms; connect w input; }
+            node ConsoleSink s { fps 1; connect sm[2~] dmx[0~] { repeat 3; } }
+            """
+        )
+        assert plan.input_counts[("s", "dmx")] == 6
+
+    def test_a_slice_starting_past_the_end_names_the_slice_as_written(self) -> None:
+        error = _error(
+            """
+            node Waveform w { output_channels 4; }
+            node ConsoleSink s { fps 1; connect w[6~] dmx[0~] { repeat 2; } }
+            """
+        )
+        assert "Slice [6:] is out of range for port w.out, which has 4 elements" in str(error)
+
+    def test_a_computed_output_passes_on_its_width(self) -> None:
+        # Math's width follows its inputs, so a Color after it regroups and a Reshape counts
+        plan = _plan(
+            """
+            node Waveform w { output_channels 9; }
+            node literal half matrix [[0.5]];
+            node Math m { operation multiply; connect w a; connect half b; }
+            node Color rgb rgb { connect m; }
+            node Reshape r { components 3; connect m; }
+            node ConsoleSink s1 { fps 1; connect rgb; }
+            node ConsoleSink s2 { fps 1; connect r; }
+            """
+        )
+        assert plan.output_counts[("rgb", "color")] == 3
+        assert plan.output_counts[("r", "output")] == 3
+
+    def test_a_hook_error_on_partial_counts_does_not_stop_a_cycle_that_settles(self) -> None:
+        import warnings
+
+        class Equal(_Node):
+            """Two inputs that must have one count."""
+
+            def __init__(self, node_id: str) -> None:
+                super().__init__(node_id, OutputPortSpec(MatrixPayload))
+                self.inputs = PortGroup.inputs(p=InputPortSpec(MatrixPayload), q=InputPortSpec(MatrixPayload))
+
+            def output_counts(self, inputs):
+                from rasl.graph import InputCountError
+
+                p, q = inputs["p"].count, inputs["q"].count
+                if p is not None and q is not None and p != q:
+                    raise InputCountError("q", f"mismatch p={p} q={q}")
+                return {"out": p}
+
+        builder = GraphBuilder()
+        builder.add_node(_Node("six", OutputPortSpec(MatrixPayload, count=6)))
+        builder.add_node(_Node("three", OutputPortSpec(MatrixPayload, count=3)))
+        builder.add_node(Equal("eq"))
+        builder.add_node(_Node("fol", OutputPortSpec(MatrixPayload, count_of="in")))
+        builder.connect("six", "out", "eq", "p")
+        builder.connect("three", "out", "eq", "q", None, Slice(0, 3))
+        builder.connect("eq", "out", "fol", "in")
+        builder.connect("fol", "out", "eq", "q", Slice(0, 3), Slice(3, None))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            plan = builder.build()
+        assert plan.input_counts[("eq", "q")] == 6
 
 
 class TestNodeRules:

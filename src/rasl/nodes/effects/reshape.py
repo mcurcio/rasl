@@ -7,7 +7,7 @@ from collections.abc import Mapping
 import numpy as np
 from pydantic import Field
 
-from rasl.graph import InputSize
+from rasl.graph import InputCountError, InputSize
 from rasl.graph.node import BaseNode, TickContext, TransformNodeConfig, node
 from rasl.graph.ports import InputPortSpec, OutputPortSpec, PortGroup
 from rasl.signal import MatrixPayload
@@ -56,10 +56,20 @@ class ReshapeNode(BaseNode):
 
     def output_counts(self, inputs: Mapping[str, InputSize]) -> dict[str, int | None]:
         """The output's element count, when the plan is built: the input's values
-        (elements times components) divided by ``components``; None when either is unknown."""
+        (elements times components) divided by ``components``; None when nothing is connected.
+
+        Raises:
+            InputCountError: On ``input``, when its count is known but its width is not.
+        """
         size = inputs["input"]
-        if size.count is None or size.components is None:
+        if size.count is None:
             return {"output": None}
+        if size.components is None:
+            raise InputCountError(
+                "input",
+                f"Reshape needs the width of its input to count its output: {size.count} elements "
+                f"of an unknown number of values each",
+            )
         return {"output": size.count * size.components // self._components}
 
     async def pull(self, tick: TickContext) -> None:

@@ -50,7 +50,9 @@ class SeededRandomNode(BaseNode):
         super().__init__(config)
         self._channels = config.output_channels
         # The element count is fixed by config (rasl-00l)
-        self.outputs = PortGroup.outputs(out=OutputPortSpec(MatrixPayload, count=config.output_channels))
+        self.outputs = PortGroup.outputs(
+            out=OutputPortSpec(MatrixPayload, count=config.output_channels, components=1)
+        )
         self._topic = config.topic or f"seeded_random.{self.id}"
 
         rng = np.random.Generator(np.random.PCG64(config.seed))

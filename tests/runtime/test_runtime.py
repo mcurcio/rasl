@@ -608,6 +608,7 @@ class _ticking:
         self._tg = anyio.create_task_group()
         tg = await self._tg.__aenter__()
         runtime = self.runtime
+        runtime.scheduler.start()
         runtime._host.attach(tg)
         runtime._host.bind_ports(runtime.plan)
         for node_id in runtime.plan.topological_order:
@@ -841,8 +842,7 @@ class TestStartRetries:
 
         assert [start_retry_delay(n) for n in range(1, 9)] == [1, 2, 4, 8, 16, 32, 60, 60]
 
-    async def test_a_node_whose_start_fails_is_not_pulled_and_starts_on_a_later_retry(self, monkeypatch) -> None:
-        import rasl.runtime.runtime as runtime_module
+    async def test_a_node_whose_start_fails_is_not_pulled_and_starts_on_a_later_retry(self) -> None:
         from rasl.runtime import PlanUpdate
 
         class Flaky(BaseNode):
@@ -868,10 +868,10 @@ class TestStartRetries:
                 self.outputs.out.write(Frame(topic="f", timestamp=0.0, payload=MatrixPayload(_matrix(7.0))))
 
         clock = [1000.0]
-        monkeypatch.setattr(runtime_module.time, "monotonic", lambda: clock[0])
 
         reader = Reader()
         runtime = Runtime(_plan([reader]))
+        runtime._clock = lambda: clock[0]  # the runtime's clock only, not the event loop's
         async with _ticking(runtime) as ticker:
             await ticker.tick()
             flaky = Flaky(failures=2)
@@ -894,7 +894,7 @@ class TestStartRetries:
             assert flaky.starts == 3 and runtime.unstarted == []
             assert flaky.pulls == 1 and reader.read[-1] == [7.0, 7.0]
 
-    async def test_a_later_update_that_removes_the_node_stops_retrying_it(self, monkeypatch) -> None:
+    async def test_a_later_update_that_removes_the_node_stops_retrying_it(self) -> None:
         from rasl.runtime import PlanUpdate
 
         class Broken(BaseNode):
@@ -923,3 +923,37 @@ class TestStartRetries:
             runtime._derive_from_plan()
             await runtime._swap_nodes(PlanUpdate(plan=without, tree=None, removed=("broken",)), with_broken)
             assert runtime.unstarted == [] and runtime._start_retries == {}
+
+    async def test_with_nothing_ticking_starts_are_still_retried(self) -> None:
+        from rasl.runtime import PlanUpdate
+
+        class LateSource(BaseNode):
+            """A push source whose first start fails."""
+
+            def __init__(self) -> None:
+                self.id = "late"
+                self.inputs = PortGroup.inputs()
+                self.outputs = PortGroup.outputs()
+                self.starts = 0
+
+            async def start(self, ctx) -> None:
+                self.starts += 1
+                if self.starts == 1:
+                    raise OSError("address in use")
+
+        late = LateSource()
+        runtime = Runtime(_plan([]))
+        async with _ticking(runtime):
+            new_plan = _plan([late])
+            runtime._plan = new_plan
+            runtime._derive_from_plan()
+            await runtime._swap_nodes(PlanUpdate(plan=new_plan, tree=None, added=("late",)), _plan([]))
+            assert runtime.unstarted == ["late"] and not runtime.rate_drivers
+            for retry in runtime._start_retries.values():
+                retry.due_at = runtime._clock()  # due now
+            with anyio.fail_after(2):
+                while runtime.unstarted:
+                    with anyio.move_on_after(0.05):
+                        await runtime._idle()
+        assert late.starts == 2
+
