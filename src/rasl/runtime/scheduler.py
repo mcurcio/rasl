@@ -15,6 +15,7 @@ import anyio
 import structlog
 
 from rasl.graph.node import TickContext
+from rasl.runtime.collector import IdleCollector
 from rasl.runtime.diagnostics import TimingStats
 from rasl.runtime.timing import DueTimes
 
@@ -53,11 +54,15 @@ class Scheduler:
         self.last_tick_at: Optional[float] = None
         # Set by wake() to end a sleep early (made in start(), inside the loop)
         self._wake: Optional[anyio.Event] = None
-        # GC optimization: automatic GC is off while ticks run
-        self._gc_disabled = False
+        # Automatic garbage collection is off while ticks run; this collects between them
+        self._collector = IdleCollector()
 
     def start(self) -> None:
-        """Start counting time. Call from inside the event loop."""
+        """Start counting time. Call from inside the event loop, and ``stop()`` afterwards.
+
+        Automatic garbage collection is off from here until ``stop()``: see ``IdleCollector``.
+        """
+        self._collector.begin()
         self.t0 = time.monotonic()
         self.tick_count = 0
         self.run_started_at = 0.0
@@ -66,9 +71,7 @@ class Scheduler:
 
     def stop(self) -> None:
         """Undo what running changed outside this object."""
-        if self._gc_disabled:
-            gc.enable()
-            self._gc_disabled = False
+        self._collector.end()
 
     def wake(self) -> None:
         """End the current sleep, so the caller's ``should_stop`` is looked at now."""
@@ -82,6 +85,7 @@ class Scheduler:
     async def idle(self, should_stop: Callable[[], bool]) -> None:
         """Wait for ``wake()``: with no rate driver there is nothing to time."""
         assert self._wake is not None
+        self._collector.suspend()  # no ticks to protect, and no gaps between them to collect in
         if not should_stop():
             await self._wake.wait()
 
@@ -96,11 +100,8 @@ class Scheduler:
         if now >= target_time:
             return False
 
-        # Run GC during sleep if we have enough time budget (>25ms remaining).
-        # Use 25ms threshold to ensure GC completes before the next tick even
-        # if it takes 15-20ms.
-        if target_time - now > 0.025:
-            gc.collect(0)  # Only gen0 for speed
+        # The gap before the tick is where garbage is collected, when it is long enough
+        if self._collector.collect_if_time(target_time - now):
             now = time.monotonic()
 
         while now < target_time and not should_stop():
@@ -128,6 +129,7 @@ class Scheduler:
                 first due time not yet past, still counted from ``t0``, so a
                 sink that kept its rate keeps its timing.
         """
+        self._collector.resume()
         self.run_started_at = time.monotonic()
         due = DueTimes(rates, self.t0, self.run_started_at if resume else None)
 
@@ -180,11 +182,6 @@ class Scheduler:
                     if len(self._timing.latency_samples) > 1
                     else None,
                 )
-
-            # Disable GC during tick execution to prevent jitter
-            if not self._gc_disabled:
-                gc.disable()
-                self._gc_disabled = True
 
             # The tick is the moment it was due, not the moment it was reached:
             # nodes see evenly spaced times however the wake-up jitters.

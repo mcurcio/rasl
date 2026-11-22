@@ -132,6 +132,12 @@ node literal gains matrix [[1.0, 0.9, 0.8]];
 and day of week; missing trailing fields mean `*`. This type answers only to `cron`, not to its class
 name.
 
+A field is `*`, a value (`5`), a range (`1-5`) or a comma-separated list of those (`0,15,30-40`). `/n`
+after any of them takes every n-th value: `*/15` counts from the field's lowest value, `10-40/10` from 10,
+and `5/15` from 5 to the field's highest. Day of week runs 0 to 6 from Sunday, and 7 is Sunday too, so
+`*/2` is Sunday, Tuesday, Thursday and Saturday. Every field must match: when a day of month and a day of
+week are both given, both are required (cron itself takes either).
+
 | Setting | Type | Default | Meaning |
 |---|---|---|---|
 | `schedule` | string or list of strings | `*` | The cron fields, on the node's line or as one string in the block. |
