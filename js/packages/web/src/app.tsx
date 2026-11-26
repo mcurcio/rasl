@@ -2,8 +2,8 @@
 // Edits queue (drawn dashed until saved), are checked against the server as they are made,
 // and are written to the files only on Save; the watcher then reloads the running graph.
 import { Banner, CommandPalette, type PalettePoint } from "@mcurcio/patchbay/composites";
-import { ariaKeyShortcuts, keyLabel, type Shortcut, useShortcuts } from "@mcurcio/patchbay/hooks";
-import { Button, Pill, Splitter } from "@mcurcio/patchbay/primitives";
+import { ariaKeyShortcuts, keyLabel, type Shortcut, useShortcuts, useTheme } from "@mcurcio/patchbay/hooks";
+import { Button, Pill, Splitter, ThemeSwitch } from "@mcurcio/patchbay/primitives";
 import {
   Background,
   type Connection,
@@ -40,6 +40,7 @@ import { NodeCard, type NodeCardData } from "./components/node-card";
 import { PendingPanel } from "./components/pending-panel";
 import { layout, type Positions } from "./layout";
 import { typeCommands } from "./palette";
+import { THEME_KEY } from "./theme";
 import { accepts, connectEdit, queue, stage, type StagedGraph, type ViewEdge, type ViewNode } from "./model";
 
 const NODE_TYPES = { card: NodeCard };
@@ -154,6 +155,7 @@ function Editor(): ReactElement {
     });
   }, []);
   const [saved, setSaved] = useState<readonly string[]>([]);
+  const [theme, setTheme] = useTheme({ key: THEME_KEY });
   const flow = useReactFlow();
   const versionRef = useRef<string | null>(null);
   const editsRef = useRef(edits);
@@ -448,6 +450,7 @@ function Editor(): ReactElement {
             Add node ({keyLabel(ADD_KEYS)})
           </Button>
         ) : null}
+        <ThemeSwitch choice={theme} onChoose={setTheme} />
         <Pill
           tone={connected ? "ok" : "err"}
           label={connected ? "live" : "offline"}

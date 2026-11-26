@@ -262,3 +262,23 @@ test("the editor's keys: Mod+K adds a node, Mod+Z drops the last change, a text 
   await page.keyboard.press("ControlOrMeta+z");
   await expect(page.getByRole("list", { name: "Queued changes" })).toHaveCount(0);
 });
+
+test("the theme switch cycles system, light and dark, and the choice is kept across a reload", async ({ page }) => {
+  await open(page);
+  const html = page.locator("html");
+  const theme = page.getByRole("button", { name: /^Theme:/ });
+  await expect(theme).toHaveAccessibleName("Theme: system");
+  await expect(html).not.toHaveAttribute("data-theme");
+  await theme.click();
+  await expect(theme).toHaveAccessibleName("Theme: light");
+  await expect(html).toHaveAttribute("data-theme", "light");
+  await theme.click();
+  await expect(theme).toHaveAccessibleName("Theme: dark");
+  await expect(html).toHaveAttribute("data-theme", "dark");
+
+  await page.reload();
+  await expect(html).toHaveAttribute("data-theme", "dark");
+  await expect(theme).toHaveAccessibleName("Theme: dark");
+  await theme.click();
+  await expect(html).not.toHaveAttribute("data-theme");
+});

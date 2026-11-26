@@ -4,6 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>rasl</title>
+    <!-- patchbay's themeScript(THEME_KEY) from src/theme.ts: applies a kept light or dark choice before the first
+         paint; src/theme.test.ts holds it equal to what patchbay generates. -->
+    <script>try{var c=JSON.parse(localStorage.getItem("rasl-web/1/theme"));if(c==="light"||c==="dark")document.documentElement.setAttribute("data-theme",c)}catch(e){}</script>
   </head>
   <body>
     <div id="root"></div>
