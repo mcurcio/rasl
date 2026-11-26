@@ -13,7 +13,7 @@
     "e2e": "playwright test"
   },
   "dependencies": {
-    "@mcurcio/patchbay": "0.7.0",
+    "@mcurcio/patchbay": "0.8.0",
     "@xyflow/react": "12.12.1",
     "elkjs": "0.9.3",
     "graphql-ws": "5.16.0",
