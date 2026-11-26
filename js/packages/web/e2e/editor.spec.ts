@@ -200,9 +200,9 @@ test("removing a node removes its connections, and the running graph drops it", 
   await expect.poll(() => runningNodes(page)).not.toContain("console");
 });
 
-test("the side panel is resized from its splitter", async ({ page }) => {
+test("the side panel is resized from its splitter, hidden from the top bar, and both are kept", async ({ page }) => {
   await open(page);
-  const side = page.locator("aside.side");
+  const side = page.getByRole("complementary", { name: "Side panel" });
   const before = (await side.boundingBox())?.width ?? 0;
   const splitter = page.getByRole("separator", { name: "Resize the side panel" });
   await splitter.focus();
@@ -211,6 +211,22 @@ test("the side panel is resized from its splitter", async ({ page }) => {
   await page.keyboard.press("ArrowLeft");
   await expect.poll(async () => (await side.boundingBox())?.width ?? 0).toBeGreaterThan(before + 20);
   await page.keyboard.press("Home");
+  await expect(splitter).toHaveAttribute("aria-valuenow", "280");
+  // Its width is kept across a reload
+  await page.reload();
+  await expect(splitter).toHaveAttribute("aria-valuenow", "280");
+
+  // The top bar's button hides it, which is kept too; a selection shows it again
+  const toggle = page.getByRole("button", { name: "Side panel" });
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await toggle.click();
+  await expect(side).toHaveCount(0);
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await page.reload();
+  await expect(page.locator(".react-flow__node")).toHaveCount(5);
+  await expect(side).toHaveCount(0);
+  await node(page, "console").click();
+  await expect(side.getByRole("heading", { name: "ConsoleSink" })).toBeVisible();
   await expect(splitter).toHaveAttribute("aria-valuenow", "280");
 });
 
@@ -374,7 +390,7 @@ test("in a narrow window the side panel is a sheet that a selection opens, from 
 }) => {
   await page.setViewportSize({ width: 700, height: 800 });
   await open(page);
-  await expect(page.locator("aside.side")).toHaveCount(0);
+  await expect(page.getByRole("complementary", { name: "Side panel" })).toHaveCount(0);
   const sheet = page.getByRole("dialog", { name: "Side panel" });
   await expect(sheet).toHaveCount(0);
 

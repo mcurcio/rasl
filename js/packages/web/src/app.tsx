@@ -7,6 +7,7 @@ import {
   keyLabel,
   type Shortcut,
   useMediaBreakpoint,
+  usePersistentState,
   useShortcuts,
   useTheme,
 } from "@mcurcio/patchbay/hooks";
@@ -24,7 +25,8 @@ import {
   type WireEdge,
   type WireTone,
 } from "@mcurcio/patchbay/graph";
-import { Button, Pill, Sheet, Splitter, ThemeSwitch } from "@mcurcio/patchbay/primitives";
+import { Button, Pill, ThemeSwitch } from "@mcurcio/patchbay/primitives";
+import { AppShell, clampInspectorWidth } from "@mcurcio/patchbay/shell";
 import {
   Background,
   type Connection,
@@ -80,8 +82,18 @@ const FIT: FitViewOptions = { padding: 0.12 };
 /** The key that opens the add-node palette. */
 const ADD_KEYS = "Mod+K";
 
-/** The side column's width in px: where it starts, and how far its splitter moves it. */
-const SIDE = { initial: 360, min: 280, max: 720 } as const;
+/** The side column's width in px where nothing is kept; AppShell holds it to 280-560 px. */
+const SIDE_WIDTH = 360;
+
+/** Where the side column's width and, on a wide window, whether it is shown are kept (patchbay's usePersistentState). */
+const SIDE_KEYS = { width: "rasl-web/1/side-width", open: "rasl-web/1/side-open" } as const;
+
+/** The side column's name, as AppShell's inspector region and narrow window's sheet, and its splitter's. */
+const SIDE_LABELS = { inspector: "Side panel", resizeInspector: "Resize the side panel" } as const;
+
+const keptWidth = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) ? clampInspectorWidth(value) : undefined;
+const keptOpen = (value: unknown): boolean | undefined => (typeof value === "boolean" ? value : undefined);
 
 type Selection = { readonly node?: string; readonly edge?: string };
 
@@ -131,7 +143,7 @@ function Editor(): ReactElement {
   const [previews, setPreviews] = useState<ReadonlyMap<string, ConfigNode>>(new Map());
   const [outcome, setOutcome] = useState<EditOutcome | null>(null);
   const [busy, setBusy] = useState<"check" | "save" | null>(null);
-  const [sideWidth, setSideWidth] = useState<number>(SIDE.initial);
+  const [sideWidth, setSideWidth] = usePersistentState<number>(SIDE_KEYS.width, SIDE_WIDTH, keptWidth);
   const [stale, setStale] = useState(false);
   const [metrics, setMetrics] = useState<ReadonlyMap<string, NodeMetrics>>(new Map());
   const [connected, setConnected] = useState(false);
@@ -167,13 +179,17 @@ function Editor(): ReactElement {
   }, [measured, updateNodeInternals]);
   const [saved, setSaved] = useState<readonly string[]>([]);
   const [theme, setTheme] = useTheme({ key: THEME_KEY });
-  // Below 760 px the side column is patchbay's Sheet over the canvas (from its bottom below 600 px): a selection opens
-  // it; its close button, Escape inside it or a press on the canvas close it, and so does the top bar's button
-  const breakpoint = useMediaBreakpoint();
-  const narrow = breakpoint.width !== "wide";
+  // The side column is AppShell's inspector. On a wide window it is shown beside the canvas until the top bar's button
+  // hides it, which is kept. Below 760 px AppShell draws it as a Sheet over the canvas (from its bottom below 600 px),
+  // which starts closed: a press on the canvas, its close button or Escape inside it close it. At every width a
+  // selection shows it and the top bar's button toggles it.
+  const narrow = useMediaBreakpoint().width !== "wide";
+  const [wideOpen, setWideOpen] = usePersistentState<boolean>(SIDE_KEYS.open, true, keptOpen);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const sideOpen = narrow ? sheetOpen : wideOpen;
+  const setSideOpen = narrow ? setSheetOpen : setWideOpen;
   useEffect(() => {
-    if (selection.node !== undefined || selection.edge !== undefined) setSheetOpen(true);
+    if (selection.node !== undefined || selection.edge !== undefined) setSideOpen(true);
   }, [selection]);
   const flow = useReactFlow();
   const versionRef = useRef<string | null>(null);
@@ -457,7 +473,7 @@ function Editor(): ReactElement {
 
   // The side column's content: docked beside the canvas, or in the narrow window's sheet
   const side = (
-    <>
+    <div className="side">
       <Inspector
         node={selectedNode}
         edge={selectedEdge}
@@ -500,92 +516,79 @@ function Editor(): ReactElement {
           }}
         />
       ) : null}
-    </>
+    </div>
   );
 
   return (
-    <div className="app">
-      <header className="topbar">
-        <span className="brand">rasl</span>
-        <span className="muted mono small">{graph?.path}</span>
-        <span className="spacer" />
-        {editable ? (
-          <Button aria-keyshortcuts={ariaKeyShortcuts(ADD_KEYS)} onClick={() => setDialog({ from: null, type: null })}>
-            Add node ({keyLabel(ADD_KEYS)})
-          </Button>
-        ) : null}
-        {narrow ? (
-          <Button aria-expanded={sheetOpen} onClick={() => setSheetOpen((open) => !open)}>
-            Side panel
-          </Button>
-        ) : null}
-        <ThemeSwitch choice={theme} onChoose={setTheme} />
-        <Pill
-          tone={connected ? "ok" : "err"}
-          label={connected ? "live" : "offline"}
-          title={connected ? "Receiving live updates from rasl" : "Not connected to rasl's live updates"}
-        />
-      </header>
-      {loadError || reloadError || (graph?.error && edits.length === 0) ? (
-        <div className="banners">
-          {loadError ? <Banner tone="err">{loadError}</Banner> : null}
-          {reloadError ? <Banner tone="err">The running graph did not reload: {reloadError}</Banner> : null}
-          {graph?.error && edits.length === 0 ? (
-            <Banner tone="warn">The config does not build: {graph.error.message}</Banner>
-          ) : null}
-        </div>
-      ) : null}
-      <main className="layout">
-        <section className="canvas" data-layout={staged && fittedShape === shape ? "ready" : "pending"}>
-          <ConnectHints value={hints.value}>
-            <ReactFlow
-              {...mergeFlowProps(hints.flowProps, addAt.flowProps, follow.flowProps)}
-              nodes={flowNodes}
-              edges={flowEdges}
-              nodeTypes={NODE_TYPES}
-              edgeTypes={EDGE_TYPES}
-              onConnect={onConnect}
-              onNodesChange={onNodesChange}
-              onNodeClick={(_, node) => setSelection({ node: node.id })}
-              onEdgeClick={(_, edge) => setSelection({ edge: edge.id })}
-              onPaneClick={() => {
-                setSelection({});
-                setSheetOpen(false);
-              }}
-              nodesConnectable={editable}
-              deleteKeyCode={null}
-              proOptions={{ hideAttribution: true }}
-            >
-              <Background />
-              <CanvasTools onFit={follow.fit} fitOptions={FIT} />
-            </ReactFlow>
-          </ConnectHints>
-        </section>
-        {narrow ? (
-          <Sheet
-            open={sheetOpen}
-            onClose={() => setSheetOpen(false)}
-            side={breakpoint.width === "phone" ? "bottom" : "right"}
-            title="Side panel"
-            width={sideWidth}
-          >
-            <div className="side-sheet">{side}</div>
-          </Sheet>
-        ) : (
-          <aside className="side" style={{ width: sideWidth }}>
-            <Splitter
-              orientation="vertical"
-              edge="start"
-              value={sideWidth}
-              min={SIDE.min}
-              max={SIDE.max}
-              onChange={setSideWidth}
-              label="Resize the side panel"
+    <>
+      <AppShell
+        topBar={{
+          brand: "rasl",
+          status: (
+            <Pill
+              tone={connected ? "ok" : "err"}
+              label={connected ? "live" : "offline"}
+              title={connected ? "Receiving live updates from rasl" : "Not connected to rasl's live updates"}
             />
-            {side}
-          </aside>
-        )}
-      </main>
+          ),
+          start: (
+            <>
+              {editable ? (
+                <Button
+                  aria-keyshortcuts={ariaKeyShortcuts(ADD_KEYS)}
+                  onClick={() => setDialog({ from: null, type: null })}
+                >
+                  Add node ({keyLabel(ADD_KEYS)})
+                </Button>
+              ) : null}
+              <Button aria-expanded={sideOpen} onClick={() => setSideOpen(!sideOpen)}>
+                Side panel
+              </Button>
+              <span className="path muted mono small">{graph?.path}</span>
+            </>
+          ),
+          end: <ThemeSwitch choice={theme} onChoose={setTheme} />,
+        }}
+        inspector={{ content: side, open: sideOpen, onOpen: setSideOpen, width: sideWidth, onWidth: setSideWidth }}
+        labels={SIDE_LABELS}
+      >
+        <div className="workspace">
+          {loadError || reloadError || (graph?.error && edits.length === 0) ? (
+            <div className="banners">
+              {loadError ? <Banner tone="err">{loadError}</Banner> : null}
+              {reloadError ? <Banner tone="err">The running graph did not reload: {reloadError}</Banner> : null}
+              {graph?.error && edits.length === 0 ? (
+                <Banner tone="warn">The config does not build: {graph.error.message}</Banner>
+              ) : null}
+            </div>
+          ) : null}
+          <section className="canvas" data-layout={staged && fittedShape === shape ? "ready" : "pending"}>
+            <ConnectHints value={hints.value}>
+              <ReactFlow
+                {...mergeFlowProps(hints.flowProps, addAt.flowProps, follow.flowProps)}
+                nodes={flowNodes}
+                edges={flowEdges}
+                nodeTypes={NODE_TYPES}
+                edgeTypes={EDGE_TYPES}
+                onConnect={onConnect}
+                onNodesChange={onNodesChange}
+                onNodeClick={(_, node) => setSelection({ node: node.id })}
+                onEdgeClick={(_, edge) => setSelection({ edge: edge.id })}
+                onPaneClick={() => {
+                  setSelection({});
+                  setSheetOpen(false);
+                }}
+                nodesConnectable={editable}
+                deleteKeyCode={null}
+                proOptions={{ hideAttribution: true }}
+              >
+                <Background />
+                <CanvasTools onFit={follow.fit} fitOptions={FIT} />
+              </ReactFlow>
+            </ConnectHints>
+          </section>
+        </div>
+      </AppShell>
       <CommandPalette
         open={dialog !== null && dialog.type === null && dialog.back !== true}
         onClose={() => setDialog(null)}
@@ -609,7 +612,7 @@ function Editor(): ReactElement {
           onClose={() => setDialog(null)}
         />
       ) : null}
-    </div>
+    </>
   );
 }
 
