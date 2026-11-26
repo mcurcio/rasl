@@ -1,8 +1,9 @@
 // A node on the canvas, drawn by patchbay's NodeBox: its id the title, its type the subtitle, its health from live
 // metrics a Pill, a queued change the box's change, a build error its line, and a locked node's Badge in the footer.
-// Each port is a PortRow with the editor's own handle ids (in:<name>, out:<name>), which edits and ELK's ports use.
+// Each port is a PortRow with the editor's own handle ids (in:<name>, out:<name>), which edits and ELK's ports use;
+// while a wire is dragged each row takes its hint from the editor's useConnectHints (app.tsx), through ConnectHints.
 // The line and the footer are drawn exactly when layout.ts's nodeShape() makes room for them.
-import { NodeBox, type PortHint, type PortSpec } from "@mcurcio/patchbay/graph";
+import { NodeBox, type PortSpec } from "@mcurcio/patchbay/graph";
 import { Badge, Pill, type PillTone } from "@mcurcio/patchbay/primitives";
 import type { NodeProps } from "@xyflow/react";
 import type { ReactElement } from "react";
@@ -16,8 +17,6 @@ export type NodeCardData = {
   readonly metrics: NodeMetrics | undefined;
   /** The ports a refused connection names, by handle id, with the refusal's words. */
   readonly problemPorts: ReadonlyMap<string, string>;
-  /** While a wire is dragged: for each handle on the other side, whether it takes the wire. */
-  readonly hints: ReadonlyMap<string, boolean> | null;
 };
 
 type Health = "idle" | "ok" | "degraded" | "failing";
@@ -43,16 +42,11 @@ function typeLabel(port: Port): string {
   return `${type}${width}${count}`;
 }
 
-function hint(handle: string, hints: ReadonlyMap<string, boolean> | null): PortHint | undefined {
-  const takes = hints?.get(handle);
-  return takes === undefined ? undefined : takes ? "ok" : "no";
-}
-
 export function NodeCard({ data, selected }: NodeProps & { data: NodeCardData }): ReactElement {
-  const { node, metrics, problemPorts, hints } = data;
+  const { node, metrics, problemPorts } = data;
   const port = (side: "in" | "out", p: Port): PortSpec => {
     const id = `${side}:${p.name}`;
-    return { id, label: p.name, typeLabel: typeLabel(p), hint: hint(id, hints), problem: problemPorts.get(id) };
+    return { id, label: p.name, typeLabel: typeLabel(p), problem: problemPorts.get(id) };
   };
   const state = health(metrics);
   return (

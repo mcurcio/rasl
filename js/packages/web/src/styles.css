@@ -138,25 +138,6 @@ body,
   margin: 8px 0;
 }
 
-/* Connections: queued additions dashed green, removals faded red, a refused one in the error colour */
-.react-flow__edge.edge-added path {
-  stroke: var(--pb-added);
-  stroke-dasharray: 6 4;
-}
-.react-flow__edge.edge-removed path {
-  stroke: var(--pb-removed);
-  stroke-dasharray: 2 4;
-  opacity: 0.6;
-}
-.react-flow__edge.edge-problem path {
-  stroke: var(--pb-err);
-  stroke-width: 2.5;
-}
-.react-flow__edge.selected path {
-  stroke: var(--pb-accent);
-  stroke-width: 2.5;
-}
-
 .add-form {
   display: flex;
   flex-direction: column;

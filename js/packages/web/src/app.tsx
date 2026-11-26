@@ -10,14 +10,22 @@ import {
   useShortcuts,
   useTheme,
 } from "@mcurcio/patchbay/hooks";
+import {
+  type CanConnect,
+  ConnectHints,
+  mergeFlowProps,
+  type PortRef,
+  useConnectHints,
+  Wire,
+  type WireEdge,
+  type WireTone,
+} from "@mcurcio/patchbay/graph";
 import { Button, Pill, Sheet, Splitter, ThemeSwitch } from "@mcurcio/patchbay/primitives";
 import {
   Background,
   type Connection,
   Controls,
-  type Edge,
   type FinalConnectionState,
-  MarkerType,
   type Node,
   type NodeChange,
   ReactFlow,
@@ -52,6 +60,16 @@ import { THEME_KEY } from "./theme";
 import { accepts, connectEdit, queue, stage, type StagedGraph, type ViewEdge, type ViewNode } from "./model";
 
 const NODE_TYPES = { card: NodeCard };
+const EDGE_TYPES = { wire: Wire };
+
+/** A connection's tone on its Wire: a queued change in the change's tone, one the graph refuses in the refused one. */
+const EDGE_TONES: Readonly<Record<ViewEdge["status"], WireTone | undefined>> = {
+  saved: undefined,
+  added: "added",
+  removed: "removed",
+  renamed: "changed",
+  changed: "changed",
+};
 
 /** The key that opens the add-node palette. */
 const ADD_KEYS = "Mod+K";
@@ -78,39 +96,10 @@ type Adding = {
   readonly back?: boolean;
 };
 
-/** The end a wire is being dragged from. */
-type Dragging = { readonly node: string; readonly handle: string; readonly side: "source" | "target" };
-
-function portOf(node: ViewNode | undefined, handle: string): ViewNode["inputs"][number] | undefined {
-  if (!node) return undefined;
+function portOf(node: ViewNode | undefined, handle: string | null): ViewNode["inputs"][number] | undefined {
+  if (!node || handle === null) return undefined;
   const [side, name] = [handle.slice(0, handle.indexOf(":")), handle.slice(handle.indexOf(":") + 1)];
   return (side === "in" ? node.inputs : node.outputs).find((p) => p.name === name);
-}
-
-/** For a dragged wire, whether each handle on the other side takes it, by node. */
-function connectionHints(
-  graph: StagedGraph,
-  dragging: Dragging,
-  types: ReadonlyMap<string, PayloadType>,
-): ReadonlyMap<string, ReadonlyMap<string, boolean>> {
-  const from = portOf(
-    graph.nodes.find((n) => n.id === dragging.node),
-    dragging.handle,
-  );
-  const hints = new Map<string, Map<string, boolean>>();
-  if (!from) return hints;
-  for (const node of graph.nodes) {
-    const marks = new Map<string, boolean>();
-    if (dragging.side === "source") {
-      for (const input of node.inputs)
-        marks.set(`in:${input.name}`, node.id !== dragging.node && accepts(from, input, types));
-    } else {
-      for (const output of node.outputs)
-        marks.set(`out:${output.name}`, node.id !== dragging.node && accepts(output, from, types));
-    }
-    hints.set(node.id, marks);
-  }
-  return hints;
 }
 
 /** The ports a refused connection names, by node and handle, with the refusal's words. */
@@ -132,7 +121,6 @@ function Editor(): ReactElement {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [types, setTypes] = useState<readonly NodeType[]>([]);
   const [payloadTypes, setPayloadTypes] = useState<ReadonlyMap<string, PayloadType>>(new Map());
-  const [dragging, setDragging] = useState<Dragging | null>(null);
   const [edits, setEdits] = useState<readonly Edit[]>([]);
   const [previews, setPreviews] = useState<ReadonlyMap<string, ConfigNode>>(new Map());
   const [outcome, setOutcome] = useState<EditOutcome | null>(null);
@@ -346,7 +334,6 @@ function Editor(): ReactElement {
   );
 
   const onConnectEnd = useCallback((event: globalThis.MouseEvent | TouchEvent, state: FinalConnectionState): void => {
-    setDragging(null);
     if (state.isValid || !state.fromNode || !state.fromHandle?.id || state.fromHandle.type !== "source") return;
     const point = "changedTouches" in event ? event.changedTouches[0] : event;
     setDialog({
@@ -390,26 +377,21 @@ function Editor(): ReactElement {
   );
 
   const problems = useMemo(() => problemPorts(outcome), [outcome]);
-  const hints = useMemo(
-    () => (staged && dragging ? connectionHints(staged, dragging, payloadTypes) : null),
-    [staged, dragging, payloadTypes],
-  );
-
-  const isValidConnection = useCallback(
-    (connection: Edge | Connection): boolean => {
-      if (!staged || !connection.sourceHandle || !connection.targetHandle) return true;
-      const output = portOf(
-        staged.nodes.find((n) => n.id === connection.source),
-        connection.sourceHandle,
-      );
-      const input = portOf(
-        staged.nodes.find((n) => n.id === connection.target),
-        connection.targetHandle,
-      );
-      return output === undefined || input === undefined || accepts(output, input, payloadTypes);
-    },
-    [staged, payloadTypes],
-  );
+  // One rule for the hints a dragged wire shows and for React Flow's check on the drop: the output's payload must be
+  // one the input takes (model.ts accepts()), and a node is never wired to itself
+  const canConnect: CanConnect = (from: PortRef, to: PortRef): boolean => {
+    if (from.nodeId === to.nodeId) return false;
+    const output = portOf(
+      staged?.nodes.find((n) => n.id === from.nodeId),
+      from.handleId,
+    );
+    const input = portOf(
+      staged?.nodes.find((n) => n.id === to.nodeId),
+      to.handleId,
+    );
+    return output === undefined || input === undefined || accepts(output, input, payloadTypes);
+  };
+  const hints = useConnectHints(canConnect);
 
   const flowNodes: Node[] = useMemo(
     () =>
@@ -425,13 +407,12 @@ function Editor(): ReactElement {
           node,
           metrics: metrics.get(node.renamedFrom ?? node.id),
           problemPorts: problems.get(node.id) ?? new Map(),
-          hints: hints?.get(node.id) ?? null,
         } satisfies NodeCardData,
       })),
-    [staged, positions, measured, selection, metrics, problems, graph, hints],
+    [staged, positions, measured, selection, metrics, problems, graph],
   );
 
-  const flowEdges: Edge[] = useMemo(() => {
+  const flowEdges: WireEdge[] = useMemo(() => {
     const connection = outcome?.error?.connection;
     return (staged?.edges ?? [])
       .filter((e) => e.sourceNode !== null)
@@ -448,10 +429,15 @@ function Editor(): ReactElement {
           sourceHandle: e.sourcePort ? `out:${e.sourcePort}` : null,
           targetHandle: e.targetPort ? `in:${e.targetPort}` : null,
           selected: selection.edge === e.key,
-          className: `edge-${e.status}${failing ? " edge-problem" : ""}`,
-          label: e.repeat ? `×${e.repeat}` : e.repeatUntil ? `→${e.repeatUntil}` : undefined,
-          markerEnd: { type: MarkerType.ArrowClosed },
-        };
+          type: "wire",
+          data: {
+            tone: failing ? "refused" : EDGE_TONES[e.status],
+            dashed: e.status !== "saved",
+            arrow: true,
+            label: e.repeat ? `×${e.repeat}` : e.repeatUntil ? `→${e.repeatUntil}` : undefined,
+            title: failing ? outcome?.error?.message : undefined,
+          },
+        } satisfies WireEdge;
       });
   }, [staged, selection, outcome]);
 
@@ -550,34 +536,31 @@ function Editor(): ReactElement {
           data-layout={staged && fittedShape === shape ? "ready" : "pending"}
           onDoubleClick={onDoubleClick}
         >
-          <ReactFlow
-            nodes={flowNodes}
-            edges={flowEdges}
-            nodeTypes={NODE_TYPES}
-            onConnect={onConnect}
-            onNodesChange={onNodesChange}
-            onConnectEnd={onConnectEnd}
-            onConnectStart={(_, start) => {
-              if (start.nodeId && start.handleId && start.handleType) {
-                setDragging({ node: start.nodeId, handle: start.handleId, side: start.handleType });
-              }
-            }}
-            isValidConnection={isValidConnection}
-            onNodeClick={(_, node) => setSelection({ node: node.id })}
-            onEdgeClick={(_, edge) => setSelection({ edge: edge.id })}
-            onPaneClick={() => {
-              setSelection({});
-              setSheetOpen(false);
-            }}
-            nodesConnectable={editable}
-            deleteKeyCode={null}
-            zoomOnDoubleClick={false}
-            fitView
-            proOptions={{ hideAttribution: true }}
-          >
-            <Background />
-            <Controls showInteractive={false} />
-          </ReactFlow>
+          <ConnectHints value={hints.value}>
+            <ReactFlow
+              {...mergeFlowProps(hints.flowProps, { onConnectEnd })}
+              nodes={flowNodes}
+              edges={flowEdges}
+              nodeTypes={NODE_TYPES}
+              edgeTypes={EDGE_TYPES}
+              onConnect={onConnect}
+              onNodesChange={onNodesChange}
+              onNodeClick={(_, node) => setSelection({ node: node.id })}
+              onEdgeClick={(_, edge) => setSelection({ edge: edge.id })}
+              onPaneClick={() => {
+                setSelection({});
+                setSheetOpen(false);
+              }}
+              nodesConnectable={editable}
+              deleteKeyCode={null}
+              zoomOnDoubleClick={false}
+              fitView
+              proOptions={{ hideAttribution: true }}
+            >
+              <Background />
+              <Controls showInteractive={false} />
+            </ReactFlow>
+          </ConnectHints>
         </section>
         {narrow ? (
           <Sheet

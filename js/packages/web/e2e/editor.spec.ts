@@ -94,6 +94,10 @@ test("a node added and wired in the page is saved to the file and runs", async (
     .locator(".react-flow__handle.source")
     .dragTo(node(page, "console_sink_1").locator(".react-flow__handle.target"));
   await expect(page.getByRole("list", { name: "Queued changes" }).getByRole("listitem")).toHaveCount(2);
+  // The queued connection is drawn as patchbay's Wire in the added tone, dashed until saved
+  const wire = page.getByRole("group", { name: "Edge from rgb to console_sink_1" }).locator("[data-tone]");
+  await expect(wire).toHaveAttribute("data-tone", "added");
+  await expect(wire).toHaveAttribute("data-dashed", "");
   const diff = page.getByRole("region", { name: "What Save writes" });
   await expect(diff.getByRole("button", { name: "rasl.conf" })).toHaveAttribute("aria-expanded", "true");
   await expect(diff).toContainText("+    node ConsoleSink console_sink_1 {");
