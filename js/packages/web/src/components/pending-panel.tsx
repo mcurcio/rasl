@@ -1,6 +1,8 @@
 // The queued edits (owner, 2026-11-16: changes are saved on purpose, not as they are made):
 // each can be dropped; Check shows the diff and whether the result builds; Save writes it.
-// Drawn on patchbay's Panel, Button and IconButton.
+// Drawn on patchbay's Panel, Button and IconButton; its news (files changed on disk, a refused change, a conflict,
+// the files saved) on Banner.
+import { Banner } from "@mcurcio/patchbay/composites";
 import { Button, IconButton, Panel } from "@mcurcio/patchbay/primitives";
 import type { ReactElement } from "react";
 
@@ -61,7 +63,7 @@ export function PendingPanel({
 }: PendingPanelProps): ReactElement {
   return (
     <Panel className="pending" title="Changes" actions={<span className="muted small">{edits.length} queued</span>}>
-      {stale ? <p className="warning">The files changed on disk. Check again before saving.</p> : null}
+      {stale ? <Banner tone="warn">The files changed on disk. Check again before saving.</Banner> : null}
       {edits.length === 0 ? (
         <p className="muted small">
           Wire ports, add or remove nodes: changes queue here and are written to the config only when you save.
@@ -101,20 +103,18 @@ export function PendingPanel({
         </Button>
       </div>
       {outcome?.refused ? (
-        <p className="field-error">
+        <Banner tone="err">
           Change {outcome.refused.index + 1}: {outcome.refused.message}
-        </p>
+        </Banner>
       ) : null}
-      {outcome?.conflict ? <p className="warning">{outcome.conflict}</p> : null}
+      {outcome?.conflict ? <Banner tone="warn">{outcome.conflict}</Banner> : null}
       {outcome?.error ? (
         <pre className="problem" data-outcome="error">
           {outcome.error.formatted}
         </pre>
       ) : null}
       {saved.length > 0 ? (
-        <p className="ok" role="status">
-          Saved {saved.map(basename).join(", ")}; the running graph reloads it.
-        </p>
+        <Banner tone="ok">Saved {saved.map(basename).join(", ")}; the running graph reloads it.</Banner>
       ) : null}
       {outcome?.changes.map((change) => (
         <details key={change.path} open>

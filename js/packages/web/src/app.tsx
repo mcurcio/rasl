@@ -1,6 +1,8 @@
 // The rasl web UI: the graph as the config files write it, live health, and the editor.
 // Edits queue (drawn dashed until saved), are checked against the server as they are made,
 // and are written to the files only on Save; the watcher then reloads the running graph.
+import { Banner } from "@mcurcio/patchbay/composites";
+import { ariaKeyShortcuts, keyLabel, type Shortcut, useShortcuts } from "@mcurcio/patchbay/hooks";
 import { Button, Pill, Splitter } from "@mcurcio/patchbay/primitives";
 import {
   Background,
@@ -40,6 +42,9 @@ import { layout, type Positions } from "./layout";
 import { accepts, connectEdit, queue, stage, type StagedGraph, type ViewEdge, type ViewNode } from "./model";
 
 const NODE_TYPES = { card: NodeCard };
+
+/** The key that opens the add-node dialog. */
+const ADD_KEYS = "Mod+K";
 
 /** The side column's width in px: where it starts, and how far its splitter moves it. */
 const SIDE = { initial: 360, min: 280, max: 720 } as const;
@@ -91,11 +96,6 @@ function problemPorts(outcome: EditOutcome | null): ReadonlyMap<string, Readonly
   if (connection.source.port) add(connection.source.node, `out:${connection.source.port}`);
   if (connection.target.port) add(connection.target.node, `in:${connection.target.port}`);
   return ports;
-}
-
-function isTyping(): boolean {
-  const active = document.activeElement;
-  return active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement;
 }
 
 function Editor(): ReactElement {
@@ -319,19 +319,15 @@ function Editor(): ReactElement {
     setSelection({});
   }, [staged, selection, push]);
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (isTyping() || dialog) return;
-      if (event.key === "Delete" || event.key === "Backspace") removeSelection();
-      else if ((event.metaKey || event.ctrlKey) && event.key === "z") setEdits((current) => current.slice(0, -1));
-      else if ((event.metaKey || event.ctrlKey) && event.key === "k") {
-        event.preventDefault();
-        setDialog({ from: null });
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [removeSelection, dialog]);
+  // The editor's keys, on patchbay's useShortcuts: idle while the add-node dialog is open. Single keys never act
+  // while a text field has the focus; Mod is Cmd on Apple platforms and Ctrl elsewhere.
+  const shortcuts: readonly Shortcut[] = [
+    { keys: ["Delete", "Backspace"], run: removeSelection },
+    { keys: "Mod+Z", run: () => setEdits((current) => current.slice(0, -1)) },
+    // A palette's chord: it acts in a text field too
+    { keys: ADD_KEYS, run: () => setDialog({ from: null }), inTextFields: true },
+  ];
+  useShortcuts(shortcuts, { enabled: dialog === null });
 
   const problems = useMemo(() => problemPorts(outcome), [outcome]);
   const hints = useMemo(
@@ -413,17 +409,25 @@ function Editor(): ReactElement {
         <span className="brand">rasl</span>
         <span className="muted mono small">{graph?.path}</span>
         <span className="spacer" />
-        {editable ? <Button onClick={() => setDialog({ from: null })}>Add node (⌘K)</Button> : null}
+        {editable ? (
+          <Button aria-keyshortcuts={ariaKeyShortcuts(ADD_KEYS)} onClick={() => setDialog({ from: null })}>
+            Add node ({keyLabel(ADD_KEYS)})
+          </Button>
+        ) : null}
         <Pill
           tone={connected ? "ok" : "err"}
           label={connected ? "live" : "offline"}
           title={connected ? "Receiving live updates from rasl" : "Not connected to rasl's live updates"}
         />
       </header>
-      {loadError ? <div className="banner error">{loadError}</div> : null}
-      {reloadError ? <div className="banner error">The running graph did not reload: {reloadError}</div> : null}
-      {graph?.error && edits.length === 0 ? (
-        <div className="banner warning">The config does not build: {graph.error.message}</div>
+      {loadError || reloadError || (graph?.error && edits.length === 0) ? (
+        <div className="banners">
+          {loadError ? <Banner tone="err">{loadError}</Banner> : null}
+          {reloadError ? <Banner tone="err">The running graph did not reload: {reloadError}</Banner> : null}
+          {graph?.error && edits.length === 0 ? (
+            <Banner tone="warn">The config does not build: {graph.error.message}</Banner>
+          ) : null}
+        </div>
       ) : null}
       <main className="layout">
         <section

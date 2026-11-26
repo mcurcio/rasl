@@ -202,3 +202,28 @@ test("the add-node dialog closes on Escape and gives focus back", async ({ page 
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole("list", { name: "Queued changes" })).toHaveCount(0);
 });
+
+test("the editor's keys: Mod+K adds a node, Mod+Z drops the last change, a text field keeps Delete", async ({
+  page,
+}) => {
+  await open(page);
+  await page.keyboard.press("ControlOrMeta+k");
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toHaveAccessibleName("Add a node");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+
+  // Delete in the rename field edits the text; the node stays
+  await node(page, "console").click();
+  const rename = page.getByLabel("id", { exact: true });
+  await rename.focus();
+  await page.keyboard.press("Delete");
+  await expect(page.getByRole("list", { name: "Queued changes" })).toHaveCount(0);
+
+  await node(page, "console").click();
+  await page.keyboard.press("Delete");
+  const queued = page.getByRole("list", { name: "Queued changes" }).getByRole("listitem");
+  await expect(queued).toHaveCount(1);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(page.getByRole("list", { name: "Queued changes" })).toHaveCount(0);
+});
