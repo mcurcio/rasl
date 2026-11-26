@@ -1,6 +1,8 @@
 /* The editor's own rules, drawn only with patchbay's tokens (--pb-*, from @mcurcio/patchbay/tokens.css, loaded
    before this file in main.tsx). The tokens set the light and dark themes, follow the system's choice, and point
-   React Flow's --xy-* variables at themselves. */
+   React Flow's --xy-* variables at themselves. A rule for a patchbay component selects the class the editor gives it
+   through its className, never patchbay's own pb- classes, and within one of the editor's own classes: patchbay's
+   stylesheets load after this one, so a lone class would lose to theirs. */
 * {
   box-sizing: border-box;
 }
@@ -73,7 +75,8 @@ body,
   flex-direction: column;
   min-height: 0;
 }
-.side > .pb-panel {
+.side > .inspector,
+.side > .pending {
   flex: 0 1 auto;
 }
 /* Below 760 px the same content is in patchbay's Sheet over the canvas (app.tsx), placed in .layout */
@@ -85,18 +88,18 @@ body,
 .inspector {
   border-bottom: 1px solid var(--pb-line);
 }
-.inspector .pb-key-value {
+.inspector .inspector-kv {
   align-items: center;
   margin-bottom: 8px;
 }
-.inspector > .pb-panel-body > .pb-button {
+.inspector .inspector-action {
   margin-top: 8px;
 }
 .rename {
   display: flex;
   gap: 6px;
 }
-.rename > .pb-text-input {
+.rename .rename-input {
   flex: 1;
   min-width: 0;
 }
@@ -104,7 +107,7 @@ body,
   color: var(--pb-err);
   font-size: 12px;
 }
-.pending .pb-banner {
+.pending .pending-banner {
   margin: 8px 0;
 }
 .problem {
@@ -286,11 +289,11 @@ body,
 .setting.add {
   grid-template-columns: 110px 1fr auto;
 }
-.setting.queued .pb-text-input {
+.setting.queued .setting-input {
   border-color: var(--pb-added);
 }
 .setting.removed .setting-key,
-.setting.removed .pb-text-input {
+.setting.removed .setting-input {
   text-decoration: line-through;
   opacity: 0.5;
 }

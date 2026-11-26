@@ -57,6 +57,7 @@ function SettingRow({ setting, editable, definitionsEditable, onSet, onRemove }:
         {name}
       </span>
       <TextInput
+        className="setting-input"
         font="code"
         value={value}
         aria-label={setting.key}

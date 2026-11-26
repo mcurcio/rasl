@@ -16,6 +16,10 @@ group("styles.css", () => {
     expect(read.filter((name) => !defined.has(name))).toEqual([]);
   });
 
+  it("selects none of patchbay's own pb- classes, only the classes the editor gives its components", () => {
+    expect([...styles.matchAll(/\.pb-[\w-]+/g)].map((m) => m[0])).toEqual([]);
+  });
+
   it("defines no custom properties, React Flow's --xy-* included", () => {
     expect([...styles.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1])).toEqual([]);
   });

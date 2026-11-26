@@ -8,7 +8,7 @@ graph editor. It talks only to rasl's GraphQL API (`docs/web-api.md`).
 - `pnpm dev` serves it with hot reload, forwarding `/graphql` to a running rasl (`RASL_API`, default
   `http://127.0.0.1:8080`).
 - `pnpm test` runs the unit tests (the staging model in `src/model.ts`, the palette's commands in `src/palette.ts`, `src/theme.test.ts`: `index.html`'s inline theme script, and `src/styles.test.ts`: `styles.css`
-  reads only tokens that patchbay defines).
+  reads only tokens that patchbay defines and selects none of patchbay's classes).
 - `pnpm e2e` runs the browser tests (`e2e/`, Playwright): it starts rasl (`uv run rasl`, so run `pnpm build`
   and `uv sync` first) on a copy of `e2e/fixture.conf` and edits it through the page. CI runs it as the
   "Web editor (browser)" job. The tests find things by role, accessible name or data attribute where patchbay
@@ -34,7 +34,8 @@ the config files through knobly, and the watcher reloads them.
 The page draws with [patchbay](https://github.com/mcurcio/patchbay)'s design tokens (`@mcurcio/patchbay`, pinned
 exactly) in its base look, with no rasl brand. `src/main.tsx` loads React Flow's stylesheet, then
 `@mcurcio/patchbay/tokens.css`, then `src/styles.css`, which reads only `--pb-*` tokens and defines no variables of
-its own. The tokens hold the light and dark themes and point React Flow's `--xy-*` variables at themselves.
+its own. Where it lays out a patchbay component it selects a class the editor passes through `className`, never
+patchbay's own `pb-` classes, inside one of the editor's classes (patchbay's stylesheets load after it). The tokens hold the light and dark themes and point React Flow's `--xy-*` variables at themselves.
 
 The theme follows the system until the person chooses: the top bar's `ThemeSwitch` cycles system, light and dark,
 and patchbay's `useTheme` keeps the choice in `localStorage` under `rasl-web/1/theme` (`src/theme.ts`) and writes it

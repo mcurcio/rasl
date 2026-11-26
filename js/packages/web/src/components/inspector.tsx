@@ -62,9 +62,9 @@ export function Inspector({
     rows.push({ key: "written", value: <Place place={edge.place} /> });
     return (
       <Panel className="inspector" title="Connection">
-        <KeyValue rows={rows} />
+        <KeyValue className="inspector-kv" rows={rows} />
         {edge.locked ? <p className="muted">Locked: {edge.locked}.</p> : null}
-        <Button tone="danger" disabled={!canEdit} onClick={() => onDisconnect(edge)}>
+        <Button className="inspector-action" tone="danger" disabled={!canEdit} onClick={() => onDisconnect(edge)}>
           Disconnect
         </Button>
       </Panel>
@@ -91,12 +91,14 @@ export function Inspector({
   return (
     <Panel className="inspector" title={node.type}>
       <KeyValue
+        className="inspector-kv"
         rows={[
           {
             key: "id",
             value: (
               <span className="rename">
                 <TextInput
+                  className="rename-input"
                   font="code"
                   aria-label="id"
                   value={newId}
@@ -141,10 +143,10 @@ export function Inspector({
       {metrics ? (
         <>
           <SectionTitle>Metrics</SectionTitle>
-          <KeyValue rows={metricRows} />
+          <KeyValue className="inspector-kv" rows={metricRows} />
         </>
       ) : null}
-      <Button tone="danger" disabled={!canEdit} onClick={() => onRemove(node.id)}>
+      <Button className="inspector-action" tone="danger" disabled={!canEdit} onClick={() => onRemove(node.id)}>
         Remove node and its connections
       </Button>
     </Panel>

@@ -40,7 +40,11 @@ export function PendingPanel({
 }: PendingPanelProps): ReactElement {
   return (
     <Panel className="pending" title="Changes" actions={<span className="muted small">{edits.length} queued</span>}>
-      {stale ? <Banner tone="warn">The files changed on disk. Check again before saving.</Banner> : null}
+      {stale ? (
+        <Banner className="pending-banner" tone="warn">
+          The files changed on disk. Check again before saving.
+        </Banner>
+      ) : null}
       {edits.length === 0 ? (
         <p className="muted small">
           Wire ports, add or remove nodes: changes queue here and are written to the config only when you save.
@@ -80,18 +84,24 @@ export function PendingPanel({
         </Button>
       </div>
       {outcome?.refused ? (
-        <Banner tone="err">
+        <Banner className="pending-banner" tone="err">
           Change {outcome.refused.index + 1}: {outcome.refused.message}
         </Banner>
       ) : null}
-      {outcome?.conflict ? <Banner tone="warn">{outcome.conflict}</Banner> : null}
+      {outcome?.conflict ? (
+        <Banner className="pending-banner" tone="warn">
+          {outcome.conflict}
+        </Banner>
+      ) : null}
       {outcome?.error ? (
         <pre className="problem" data-outcome="error">
           {outcome.error.formatted}
         </pre>
       ) : null}
       {saved.length > 0 ? (
-        <Banner tone="ok">Saved {saved.map(basename).join(", ")}; the running graph reloads it.</Banner>
+        <Banner className="pending-banner" tone="ok">
+          Saved {saved.map(basename).join(", ")}; the running graph reloads it.
+        </Banner>
       ) : null}
       {outcome && outcome.changes.length > 0 ? (
         <DiffView role="region" aria-label="What Save writes" files={outcome.changes} />
