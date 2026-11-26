@@ -12,10 +12,14 @@ import {
 } from "@mcurcio/patchbay/hooks";
 import {
   type CanConnect,
+  CanvasTools,
   ConnectHints,
   mergeFlowProps,
+  type OnAddAt,
   type PortRef,
+  useAddAt,
   useConnectHints,
+  useFollowFit,
   Wire,
   type WireEdge,
   type WireTone,
@@ -24,8 +28,7 @@ import { Button, Pill, Sheet, Splitter, ThemeSwitch } from "@mcurcio/patchbay/pr
 import {
   Background,
   type Connection,
-  Controls,
-  type FinalConnectionState,
+  type FitViewOptions,
   type Node,
   type NodeChange,
   ReactFlow,
@@ -33,7 +36,7 @@ import {
   useReactFlow,
   useUpdateNodeInternals,
 } from "@xyflow/react";
-import { type MouseEvent, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   applyEdits,
@@ -70,6 +73,9 @@ const EDGE_TONES: Readonly<Record<ViewEdge["status"], WireTone | undefined>> = {
   renamed: "changed",
   changed: "changed",
 };
+
+/** How every fit frames the graph: patchbay's useFollowFit after each layout, and CanvasTools' fit tool. */
+const FIT: FitViewOptions = { padding: 0.12 };
 
 /** The key that opens the add-node palette. */
 const ADD_KEYS = "Mod+K";
@@ -133,7 +139,7 @@ function Editor(): ReactElement {
   const [selection, setSelection] = useState<Selection>({});
   const [dialog, setDialog] = useState<Adding | null>(null);
   const [positions, setPositions] = useState<Positions>(new Map());
-  // The graph shape the view was last laid out and fitted for: the canvas says
+  // The graph shape the view was last laid out (and, while the view follows the layout, fitted) for: the canvas says
   // data-layout="ready" when it matches the shape now shown (tests wait for it)
   const [fittedShape, setFittedShape] = useState<string | null>(null);
   const positionsShape = useRef<string | null>(null);
@@ -234,15 +240,17 @@ function Editor(): ReactElement {
     };
   }, [shape]);
 
-  // Fit the view to each new layout, once it is drawn and measured
+  // Fit the view to each new layout once it is drawn and measured, until the person moves the view (patchbay's
+  // useFollowFit; CanvasTools' fit tool follows again). Each fit that lands says the layout is ready; while the view
+  // does not follow, a layout is ready once it is placed, as nothing will move the view.
+  const follow = useFollowFit({
+    key: positions,
+    fitOptions: FIT,
+    onFitted: () => setFittedShape(positionsShape.current),
+  });
   useEffect(() => {
-    if (positions.size === 0) return undefined;
-    const laidOut = positionsShape.current;
-    const timer = window.setTimeout(() => {
-      void flow.fitView({ padding: 0.12, duration: 200 }).then(() => setFittedShape(laidOut));
-    }, 60);
-    return () => window.clearTimeout(timer);
-  }, [positions, flow]);
+    if (!follow.following && positions.size > 0) setFittedShape(positionsShape.current);
+  }, [positions, follow.following]);
 
   // Check the queue against the server as it changes: the diff, and whether it builds
   useEffect(() => {
@@ -333,15 +341,17 @@ function Editor(): ReactElement {
     [staged, push],
   );
 
-  const onConnectEnd = useCallback((event: globalThis.MouseEvent | TouchEvent, state: FinalConnectionState): void => {
-    if (state.isValid || !state.fromNode || !state.fromHandle?.id || state.fromHandle.type !== "source") return;
-    const point = "changedTouches" in event ? event.changedTouches[0] : event;
+  // A double-click on empty canvas, or a wire from an output dropped there, opens the palette at that point; the wire's
+  // output is then joined to the new node. A wire from an input dropped there adds nothing.
+  const onAddAt: OnAddAt = (point, from) => {
+    if (from !== undefined && (from.side !== "output" || from.handleId === null)) return;
     setDialog({
-      from: { node: state.fromNode.id, port: state.fromHandle.id.replace(/^out:/, "") },
-      at: point ? { x: point.clientX, y: point.clientY } : undefined,
+      from: from ? { node: from.nodeId, port: (from.handleId ?? "").replace(/^out:/, "") } : null,
+      at: flow.flowToScreenPosition(point),
       type: null,
     });
-  }, []);
+  };
+  const addAt = useAddAt(onAddAt, { enabled: graph?.editable === true });
 
   const removeSelection = useCallback((): void => {
     if (!staged) return;
@@ -445,11 +455,6 @@ function Editor(): ReactElement {
   const selectedEdge = staged?.edges.find((e) => e.key === selection.edge) ?? null;
   const editable = graph?.editable === true;
 
-  const onDoubleClick = (event: MouseEvent): void => {
-    if (editable && (event.target as HTMLElement).classList.contains("react-flow__pane"))
-      setDialog({ from: null, at: { x: event.clientX, y: event.clientY }, type: null });
-  };
-
   // The side column's content: docked beside the canvas, or in the narrow window's sheet
   const side = (
     <>
@@ -531,14 +536,10 @@ function Editor(): ReactElement {
         </div>
       ) : null}
       <main className="layout">
-        <section
-          className="canvas"
-          data-layout={staged && fittedShape === shape ? "ready" : "pending"}
-          onDoubleClick={onDoubleClick}
-        >
+        <section className="canvas" data-layout={staged && fittedShape === shape ? "ready" : "pending"}>
           <ConnectHints value={hints.value}>
             <ReactFlow
-              {...mergeFlowProps(hints.flowProps, { onConnectEnd })}
+              {...mergeFlowProps(hints.flowProps, addAt.flowProps, follow.flowProps)}
               nodes={flowNodes}
               edges={flowEdges}
               nodeTypes={NODE_TYPES}
@@ -553,12 +554,10 @@ function Editor(): ReactElement {
               }}
               nodesConnectable={editable}
               deleteKeyCode={null}
-              zoomOnDoubleClick={false}
-              fitView
               proOptions={{ hideAttribution: true }}
             >
               <Background />
-              <Controls showInteractive={false} />
+              <CanvasTools onFit={follow.fit} fitOptions={FIT} />
             </ReactFlow>
           </ConnectHints>
         </section>

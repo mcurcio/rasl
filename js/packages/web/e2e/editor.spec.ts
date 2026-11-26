@@ -214,6 +214,46 @@ test("the side panel is resized from its splitter", async ({ page }) => {
   await expect(splitter).toHaveAttribute("aria-valuenow", "280");
 });
 
+test("a double-click on empty canvas, or a wire dropped there, opens the palette at that point", async ({ page }) => {
+  await open(page);
+  const pane = await page.locator(".react-flow__pane").boundingBox();
+  if (!pane) throw new Error("no pane");
+  // Near the canvas's top-left corner: inside the fit's padding, so empty canvas
+  const at = { x: pane.x + 30, y: pane.y + 30 };
+  const palette = page.getByRole("dialog", { name: "Add a node" });
+  await page.mouse.dblclick(at.x, at.y);
+  await expect(palette).toBeVisible();
+  const placed = await palette.boundingBox();
+  expect(placed && [Math.round(placed.x), Math.round(placed.y)]).toEqual([Math.round(at.x), Math.round(at.y)]);
+  await page.keyboard.press("Escape");
+  await expect(palette).toHaveCount(0);
+
+  // A wire from rgb's output dropped there: the new node is fed by it
+  const handle = await node(page, "rgb").locator(".react-flow__handle.source").boundingBox();
+  if (!handle) throw new Error("no handle");
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(at.x, at.y, { steps: 8 });
+  await page.mouse.up();
+  await expect(palette).toBeVisible();
+  const dropped = await palette.boundingBox();
+  expect(dropped && [Math.round(dropped.x), Math.round(dropped.y)]).toEqual([Math.round(at.x), Math.round(at.y)]);
+  await palette.getByRole("combobox", { name: "Add a node" }).fill("console");
+  await typeOption(page, "ConsoleSink").click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toHaveAccessibleName(/^New ConsoleSink fed by rgb\./);
+  await dialog.getByLabel("fps", { exact: true }).fill("1");
+  await dialog.getByRole("button", { name: "Queue" }).click();
+  await expect(page.getByRole("list", { name: "Queued changes" }).getByRole("listitem")).toHaveCount(2);
+  await settle(page);
+  await expect(card(page, "console_sink_1")).toHaveAttribute("data-change", "added");
+  // The canvas's tools are patchbay's: their fit tool fits the view again
+  const tools = page.getByRole("toolbar", { name: "Canvas" });
+  await tools.getByRole("button", { name: "Fit the view" }).click();
+  await settle(page);
+  await expect(tools.getByRole("button", { name: "Zoom in" })).toBeVisible();
+});
+
 test("adding a node: the palette and the dialog close on Escape and give focus back", async ({ page }) => {
   await open(page);
   const opener = page.getByRole("button", { name: /Add node/ });
