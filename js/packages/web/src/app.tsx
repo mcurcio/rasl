@@ -23,6 +23,7 @@ import {
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
+  useUpdateNodeInternals,
 } from "@xyflow/react";
 import { type MouseEvent, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -161,6 +162,13 @@ function Editor(): ReactElement {
       return next;
     });
   }, []);
+  // A rebuilt node that reaches React Flow before its size is passed back loses its handles' bounds, and React Flow
+  // may not measure it again (its size has not changed), so a wire could not be dragged from it: once the sizes are
+  // passed back, the handles are measured again.
+  const updateNodeInternals = useUpdateNodeInternals();
+  useEffect(() => {
+    if (measured.size > 0) updateNodeInternals([...measured.keys()]);
+  }, [measured, updateNodeInternals]);
   const [saved, setSaved] = useState<readonly string[]>([]);
   const [theme, setTheme] = useTheme({ key: THEME_KEY });
   // Below 760 px the side column is patchbay's Sheet over the canvas (from its bottom below 600 px): a selection opens
