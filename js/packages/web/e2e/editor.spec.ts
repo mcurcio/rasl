@@ -247,11 +247,22 @@ test("a double-click on empty canvas, or a wire dropped there, opens the palette
   await expect(page.getByRole("list", { name: "Queued changes" }).getByRole("listitem")).toHaveCount(2);
   await settle(page);
   await expect(card(page, "console_sink_1")).toHaveAttribute("data-change", "added");
-  // The canvas's tools are patchbay's: their fit tool fits the view again
+  // The canvas's tools are patchbay's: once the view is panned away, their fit tool brings the whole graph back
   const tools = page.getByRole("toolbar", { name: "Canvas" });
-  await tools.getByRole("button", { name: "Fit the view" }).click();
+  const fit = tools.getByRole("button", { name: "Fit the view" });
+  const viewport = page.locator(".react-flow__viewport");
+  await fit.click();
   await settle(page);
-  await expect(tools.getByRole("button", { name: "Zoom in" })).toBeVisible();
+  const fitted = await viewport.getAttribute("style");
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await page.mouse.move(at.x + 150, at.y + 100, { steps: 8 });
+  await page.mouse.up();
+  await settle(page);
+  expect(await viewport.getAttribute("style")).not.toBe(fitted);
+  await fit.click();
+  await settle(page);
+  expect(await viewport.getAttribute("style")).toBe(fitted);
 });
 
 test("adding a node: the palette and the dialog close on Escape and give focus back", async ({ page }) => {
