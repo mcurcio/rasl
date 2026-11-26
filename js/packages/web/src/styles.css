@@ -53,6 +53,7 @@ body,
 }
 
 .layout {
+  position: relative;
   flex: 1;
   display: grid;
   grid-template-columns: 1fr auto;
@@ -75,21 +76,10 @@ body,
 .side > .pb-panel {
   flex: 0 1 auto;
 }
-@media (max-width: 800px) {
-  .layout {
-    grid-template-columns: 1fr;
-    grid-template-rows: 1fr auto;
-  }
-  .side {
-    border-left: none;
-    border-top: 1px solid var(--pb-line);
-    max-height: 45vh;
-    /* Stacked under the canvas, the column takes the full width whatever the splitter set */
-    min-width: 100%;
-  }
-  .side > .pb-splitter {
-    display: none;
-  }
+/* Below 760 px the same content is in patchbay's Sheet over the canvas (app.tsx), placed in .layout */
+.side-sheet {
+  display: flex;
+  flex-direction: column;
 }
 
 .inspector {

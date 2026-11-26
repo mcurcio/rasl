@@ -282,3 +282,36 @@ test("the theme switch cycles system, light and dark, and the choice is kept acr
   await theme.click();
   await expect(html).not.toHaveAttribute("data-theme");
 });
+
+test("in a narrow window the side panel is a sheet that a selection opens, from the bottom on a phone", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 700, height: 800 });
+  await open(page);
+  await expect(page.locator("aside.side")).toHaveCount(0);
+  const sheet = page.getByRole("dialog", { name: "Side panel" });
+  await expect(sheet).toHaveCount(0);
+
+  await node(page, "console").click();
+  await expect(sheet).toBeVisible();
+  await expect(sheet).toHaveAttribute("data-side", "right");
+  await expect(sheet.getByRole("heading", { name: "ConsoleSink" })).toBeVisible();
+  await sheet.getByRole("button", { name: "Close" }).click();
+  await expect(sheet).toHaveCount(0);
+
+  const toggle = page.getByRole("button", { name: "Side panel" });
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await toggle.click();
+  await expect(sheet).toBeVisible();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await sheet.getByLabel("id", { exact: true }).focus();
+  await page.keyboard.press("Escape");
+  await expect(sheet).toHaveCount(0);
+
+  await page.setViewportSize({ width: 500, height: 800 });
+  await node(page, "console").click();
+  await expect(sheet).toHaveAttribute("data-side", "bottom");
+  // A press on the canvas closes it
+  await page.locator(".react-flow__pane").click({ position: { x: 10, y: 10 } });
+  await expect(sheet).toHaveCount(0);
+});

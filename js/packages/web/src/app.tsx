@@ -2,8 +2,15 @@
 // Edits queue (drawn dashed until saved), are checked against the server as they are made,
 // and are written to the files only on Save; the watcher then reloads the running graph.
 import { Banner, CommandPalette, type PalettePoint } from "@mcurcio/patchbay/composites";
-import { ariaKeyShortcuts, keyLabel, type Shortcut, useShortcuts, useTheme } from "@mcurcio/patchbay/hooks";
-import { Button, Pill, Splitter, ThemeSwitch } from "@mcurcio/patchbay/primitives";
+import {
+  ariaKeyShortcuts,
+  keyLabel,
+  type Shortcut,
+  useMediaBreakpoint,
+  useShortcuts,
+  useTheme,
+} from "@mcurcio/patchbay/hooks";
+import { Button, Pill, Sheet, Splitter, ThemeSwitch } from "@mcurcio/patchbay/primitives";
 import {
   Background,
   type Connection,
@@ -156,6 +163,14 @@ function Editor(): ReactElement {
   }, []);
   const [saved, setSaved] = useState<readonly string[]>([]);
   const [theme, setTheme] = useTheme({ key: THEME_KEY });
+  // Below 760 px the side column is patchbay's Sheet over the canvas (from its bottom below 600 px): a selection opens
+  // it; its close button, Escape inside it or a press on the canvas close it, and so does the top bar's button
+  const breakpoint = useMediaBreakpoint();
+  const narrow = breakpoint.width !== "wide";
+  const [sheetOpen, setSheetOpen] = useState(false);
+  useEffect(() => {
+    if (selection.node !== undefined || selection.edge !== undefined) setSheetOpen(true);
+  }, [selection]);
   const flow = useReactFlow();
   const versionRef = useRef<string | null>(null);
   const editsRef = useRef(edits);
@@ -439,6 +454,54 @@ function Editor(): ReactElement {
       setDialog({ from: null, at: { x: event.clientX, y: event.clientY }, type: null });
   };
 
+  // The side column's content: docked beside the canvas, or in the narrow window's sheet
+  const side = (
+    <>
+      <Inspector
+        node={selectedNode}
+        edge={selectedEdge}
+        metrics={selectedNode ? metrics.get(selectedNode.renamedFrom ?? selectedNode.id) : undefined}
+        editable={editable}
+        onRename={(id, newId) => push({ renameNode: { id, newId } })}
+        onRemove={(id) => push({ removeNode: { id } })}
+        onDisconnect={(edge) => push({ disconnect: { source: edge.source, target: edge.target, port: edge.port } })}
+        schema={
+          types.find((t) => t.name === selectedNode?.type || t.aliases.includes(selectedNode?.type ?? ""))?.schema ??
+          null
+        }
+        onSetSetting={(key, index, values, scope) => {
+          if (selectedNode) push({ setSetting: { node: selectedNode.id, key, index, values, scope } });
+        }}
+        onRemoveSetting={(key, index) => {
+          if (selectedNode) push({ removeSetting: { node: selectedNode.id, key, index } });
+        }}
+        onSetValues={(values) => {
+          if (selectedNode) push({ setNodeValues: { node: selectedNode.id, values } });
+        }}
+        onDetach={() => {
+          if (selectedNode) push({ detach: { id: selectedNode.id } });
+        }}
+      />
+      {editable ? (
+        <PendingPanel
+          edits={edits}
+          outcome={outcome}
+          saved={saved}
+          busy={busy}
+          stale={stale}
+          onDrop={(index) => setEdits((current) => current.filter((_, i) => i !== index))}
+          onCheck={() => void check()}
+          onSave={() => void save()}
+          onDiscard={() => {
+            setEdits([]);
+            setPreviews(new Map());
+            setStale(false);
+          }}
+        />
+      ) : null}
+    </>
+  );
+
   return (
     <div className="app">
       <header className="topbar">
@@ -448,6 +511,11 @@ function Editor(): ReactElement {
         {editable ? (
           <Button aria-keyshortcuts={ariaKeyShortcuts(ADD_KEYS)} onClick={() => setDialog({ from: null, type: null })}>
             Add node ({keyLabel(ADD_KEYS)})
+          </Button>
+        ) : null}
+        {narrow ? (
+          <Button aria-expanded={sheetOpen} onClick={() => setSheetOpen((open) => !open)}>
+            Side panel
           </Button>
         ) : null}
         <ThemeSwitch choice={theme} onChoose={setTheme} />
@@ -487,7 +555,10 @@ function Editor(): ReactElement {
             isValidConnection={isValidConnection}
             onNodeClick={(_, node) => setSelection({ node: node.id })}
             onEdgeClick={(_, edge) => setSelection({ edge: edge.id })}
-            onPaneClick={() => setSelection({})}
+            onPaneClick={() => {
+              setSelection({});
+              setSheetOpen(false);
+            }}
             nodesConnectable={editable}
             deleteKeyCode={null}
             zoomOnDoubleClick={false}
@@ -498,59 +569,30 @@ function Editor(): ReactElement {
             <Controls showInteractive={false} />
           </ReactFlow>
         </section>
-        <aside className="side" style={{ width: sideWidth }}>
-          <Splitter
-            orientation="vertical"
-            edge="start"
-            value={sideWidth}
-            min={SIDE.min}
-            max={SIDE.max}
-            onChange={setSideWidth}
-            label="Resize the side panel"
-          />
-          <Inspector
-            node={selectedNode}
-            edge={selectedEdge}
-            metrics={selectedNode ? metrics.get(selectedNode.renamedFrom ?? selectedNode.id) : undefined}
-            editable={editable}
-            onRename={(id, newId) => push({ renameNode: { id, newId } })}
-            onRemove={(id) => push({ removeNode: { id } })}
-            onDisconnect={(edge) => push({ disconnect: { source: edge.source, target: edge.target, port: edge.port } })}
-            schema={
-              types.find((t) => t.name === selectedNode?.type || t.aliases.includes(selectedNode?.type ?? ""))
-                ?.schema ?? null
-            }
-            onSetSetting={(key, index, values, scope) => {
-              if (selectedNode) push({ setSetting: { node: selectedNode.id, key, index, values, scope } });
-            }}
-            onRemoveSetting={(key, index) => {
-              if (selectedNode) push({ removeSetting: { node: selectedNode.id, key, index } });
-            }}
-            onSetValues={(values) => {
-              if (selectedNode) push({ setNodeValues: { node: selectedNode.id, values } });
-            }}
-            onDetach={() => {
-              if (selectedNode) push({ detach: { id: selectedNode.id } });
-            }}
-          />
-          {editable ? (
-            <PendingPanel
-              edits={edits}
-              outcome={outcome}
-              saved={saved}
-              busy={busy}
-              stale={stale}
-              onDrop={(index) => setEdits((current) => current.filter((_, i) => i !== index))}
-              onCheck={() => void check()}
-              onSave={() => void save()}
-              onDiscard={() => {
-                setEdits([]);
-                setPreviews(new Map());
-                setStale(false);
-              }}
+        {narrow ? (
+          <Sheet
+            open={sheetOpen}
+            onClose={() => setSheetOpen(false)}
+            side={breakpoint.width === "phone" ? "bottom" : "right"}
+            title="Side panel"
+            width={sideWidth}
+          >
+            <div className="side-sheet">{side}</div>
+          </Sheet>
+        ) : (
+          <aside className="side" style={{ width: sideWidth }}>
+            <Splitter
+              orientation="vertical"
+              edge="start"
+              value={sideWidth}
+              min={SIDE.min}
+              max={SIDE.max}
+              onChange={setSideWidth}
+              label="Resize the side panel"
             />
-          ) : null}
-        </aside>
+            {side}
+          </aside>
+        )}
       </main>
       <CommandPalette
         open={dialog !== null && dialog.type === null && dialog.back !== true}
