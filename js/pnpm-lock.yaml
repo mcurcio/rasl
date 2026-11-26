@@ -150,8 +150,8 @@ importers:
   packages/web:
     dependencies:
       '@mcurcio/patchbay':
-        specifier: 0.5.0
-        version: 0.5.0(@xyflow/react@12.12.1)(react-dom@19.3.1)(react@19.3.1)
+        specifier: 0.7.0
+        version: 0.7.0(@xyflow/react@12.12.1)(react-dom@19.3.1)(react@19.3.1)
       '@xyflow/react':
         specifier: 12.12.1
         version: 12.12.1(@types/react-dom@19.3.0)(@types/react@19.3.3)(react-dom@19.3.1)(react@19.3.1)
@@ -915,10 +915,10 @@ packages:
       '@jridgewell/sourcemap-codec': 1.5.5
     dev: true
 
-  /@mcurcio/patchbay@0.5.0(@xyflow/react@12.12.1)(react-dom@19.3.1)(react@19.3.1):
-    resolution: {integrity: sha512-vdWkQo8cjf2RvZFw9iCo5ZGuxnwr3YANgls3CSgaMVpilCAtnrT26sA9Vc01pLbUBgjOkWmHTLnnoWQLsGO+3w==}
+  /@mcurcio/patchbay@0.7.0(@xyflow/react@12.12.1)(react-dom@19.3.1)(react@19.3.1):
+    resolution: {integrity: sha512-yqnYVwjVUq21ZsHpTdmbsv/ld3C1FSNfyoIC2JgaGkluSh7qlRkjgPVSb+1bhoG4BYl64yep6xBlcZnFp20opQ==}
     peerDependencies:
-      '@xyflow/react': ^12.0.0
+      '@xyflow/react': ^12.1.0
       knobly: ^1.0.0
       react: ^19.0.0
       react-dom: ^19.0.0

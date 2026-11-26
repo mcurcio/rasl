@@ -607,10 +607,12 @@ function Editor(): ReactElement {
         onClose={() => setDialog(null)}
         commands={commands}
         at={dialog?.at}
-        label="Add a node"
-        placeholder="Search node types"
-        emptyLabel="No node types"
-        noMatchLabel={(query) => `No node type matches “${query}”`}
+        labels={{
+          palette: "Add a node",
+          placeholder: "Search node types",
+          empty: "No node types",
+          noMatch: (query) => `No node type matches “${query}”`,
+        }}
       />
       {dialog?.type && staged ? (
         <AddNodeDialog
