@@ -410,7 +410,7 @@ body,
   gap: 8px;
 }
 
-/* Settings editor */
+/* Settings editor: the rows' layout and their queued and removed marks; the controls are patchbay's */
 .settings {
   display: flex;
   flex-direction: column;
@@ -427,11 +427,11 @@ body,
 .setting.add {
   grid-template-columns: 110px 1fr auto;
 }
-.setting.queued .input {
+.setting.queued .pb-text-input {
   border-color: var(--pb-added);
 }
 .setting.removed .setting-key,
-.setting.removed .input {
+.setting.removed .pb-text-input {
   text-decoration: line-through;
   opacity: 0.5;
 }
@@ -446,15 +446,6 @@ body,
   display: flex;
   flex-wrap: wrap;
   gap: 4px 10px;
-  align-items: center;
-}
-.scope {
-  display: inline-flex;
-  gap: 10px;
-}
-.scope label {
-  display: inline-flex;
-  gap: 4px;
   align-items: center;
 }
 .use-note {

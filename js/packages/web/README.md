@@ -39,10 +39,11 @@ variables at themselves.
 The page is built from patchbay's components (`@mcurcio/patchbay/primitives`, which loads its own stylesheet); the
 editor's words, data and editing model stay its own, mapped onto their props:
 
-| Part                                            | patchbay                                                                                                |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Top bar                                         | `Button` (Add node), `Pill` (live / offline: whether the page receives rasl's live updates)             |
-| Side column                                     | resizable from its left edge with `Splitter` (280 to 720 px, by pointer or arrow keys; not when narrow) |
-| Inspector (`components/inspector.tsx`)          | `Panel` titled by the node type or "Connection", `SectionTitle`, `KeyValue`, `TextInput`, `Button`      |
-| Queued changes (`components/pending-panel.tsx`) | `Panel`, `Button` (Check and Save show a spinner while their request is on its way), `IconButton`       |
-| Node card badges (`components/node-card.tsx`)   | `Badge` in the change tones (added, removed, renamed, changed), and muted for locked                    |
+| Part                                             | patchbay                                                                                                                                                                                                   |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Top bar                                          | `Button` (Add node), `Pill` (live / offline: whether the page receives rasl's live updates)                                                                                                                |
+| Side column                                      | resizable from its left edge with `Splitter` (280 to 720 px, by pointer or arrow keys; not when narrow)                                                                                                    |
+| Inspector (`components/inspector.tsx`)           | `Panel` titled by the node type or "Connection", `SectionTitle`, `KeyValue`, `TextInput`, `Button`                                                                                                         |
+| Queued changes (`components/pending-panel.tsx`)  | `Panel`, `Button` (Check and Save show a spinner while their request is on its way), `IconButton`                                                                                                          |
+| Settings rows (`components/settings-editor.tsx`) | a group per row named by its key: `TextInput` (code face; the new key's native datalist), `Button`, `IconButton`, and `RadioGroup` for where a value read from a `$variable` or `@use` argument is written |
+| Node card badges (`components/node-card.tsx`)    | `Badge` in the change tones (added, removed, renamed, changed), and muted for locked                                                                                                                       |

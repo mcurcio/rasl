@@ -117,7 +117,7 @@ test("a connection the graph refuses names its ports and cannot be saved", async
 test("a setting that reads a $variable is changed at its definition or only on its line", async ({ page }) => {
   await open(page);
   await node(page, "hue").click();
-  const fps = page.locator(".setting", { has: page.getByLabel("fps", { exact: true }) });
+  const fps = page.getByRole("group", { name: "fps", exact: true });
   await expect(fps).toContainText("$rate (2 uses)");
   await fps.getByLabel("fps", { exact: true }).fill("4");
   await fps.getByRole("button", { name: "Set" }).click();
@@ -127,7 +127,7 @@ test("a setting that reads a $variable is changed at its definition or only on i
   expect(text.match(/fps \$rate;/g)).toHaveLength(2);
 
   await node(page, "console").click();
-  const line = page.locator(".setting", { has: page.getByLabel("fps", { exact: true }) });
+  const line = page.getByRole("group", { name: "fps", exact: true });
   await line.getByLabel("only here").check();
   await line.getByLabel("fps", { exact: true }).fill("1");
   await line.getByRole("button", { name: "Set" }).click();
@@ -140,8 +140,8 @@ test("a setting that reads a $variable is changed at its definition or only on i
 test("a node made by @use takes its argument, and detaches into its own lines", async ({ page }) => {
   await open(page);
   await node(page, "probe").click();
-  await expect(page.locator(".use-note")).toContainText("@use tap");
-  const fps = page.locator(".setting", { has: page.getByLabel("fps", { exact: true }) });
+  await expect(page.getByRole("note")).toContainText("@use tap");
+  const fps = page.getByRole("group", { name: "fps", exact: true });
   await expect(fps).toContainText("@use argument $fps");
   await fps.getByLabel("fps", { exact: true }).fill("3");
   await fps.getByRole("button", { name: "Set" }).click();

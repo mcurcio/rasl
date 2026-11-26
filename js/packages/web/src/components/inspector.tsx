@@ -118,7 +118,7 @@ export function Inspector({
       {node.locked ? <p className="muted">Locked: {node.locked}.</p> : null}
       {node.error ? <p className="field-error">{node.error}</p> : null}
       {node.use ? (
-        <div className="use-note">
+        <div className="use-note" role="note">
           <span className="muted small">
             Made by <span className="mono">@use {node.use}</span>: its lines are the snippet&apos;s. Set a
             parameter&apos;s argument below, or detach it to edit every line.
