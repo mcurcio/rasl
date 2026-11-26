@@ -50,19 +50,16 @@ body,
   flex: 1;
   min-height: 0;
 }
-/* The side column's content: the inspector over the queued changes, each a patchbay Panel whose body scrolls */
+/* The side column's body, under the header row AppShell draws from its title (a Panel's, or the sheet's): the
+   inspector over the queued changes, which scroll with it */
 .side {
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  gap: var(--pb-space-3);
 }
-.side > .inspector,
 .side > .pending {
-  flex: 0 1 auto;
-}
-
-.inspector {
-  border-bottom: 1px solid var(--pb-line);
+  padding-top: var(--pb-space-3);
+  border-top: 1px solid var(--pb-line);
 }
 .inspector .inspector-kv {
   align-items: center;

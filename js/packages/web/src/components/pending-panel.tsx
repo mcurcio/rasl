@@ -1,9 +1,10 @@
 // The queued edits (owner, 2026-11-16: changes are saved on purpose, not as they are made):
 // each can be dropped; Check shows the diff and whether the result builds; Save writes it.
-// Drawn on patchbay's Panel, Button and IconButton; its news (files changed on disk, a refused change, a conflict,
-// the files saved) on Banner; the diff of what Save would write on DiffView, a section per file that folds.
+// A section of the side column's body under patchbay's SectionTitle, drawn on its Button and IconButton; its news
+// (files changed on disk, a refused change, a conflict, the files saved) on Banner; the diff of what Save would write
+// on DiffView, a section per file that folds.
 import { Banner, DiffView } from "@mcurcio/patchbay/composites";
-import { Button, IconButton, Panel } from "@mcurcio/patchbay/primitives";
+import { Button, IconButton, SectionTitle } from "@mcurcio/patchbay/primitives";
 import type { ReactElement } from "react";
 
 import type { Edit, EditOutcome } from "../api";
@@ -39,7 +40,8 @@ export function PendingPanel({
   onDiscard,
 }: PendingPanelProps): ReactElement {
   return (
-    <Panel className="pending" title="Changes" actions={<span className="muted small">{edits.length} queued</span>}>
+    <section className="pending" aria-label="Changes">
+      <SectionTitle actions={<span className="muted small">{edits.length} queued</span>}>Changes</SectionTitle>
       {stale ? (
         <Banner className="pending-banner" tone="warn">
           The files changed on disk. Check again before saving.
@@ -106,6 +108,6 @@ export function PendingPanel({
       {outcome && outcome.changes.length > 0 ? (
         <DiffView role="region" aria-label="What Save writes" files={outcome.changes} />
       ) : null}
-    </Panel>
+    </section>
   );
 }

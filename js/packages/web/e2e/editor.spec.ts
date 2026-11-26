@@ -391,12 +391,15 @@ test("in a narrow window the side panel is a sheet that a selection opens, from 
   await page.setViewportSize({ width: 700, height: 800 });
   await open(page);
   await expect(page.getByRole("complementary", { name: "Side panel" })).toHaveCount(0);
-  const sheet = page.getByRole("dialog", { name: "Side panel" });
-  await expect(sheet).toHaveCount(0);
+  // The sheet is named by its title, the selection's (the node's type), or "Side panel" with nothing selected
+  const sheet = page.getByRole("dialog", { name: "ConsoleSink" });
+  await expect(page.getByRole("dialog")).toHaveCount(0);
 
   await node(page, "console").click();
   await expect(sheet).toBeVisible();
-  await expect(sheet).toHaveAttribute("data-side", "right");
+  await expect(sheet).toHaveAttribute("data-side", "end");
+  // One header row: the title beside the Close button, and no other heading at its level
+  await expect(sheet.getByRole("heading", { level: 2 })).toHaveText(["ConsoleSink"]);
   await expect(sheet.getByRole("heading", { name: "ConsoleSink" })).toBeVisible();
   await sheet.getByRole("button", { name: "Close" }).click();
   await expect(sheet).toHaveCount(0);
@@ -409,6 +412,14 @@ test("in a narrow window the side panel is a sheet that a selection opens, from 
   await sheet.getByLabel("id", { exact: true }).focus();
   await page.keyboard.press("Escape");
   await expect(sheet).toHaveCount(0);
+
+  // With nothing selected the top bar's button opens it under the column's own name
+  await page.locator(".react-flow__pane").click({ position: { x: 10, y: 10 } });
+  await toggle.click();
+  const empty = page.getByRole("dialog", { name: "Side panel" });
+  await expect(empty.getByRole("heading", { level: 2 })).toHaveText(["Side panel"]);
+  await empty.getByRole("button", { name: "Close" }).click();
+  await expect(empty).toHaveCount(0);
 
   await page.setViewportSize({ width: 500, height: 800 });
   await node(page, "console").click();

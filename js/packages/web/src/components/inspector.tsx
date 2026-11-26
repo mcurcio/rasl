@@ -1,7 +1,8 @@
 // The selected node or connection: where it is written, its settings and ports, its metrics,
-// and the edits that apply to it (rename, remove, disconnect). Drawn on patchbay's Panel,
-// SectionTitle, KeyValue, TextInput and Button.
-import { Button, KeyValue, type KeyValueRow, Panel, SectionTitle, TextInput } from "@mcurcio/patchbay/primitives";
+// and the edits that apply to it (rename, remove, disconnect). Drawn on patchbay's SectionTitle,
+// KeyValue, TextInput and Button. It is the body of the side column, whose one header row AppShell
+// draws from inspectorTitle(): a Panel's on a wide window, the sheet's own on a narrow one.
+import { Button, KeyValue, type KeyValueRow, SectionTitle, TextInput } from "@mcurcio/patchbay/primitives";
 import { type ReactElement, useEffect, useState } from "react";
 
 import type { JsonSchema, NodeMetrics, SettingScope } from "../api";
@@ -22,6 +23,12 @@ export type InspectorProps = {
   readonly onSetValues: (values: string) => void;
   readonly onDetach: () => void;
 };
+
+/** The side column's title: the selected connection's or node's (its type), or the column's name with no selection. */
+export function inspectorTitle(node: ViewNode | null, edge: ViewEdge | null): string {
+  if (edge) return "Connection";
+  return node ? node.type : "Side panel";
+}
 
 function Place({ place }: { readonly place: { readonly path: string; readonly line: number } | null }): ReactElement {
   return <span className="mono muted">{place ? `${place.path.split("/").pop()}:${place.line}` : "not saved yet"}</span>;
@@ -61,22 +68,22 @@ export function Inspector({
     if (edge.repeatUntil !== null) rows.push({ key: "repeat_until", value: mono(edge.repeatUntil) });
     rows.push({ key: "written", value: <Place place={edge.place} /> });
     return (
-      <Panel className="inspector" title="Connection">
+      <div className="inspector">
         <KeyValue className="inspector-kv" rows={rows} />
         {edge.locked ? <p className="muted">Locked: {edge.locked}.</p> : null}
         <Button className="inspector-action" tone="danger" disabled={!canEdit} onClick={() => onDisconnect(edge)}>
           Disconnect
         </Button>
-      </Panel>
+      </div>
     );
   }
   if (!node)
     return (
-      <Panel className="inspector" aria-label="Inspector">
+      <div className="inspector">
         <p className="muted">
           Select a node or a connection. Double-click the canvas, or drop a wire on it, to add a node.
         </p>
-      </Panel>
+      </div>
     );
 
   const canEdit = editable && node.locked === null && node.status !== "removed";
@@ -89,7 +96,7 @@ export function Inspector({
       ]
     : [];
   return (
-    <Panel className="inspector" title={node.type}>
+    <div className="inspector">
       <KeyValue
         className="inspector-kv"
         rows={[
@@ -149,6 +156,6 @@ export function Inspector({
       <Button className="inspector-action" tone="danger" disabled={!canEdit} onClick={() => onRemove(node.id)}>
         Remove node and its connections
       </Button>
-    </Panel>
+    </div>
   );
 }

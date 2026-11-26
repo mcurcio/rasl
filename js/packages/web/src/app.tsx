@@ -56,7 +56,7 @@ import {
   subscribe,
 } from "./api";
 import { AddNodeDialog, type AddNodeRequest } from "./components/add-node-dialog";
-import { Inspector } from "./components/inspector";
+import { Inspector, inspectorTitle } from "./components/inspector";
 import { NodeCard, type NodeCardData } from "./components/node-card";
 import { PendingPanel } from "./components/pending-panel";
 import { layout, type Positions } from "./layout";
@@ -471,7 +471,8 @@ function Editor(): ReactElement {
   const selectedEdge = staged?.edges.find((e) => e.key === selection.edge) ?? null;
   const editable = graph?.editable === true;
 
-  // The side column's content: docked beside the canvas, or in the narrow window's sheet
+  // The side column's body under its one header row, which AppShell draws from the title (D19): a Panel's beside the
+  // canvas, the sheet's own beside its close button on a narrow window
   const side = (
     <div className="side">
       <Inspector
@@ -549,7 +550,14 @@ function Editor(): ReactElement {
           ),
           end: <ThemeSwitch choice={theme} onChoose={setTheme} />,
         }}
-        inspector={{ content: side, open: sideOpen, onOpen: setSideOpen, width: sideWidth, onWidth: setSideWidth }}
+        inspector={{
+          title: inspectorTitle(selectedNode, selectedEdge),
+          content: side,
+          open: sideOpen,
+          onOpen: setSideOpen,
+          width: sideWidth,
+          onWidth: setSideWidth,
+        }}
         labels={SIDE_LABELS}
       >
         <div className="workspace">
