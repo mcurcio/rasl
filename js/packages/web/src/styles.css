@@ -269,36 +269,6 @@ body,
   stroke-width: 2.5;
 }
 
-.type-list {
-  list-style: none;
-  padding: 0;
-  margin: 10px 0 0;
-}
-.type-item {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  width: 100%;
-  text-align: left;
-  background: none;
-  border: 1px solid transparent;
-  border-radius: var(--pb-radius-control);
-  padding: 6px 8px;
-  color: var(--pb-text);
-  cursor: pointer;
-  font: inherit;
-}
-.type-item:hover {
-  border-color: var(--pb-accent);
-  background: var(--pb-sunken);
-}
-.type-item:focus-visible {
-  outline: 2px solid var(--pb-accent);
-  outline-offset: -2px;
-}
-.type-name {
-  font-weight: 600;
-}
 .add-form {
   display: flex;
   flex-direction: column;

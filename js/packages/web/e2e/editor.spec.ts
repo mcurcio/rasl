@@ -47,6 +47,11 @@ function node(page: Page, id: string) {
   return page.locator(`.react-flow__node[data-id="${id}"]`);
 }
 
+/** The add-node palette's option for a node type or another name of one, by its label. */
+function typeOption(page: Page, label: string) {
+  return page.getByRole("option").filter({ has: page.getByText(label, { exact: true }) });
+}
+
 async function save(page: Page): Promise<void> {
   await expect(page.getByRole("button", { name: "Save" })).toBeEnabled();
   await page.getByRole("button", { name: "Save" }).click();
@@ -66,10 +71,13 @@ test.beforeEach(async ({ page }) => {
 test("a node added and wired in the page is saved to the file and runs", async ({ page }) => {
   await open(page);
   await page.getByRole("button", { name: /Add node/ }).click();
+  const palette = page.getByRole("dialog", { name: "Add a node" });
+  await palette.getByRole("combobox", { name: "Add a node" }).fill("console");
+  const option = typeOption(page, "ConsoleSink");
+  await expect(option).toContainText("Sink node that logs frame data to the console.");
+  await option.click();
+  await expect(palette).toHaveCount(0);
   const dialog = page.getByRole("dialog");
-  await expect(dialog).toHaveAccessibleName("Add a node");
-  await dialog.getByLabel("Search node types").fill("console");
-  await dialog.getByRole("button", { name: /^ConsoleSink/ }).click();
   await expect(dialog).toHaveAccessibleName("New ConsoleSink");
   await dialog.getByLabel("fps", { exact: true }).fill("1");
   await expect(dialog.getByRole("status")).toContainText("in: dmx");
@@ -193,20 +201,40 @@ test("the side panel is resized from its splitter", async ({ page }) => {
   await expect(splitter).toHaveAttribute("aria-valuenow", "280");
 });
 
-test("the add-node dialog closes on Escape and gives focus back", async ({ page }) => {
+test("adding a node: the palette and the dialog close on Escape and give focus back", async ({ page }) => {
   await open(page);
   const opener = page.getByRole("button", { name: /Add node/ });
   await opener.click();
+  const palette = page.getByRole("dialog", { name: "Add a node" });
+  const search = palette.getByRole("combobox", { name: "Add a node" });
+  await expect(search).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(palette).toHaveCount(0);
+  await expect(opener).toBeFocused();
+
+  // A type is found by another name it is registered under; Enter picks the first match
+  await opener.click();
+  await search.fill("consolesinknode");
+  await expect(page.getByRole("option")).toHaveCount(1);
+  await expect(typeOption(page, "ConsoleSinkNode")).toContainText("Another name for ConsoleSink");
+  await page.keyboard.press("Enter");
   const dialog = page.getByRole("dialog");
-  await expect(dialog).toHaveAccessibleName("Add a node");
-  await expect(dialog.getByLabel("Search node types")).toBeFocused();
+  await expect(dialog).toHaveAccessibleName("New ConsoleSink");
+  await dialog.getByRole("button", { name: "Back" }).click();
+  await expect(search).toBeFocused();
+  await expect(search).toHaveValue("");
+  await search.fill("console");
+  await typeOption(page, "ConsoleSink").click();
+  await expect(dialog).toHaveAccessibleName("New ConsoleSink");
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
   await expect(opener).toBeFocused();
 
   await opener.click();
+  await typeOption(page, "ConsoleSink").click();
   await dialog.getByRole("button", { name: "Close" }).click();
   await expect(dialog).toHaveCount(0);
+  await expect(opener).toBeFocused();
   await expect(page.getByRole("list", { name: "Queued changes" })).toHaveCount(0);
 });
 
@@ -215,10 +243,10 @@ test("the editor's keys: Mod+K adds a node, Mod+Z drops the last change, a text 
 }) => {
   await open(page);
   await page.keyboard.press("ControlOrMeta+k");
-  const dialog = page.getByRole("dialog");
-  await expect(dialog).toHaveAccessibleName("Add a node");
+  const palette = page.getByRole("dialog", { name: "Add a node" });
+  await expect(palette).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(dialog).toHaveCount(0);
+  await expect(palette).toHaveCount(0);
 
   // Delete in the rename field edits the text; the node stays
   await node(page, "console").click();

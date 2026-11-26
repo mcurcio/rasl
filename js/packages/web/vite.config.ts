@@ -22,5 +22,7 @@ export default defineConfig({
     environment: "node",
     // e2e/ holds the Playwright browser tests (pnpm e2e)
     include: ["src/**/*.test.ts"],
+    // patchbay's modules import their own stylesheets, which Node cannot load: Vite transforms them (and blanks the CSS)
+    server: { deps: { inline: ["@mcurcio/patchbay"] } },
   },
 });
