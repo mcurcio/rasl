@@ -11,7 +11,8 @@ graph editor. It talks only to rasl's GraphQL API (`docs/web-api.md`).
   reads only tokens that patchbay defines).
 - `pnpm e2e` runs the browser tests (`e2e/`, Playwright): it starts rasl (`uv run rasl`, so run `pnpm build`
   and `uv sync` first) on a copy of `e2e/fixture.conf` and edits it through the page. CI runs it as the
-  "Web editor (browser)" job.
+  "Web editor (browser)" job. The tests find things by role, accessible name or data attribute where patchbay
+  draws them (its classes are not the editor's to rely on).
 
 ## Layout
 
@@ -34,3 +35,14 @@ exactly) in its base look, with no rasl brand. `src/main.tsx` loads React Flow's
 `@mcurcio/patchbay/tokens.css`, then `src/styles.css`, which reads only `--pb-*` tokens and defines no variables of
 its own. The tokens hold the light and dark themes, follow the system's choice, and point React Flow's `--xy-*`
 variables at themselves.
+
+The page is built from patchbay's components (`@mcurcio/patchbay/primitives`, which loads its own stylesheet); the
+editor's words, data and editing model stay its own, mapped onto their props:
+
+| Part                                            | patchbay                                                                                                |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Top bar                                         | `Button` (Add node), `Pill` (live / offline: whether the page receives rasl's live updates)             |
+| Side column                                     | resizable from its left edge with `Splitter` (280 to 720 px, by pointer or arrow keys; not when narrow) |
+| Inspector (`components/inspector.tsx`)          | `Panel` titled by the node type or "Connection", `SectionTitle`, `KeyValue`, `TextInput`, `Button`      |
+| Queued changes (`components/pending-panel.tsx`) | `Panel`, `Button` (Check and Save show a spinner while their request is on its way), `IconButton`       |
+| Node card badges (`components/node-card.tsx`)   | `Badge` in the change tones (added, removed, renamed, changed), and muted for locked                    |

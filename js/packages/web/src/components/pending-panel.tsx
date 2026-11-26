@@ -1,5 +1,7 @@
 // The queued edits (owner, 2026-11-16: changes are saved on purpose, not as they are made):
 // each can be dropped; Check shows the diff and whether the result builds; Save writes it.
+// Drawn on patchbay's Panel, Button and IconButton.
+import { Button, IconButton, Panel } from "@mcurcio/patchbay/primitives";
 import type { ReactElement } from "react";
 
 import type { Edit, EditOutcome } from "../api";
@@ -10,7 +12,8 @@ export type PendingPanelProps = {
   readonly outcome: EditOutcome | null;
   /** The files the last Save wrote, until the next change is queued. */
   readonly saved: readonly string[];
-  readonly busy: boolean;
+  /** The request on its way, if any: its button shows a spinner, and the others wait. */
+  readonly busy: "check" | "save" | null;
   readonly stale: boolean;
   readonly onDrop: (index: number) => void;
   readonly onCheck: () => void;
@@ -57,41 +60,45 @@ export function PendingPanel({
   onDiscard,
 }: PendingPanelProps): ReactElement {
   return (
-    <div className="pending">
-      <div className="section-title">
-        Changes <span className="muted">({edits.length} queued)</span>
-      </div>
+    <Panel className="pending" title="Changes" actions={<span className="muted small">{edits.length} queued</span>}>
       {stale ? <p className="warning">The files changed on disk. Check again before saving.</p> : null}
       {edits.length === 0 ? (
         <p className="muted small">
           Wire ports, add or remove nodes: changes queue here and are written to the config only when you save.
         </p>
       ) : (
-        <ol className="edit-list">
+        <ol className="edit-list" aria-label="Queued changes">
           {edits.map((edit, i) => (
             <li key={i} className={outcome?.refused?.index === i ? "refused" : undefined}>
               <span className="mono">{describe(edit)}</span>
-              <button className="icon-button" title="Drop this change" onClick={() => onDrop(i)}>
+              <IconButton label="Drop this change" size="sm" onClick={() => onDrop(i)}>
                 ×
-              </button>
+              </IconButton>
             </li>
           ))}
         </ol>
       )}
       <div className="actions">
-        <button className="button" disabled={busy || edits.length === 0} onClick={onCheck}>
+        <Button
+          busy={busy === "check"}
+          busyLabel="Checking"
+          disabled={(busy !== null && busy !== "check") || edits.length === 0}
+          onClick={onCheck}
+        >
           Check
-        </button>
-        <button
-          className="button primary"
-          disabled={busy || edits.length === 0 || outcome?.ok === false}
+        </Button>
+        <Button
+          tone="primary"
+          busy={busy === "save"}
+          busyLabel="Saving"
+          disabled={(busy !== null && busy !== "save") || edits.length === 0 || outcome?.ok === false}
           onClick={onSave}
         >
           Save
-        </button>
-        <button className="button" disabled={busy || edits.length === 0} onClick={onDiscard}>
+        </Button>
+        <Button disabled={busy !== null || edits.length === 0} onClick={onDiscard}>
           Discard
-        </button>
+        </Button>
       </div>
       {outcome?.refused ? (
         <p className="field-error">
@@ -99,9 +106,15 @@ export function PendingPanel({
         </p>
       ) : null}
       {outcome?.conflict ? <p className="warning">{outcome.conflict}</p> : null}
-      {outcome?.error ? <pre className="problem">{outcome.error.formatted}</pre> : null}
+      {outcome?.error ? (
+        <pre className="problem" data-outcome="error">
+          {outcome.error.formatted}
+        </pre>
+      ) : null}
       {saved.length > 0 ? (
-        <p className="ok">Saved {saved.map(basename).join(", ")}; the running graph reloads it.</p>
+        <p className="ok" role="status">
+          Saved {saved.map(basename).join(", ")}; the running graph reloads it.
+        </p>
       ) : null}
       {outcome?.changes.map((change) => (
         <details key={change.path} open>
@@ -111,6 +124,6 @@ export function PendingPanel({
           <Diff text={change.diff} />
         </details>
       ))}
-    </div>
+    </Panel>
   );
 }

@@ -1,4 +1,6 @@
 // A node on the canvas: its id and type, health from live metrics, and a handle per port.
+// Its locked and change badges are patchbay's Badge, in the change tones.
+import { Badge } from "@mcurcio/patchbay/primitives";
 import { Handle, type NodeProps, Position } from "@xyflow/react";
 import type { ReactElement } from "react";
 
@@ -54,11 +56,11 @@ export function NodeCard({ data, selected }: NodeProps & { data: NodeCardData })
         <span className="node-id">{node.id}</span>
         <span className="node-type">{node.type}</span>
         {node.locked ? (
-          <span className="badge" title={node.locked}>
+          <Badge tone="muted" title={node.locked}>
             locked
-          </span>
+          </Badge>
         ) : null}
-        {node.status !== "saved" ? <span className={`badge badge-${node.status}`}>{node.status}</span> : null}
+        {node.status !== "saved" ? <Badge tone={node.status}>{node.status}</Badge> : null}
       </div>
       <div className="node-ports" style={{ height: rows * PORT_ROW }}>
         {node.inputs.map((port, i) => (

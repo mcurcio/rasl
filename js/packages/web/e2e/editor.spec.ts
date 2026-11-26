@@ -39,7 +39,7 @@ async function settle(page: Page): Promise<void> {
 async function open(page: Page): Promise<void> {
   await page.goto("/");
   await expect(page.locator(".react-flow__node")).toHaveCount(5);
-  await expect(page.locator(".conn.on")).toBeVisible();
+  await expect(page.getByText("live", { exact: true })).toBeVisible();
   await settle(page);
 }
 
@@ -50,7 +50,7 @@ function node(page: Page, id: string) {
 async function save(page: Page): Promise<void> {
   await expect(page.getByRole("button", { name: "Save" })).toBeEnabled();
   await page.getByRole("button", { name: "Save" }).click();
-  await expect(page.locator(".ok")).toContainText("Saved rasl.conf");
+  await expect(page.getByRole("status").filter({ hasText: "Saved rasl.conf" })).toBeVisible();
 }
 
 test.beforeEach(async ({ page }) => {
@@ -76,7 +76,7 @@ test("a node added and wired in the page is saved to the file and runs", async (
   await node(page, "rgb")
     .locator(".react-flow__handle.source")
     .dragTo(node(page, "console_sink_1").locator(".react-flow__handle.target"));
-  await expect(page.locator(".edit-list li")).toHaveCount(2);
+  await expect(page.getByRole("list", { name: "Queued changes" }).getByRole("listitem")).toHaveCount(2);
   await expect(page.locator(".diff")).toContainText("+    node ConsoleSink console_sink_1 {");
   await expect(node(page, "console_sink_1").locator(".node-card")).toHaveClass(/status-added/);
 
@@ -108,7 +108,7 @@ test("a connection the graph refuses names its ports and cannot be saved", async
   await node(page, "hue")
     .locator(".react-flow__handle.source")
     .dragTo(node(page, "console").locator(".react-flow__handle.target"));
-  await expect(page.locator(".problem")).toContainText("Overlapping connections into console.dmx");
+  await expect(page.locator('[data-outcome="error"]')).toContainText("Overlapping connections into console.dmx");
   await expect(page.locator(".handle-problem")).toHaveCount(2);
   await expect(page.getByRole("button", { name: "Save" })).toBeDisabled();
   expect(readFileSync(CONFIG, "utf8")).toBe(FIXTURE);
@@ -166,4 +166,18 @@ test("removing a node removes its connections, and the running graph drops it", 
   await save(page);
   expect(readFileSync(CONFIG, "utf8")).not.toContain("node ConsoleSink console");
   await expect.poll(() => runningNodes(page)).not.toContain("console");
+});
+
+test("the side panel is resized from its splitter", async ({ page }) => {
+  await open(page);
+  const side = page.locator("aside.side");
+  const before = (await side.boundingBox())?.width ?? 0;
+  const splitter = page.getByRole("separator", { name: "Resize the side panel" });
+  await splitter.focus();
+  // On the panel's left edge, the left arrow widens it
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowLeft");
+  await expect.poll(async () => (await side.boundingBox())?.width ?? 0).toBeGreaterThan(before + 20);
+  await page.keyboard.press("Home");
+  await expect(splitter).toHaveAttribute("aria-valuenow", "280");
 });

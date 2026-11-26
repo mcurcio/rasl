@@ -1,6 +1,7 @@
 // The rasl web UI: the graph as the config files write it, live health, and the editor.
 // Edits queue (drawn dashed until saved), are checked against the server as they are made,
 // and are written to the files only on Save; the watcher then reloads the running graph.
+import { Button, Pill, Splitter } from "@mcurcio/patchbay/primitives";
 import {
   Background,
   type Connection,
@@ -39,6 +40,9 @@ import { layout, type Positions } from "./layout";
 import { accepts, connectEdit, queue, stage, type StagedGraph, type ViewEdge, type ViewNode } from "./model";
 
 const NODE_TYPES = { card: NodeCard };
+
+/** The side column's width in px: where it starts, and how far its splitter moves it. */
+const SIDE = { initial: 360, min: 280, max: 720 } as const;
 
 type Selection = { readonly node?: string; readonly edge?: string };
 
@@ -103,7 +107,8 @@ function Editor(): ReactElement {
   const [edits, setEdits] = useState<readonly Edit[]>([]);
   const [previews, setPreviews] = useState<ReadonlyMap<string, ConfigNode>>(new Map());
   const [outcome, setOutcome] = useState<EditOutcome | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"check" | "save" | null>(null);
+  const [sideWidth, setSideWidth] = useState<number>(SIDE.initial);
   const [stale, setStale] = useState(false);
   const [metrics, setMetrics] = useState<ReadonlyMap<string, NodeMetrics>>(new Map());
   const [connected, setConnected] = useState(false);
@@ -223,18 +228,18 @@ function Editor(): ReactElement {
 
   const check = useCallback(async (): Promise<void> => {
     if (!graph) return;
-    setBusy(true);
+    setBusy("check");
     try {
       setOutcome(await previewEdits(graph.version, edits));
       setStale(false);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }, [graph, edits]);
 
   const save = useCallback(async (): Promise<void> => {
     if (!graph) return;
-    setBusy(true);
+    setBusy("save");
     try {
       const result = await applyEdits(graph.version, edits);
       setOutcome(result);
@@ -249,7 +254,7 @@ function Editor(): ReactElement {
         await load();
       }
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }, [graph, edits, load]);
 
@@ -408,12 +413,12 @@ function Editor(): ReactElement {
         <span className="brand">rasl</span>
         <span className="muted mono small">{graph?.path}</span>
         <span className="spacer" />
-        {editable ? (
-          <button className="button" onClick={() => setDialog({ from: null })}>
-            Add node (⌘K)
-          </button>
-        ) : null}
-        <span className={`conn ${connected ? "on" : "off"}`}>{connected ? "live" : "offline"}</span>
+        {editable ? <Button onClick={() => setDialog({ from: null })}>Add node (⌘K)</Button> : null}
+        <Pill
+          tone={connected ? "ok" : "err"}
+          label={connected ? "live" : "offline"}
+          title={connected ? "Receiving live updates from rasl" : "Not connected to rasl's live updates"}
+        />
       </header>
       {loadError ? <div className="banner error">{loadError}</div> : null}
       {reloadError ? <div className="banner error">The running graph did not reload: {reloadError}</div> : null}
@@ -452,7 +457,16 @@ function Editor(): ReactElement {
             <Controls showInteractive={false} />
           </ReactFlow>
         </section>
-        <aside className="side">
+        <aside className="side" style={{ width: sideWidth }}>
+          <Splitter
+            orientation="vertical"
+            edge="start"
+            value={sideWidth}
+            min={SIDE.min}
+            max={SIDE.max}
+            onChange={setSideWidth}
+            label="Resize the side panel"
+          />
           <Inspector
             node={selectedNode}
             edge={selectedEdge}

@@ -43,18 +43,6 @@ body,
   font-weight: 700;
   letter-spacing: 0.04em;
 }
-.conn {
-  font-size: 12px;
-  padding: 2px 8px;
-  border-radius: var(--pb-radius-pill);
-  border: 1px solid var(--pb-line);
-}
-.conn.on {
-  color: var(--pb-ok);
-}
-.conn.off {
-  color: var(--pb-err);
-}
 .banner {
   padding: 6px 16px;
   font-size: 13px;
@@ -70,19 +58,25 @@ body,
 .layout {
   flex: 1;
   display: grid;
-  grid-template-columns: 1fr 360px;
+  grid-template-columns: 1fr auto;
   min-height: 0;
 }
 .canvas {
   position: relative;
   min-height: 0;
 }
+/* The side column: the inspector over the queued changes, each a patchbay Panel whose body scrolls. Its width is
+   set inline from the Splitter on its left edge (app.tsx). */
 .side {
+  position: relative;
   border-left: 1px solid var(--pb-line);
   background: var(--pb-raised);
-  overflow: auto;
   display: flex;
   flex-direction: column;
+  min-height: 0;
+}
+.side > .pb-panel {
+  flex: 0 1 auto;
 }
 @media (max-width: 800px) {
   .layout {
@@ -93,6 +87,11 @@ body,
     border-left: none;
     border-top: 1px solid var(--pb-line);
     max-height: 45vh;
+    /* Stacked under the canvas, the column takes the full width whatever the splitter set */
+    min-width: 100%;
+  }
+  .side > .pb-splitter {
+    display: none;
   }
 }
 
@@ -138,29 +137,23 @@ body,
   font-size: 13px;
 }
 
-.inspector,
-.pending {
-  padding: 12px 16px;
+.inspector {
   border-bottom: 1px solid var(--pb-line);
 }
-.section-title {
-  font-weight: 600;
-  margin: 8px 0;
-}
-.kv {
-  display: grid;
-  grid-template-columns: 90px 1fr;
-  gap: 4px 10px;
-  font-size: 13px;
-  margin-bottom: 8px;
+.inspector .pb-key-value {
   align-items: center;
+  margin-bottom: 8px;
 }
-.kv > span:nth-child(odd) {
-  color: var(--pb-muted);
+.inspector > .pb-panel-body > .pb-button {
+  margin-top: 8px;
 }
 .rename {
   display: flex;
   gap: 6px;
+}
+.rename > .pb-text-input {
+  flex: 1;
+  min-width: 0;
 }
 .field-error {
   color: var(--pb-err);
@@ -191,6 +184,7 @@ body,
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 6px;
 }
 .edit-list li.refused {
   color: var(--pb-err);
@@ -267,25 +261,6 @@ body,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.badge {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: var(--pb-radius-pill);
-  border: 1px solid var(--pb-line);
-  color: var(--pb-muted);
-}
-.badge-added {
-  color: var(--pb-added);
-  border-color: var(--pb-added);
-}
-.badge-removed {
-  color: var(--pb-removed);
-  border-color: var(--pb-removed);
-}
-.badge-renamed {
-  color: var(--pb-renamed);
-  border-color: var(--pb-renamed);
 }
 .health {
   width: 8px;
@@ -490,10 +465,6 @@ body,
   margin: 6px 0;
 }
 .node-card.status-changed {
-  border-color: var(--pb-warn);
-}
-.badge-changed {
-  color: var(--pb-warn);
   border-color: var(--pb-warn);
 }
 
