@@ -1,7 +1,10 @@
 // The palette: pick a node type, give it an id and settings, and see its ports before it is
 // queued. Ports can depend on settings (an sACN source's universes), so they come from the
-// server's previewNode, asked again as the settings change.
-import { type ReactElement, useEffect, useMemo, useState } from "react";
+// server's previewNode, asked again as the settings change. Drawn on patchbay's Dialog (Escape,
+// the Close button and a press outside close it; focus stays inside and returns after), with
+// Field, TextInput and Button.
+import { Button, Dialog, Field, TextInput } from "@mcurcio/patchbay/primitives";
+import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 
 import { type ConfigNode, type JsonSchema, type NodeType, previewNode, type Setting } from "../api";
 import { nextId } from "../model";
@@ -36,6 +39,13 @@ export function AddNodeDialog({ types, takenIds, from, onAdd, onClose }: AddNode
   const [values, setValues] = useState("");
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [preview, setPreview] = useState<ConfigNode | null>(null);
+  // The step's first field takes focus: the search, or the new node's id. Set here rather than by autoFocus, which
+  // would take focus before the Dialog notes where it came from, and so where to return it.
+  const searchRef = useRef<HTMLInputElement>(null);
+  const idRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    (type === null ? searchRef : idRef).current?.focus();
+  }, [type]);
 
   const matches = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -93,9 +103,11 @@ export function AddNodeDialog({ types, takenIds, from, onAdd, onClose }: AddNode
   const canAdd = type !== null && preview !== null && idProblem === null;
 
   return (
-    <div className="dialog-backdrop" onMouseDown={onClose}>
-      <div className="dialog" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-label="Add a node">
-        <div className="dialog-title">
+    <Dialog
+      open
+      onClose={onClose}
+      title={
+        <>
           {type ? `New ${type.name}` : "Add a node"}
           {from ? (
             <span className="muted">
@@ -103,85 +115,82 @@ export function AddNodeDialog({ types, takenIds, from, onAdd, onClose }: AddNode
               fed by {from.node}.{from.port}
             </span>
           ) : null}
-        </div>
-        {type === null ? (
+        </>
+      }
+      actions={
+        type === null ? undefined : (
           <>
-            <input
-              autoFocus
-              className="input"
-              placeholder="Search node types"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            <ul className="type-list">
-              {matches.map((t) => (
-                <li key={t.name}>
-                  <button className="type-item" onClick={() => choose(t)}>
-                    <span className="type-name">{t.name}</span>
-                    <span className="muted">{t.summary}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <Button onClick={() => setType(null)}>Back</Button>
+            <Button
+              tone="primary"
+              disabled={!canAdd}
+              onClick={() =>
+                preview && onAdd({ type: type.name, id, values: values.trim(), settings: filled, preview })
+              }
+            >
+              Queue
+            </Button>
           </>
-        ) : (
-          <div className="add-form">
-            <label className="field">
-              <span>id</span>
-              <input autoFocus className="input mono" value={id} onChange={(e) => setId(e.target.value)} />
-              {idProblem ? <span className="field-error">{idProblem}</span> : null}
-            </label>
-            <label className="field">
-              <span title="Values written after the id on the node line, as config text">values</span>
-              <input
-                className="input mono"
-                placeholder="(none)"
-                value={values}
-                onChange={(e) => setValues(e.target.value)}
-              />
-            </label>
-            {fields(type.schema).map(([key, schema]) => (
-              <label className="field" key={key} title={schema.description}>
-                <span>{key}</span>
-                <input
-                  className="input mono"
-                  placeholder={
-                    schema.default === undefined || schema.default === null ? "" : JSON.stringify(schema.default)
-                  }
-                  value={settings[key] ?? ""}
-                  onChange={(e) => setSettings({ ...settings, [key]: e.target.value })}
-                />
-              </label>
+        )
+      }
+    >
+      {type === null ? (
+        <>
+          <TextInput
+            ref={searchRef}
+            aria-label="Search node types"
+            placeholder="Search node types"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <ul className="type-list">
+            {matches.map((t) => (
+              <li key={t.name}>
+                <button type="button" className="type-item" onClick={() => choose(t)}>
+                  <span className="type-name">{t.name}</span>
+                  <span className="muted">{t.summary}</span>
+                </button>
+              </li>
             ))}
-            <div className="preview">
-              {preview === null ? (
-                <span className="muted">Building…</span>
-              ) : preview.error ? (
-                <span className="field-error">{preview.error}</span>
-              ) : (
-                <span className="muted">
-                  in: {preview.inputs.map((p) => p.name).join(", ") || "none"} · out:{" "}
-                  {preview.outputs.map((p) => p.name).join(", ") || "none"}
-                </span>
-              )}
-            </div>
-            <div className="dialog-actions">
-              <button className="button" onClick={() => setType(null)}>
-                Back
-              </button>
-              <button
-                className="button primary"
-                disabled={!canAdd}
-                onClick={() =>
-                  preview && onAdd({ type: type.name, id, values: values.trim(), settings: filled, preview })
+          </ul>
+        </>
+      ) : (
+        <div className="add-form">
+          <Field label="id" layout="inline" error={idProblem ?? undefined}>
+            <TextInput ref={idRef} font="code" value={id} onChange={(e) => setId(e.target.value)} />
+          </Field>
+          <Field
+            label={<span title="Values written after the id on the node line, as config text">values</span>}
+            layout="inline"
+          >
+            <TextInput font="code" placeholder="(none)" value={values} onChange={(e) => setValues(e.target.value)} />
+          </Field>
+          {fields(type.schema).map(([key, schema]) => (
+            <Field label={key} layout="inline" key={key} title={schema.description}>
+              <TextInput
+                font="code"
+                placeholder={
+                  schema.default === undefined || schema.default === null ? "" : JSON.stringify(schema.default)
                 }
-              >
-                Queue
-              </button>
-            </div>
+                value={settings[key] ?? ""}
+                onChange={(e) => setSettings({ ...settings, [key]: e.target.value })}
+              />
+            </Field>
+          ))}
+          <div className="preview" role="status">
+            {preview === null ? (
+              <span className="muted">Building…</span>
+            ) : preview.error ? (
+              <span className="field-error">{preview.error}</span>
+            ) : (
+              <span className="muted">
+                in: {preview.inputs.map((p) => p.name).join(", ") || "none"} · out:{" "}
+                {preview.outputs.map((p) => p.name).join(", ") || "none"}
+              </span>
+            )}
           </div>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+    </Dialog>
   );
 }

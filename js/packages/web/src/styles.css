@@ -95,48 +95,6 @@ body,
   }
 }
 
-.button {
-  background: var(--pb-sunken);
-  color: var(--pb-text);
-  border: 1px solid var(--pb-line);
-  border-radius: var(--pb-radius-control);
-  padding: 5px 10px;
-  cursor: pointer;
-  font: inherit;
-  font-size: 13px;
-}
-.button:hover:not(:disabled) {
-  border-color: var(--pb-accent);
-}
-.button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.button.primary {
-  background: var(--pb-accent);
-  color: var(--pb-on-strong);
-  border-color: var(--pb-accent);
-}
-.button.danger {
-  color: var(--pb-err);
-}
-.icon-button {
-  background: none;
-  border: none;
-  color: var(--pb-muted);
-  cursor: pointer;
-  font-size: 16px;
-}
-.input {
-  width: 100%;
-  background: var(--pb-sunken);
-  color: var(--pb-text);
-  border: 1px solid var(--pb-line);
-  border-radius: var(--pb-radius-control);
-  padding: 5px 8px;
-  font-size: 13px;
-}
-
 .inspector {
   border-bottom: 1px solid var(--pb-line);
 }
@@ -336,29 +294,6 @@ body,
   stroke-width: 2.5;
 }
 
-.dialog-backdrop {
-  position: fixed;
-  inset: 0;
-  background: var(--pb-scrim);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 10vh 16px;
-  z-index: 10;
-}
-.dialog {
-  width: min(520px, 100%);
-  max-height: 75vh;
-  overflow: auto;
-  background: var(--pb-raised);
-  border: 1px solid var(--pb-line);
-  border-radius: var(--pb-radius-box);
-  padding: 16px;
-}
-.dialog-title {
-  font-weight: 600;
-  margin-bottom: 10px;
-}
 .type-list {
   list-style: none;
   padding: 0;
@@ -382,6 +317,10 @@ body,
   border-color: var(--pb-accent);
   background: var(--pb-sunken);
 }
+.type-item:focus-visible {
+  outline: 2px solid var(--pb-accent);
+  outline-offset: -2px;
+}
 .type-name {
   font-weight: 600;
 }
@@ -390,24 +329,9 @@ body,
   flex-direction: column;
   gap: 8px;
 }
-.field {
-  display: grid;
-  grid-template-columns: 130px 1fr;
-  gap: 4px 10px;
-  align-items: center;
-  font-size: 13px;
-}
-.field > .field-error {
-  grid-column: 2;
-}
 .preview {
   font-size: 12px;
   padding: 6px 0;
-}
-.dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
 }
 
 /* Settings editor: the rows' layout and their queued and removed marks; the controls are patchbay's */

@@ -66,11 +66,15 @@ test.beforeEach(async ({ page }) => {
 test("a node added and wired in the page is saved to the file and runs", async ({ page }) => {
   await open(page);
   await page.getByRole("button", { name: /Add node/ }).click();
-  await page.getByPlaceholder("Search node types").fill("console");
-  await page.locator(".type-item", { hasText: "ConsoleSink" }).click();
-  await page.locator(".field", { hasText: "fps" }).locator("input").fill("1");
-  await expect(page.locator(".preview")).toContainText("in: dmx");
-  await page.locator(".dialog").getByRole("button", { name: "Queue" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toHaveAccessibleName("Add a node");
+  await dialog.getByLabel("Search node types").fill("console");
+  await dialog.getByRole("button", { name: /^ConsoleSink/ }).click();
+  await expect(dialog).toHaveAccessibleName("New ConsoleSink");
+  await dialog.getByLabel("fps", { exact: true }).fill("1");
+  await expect(dialog.getByRole("status")).toContainText("in: dmx");
+  await dialog.getByRole("button", { name: "Queue" }).click();
+  await expect(dialog).toHaveCount(0);
   await settle(page);
 
   await node(page, "rgb")
@@ -180,4 +184,21 @@ test("the side panel is resized from its splitter", async ({ page }) => {
   await expect.poll(async () => (await side.boundingBox())?.width ?? 0).toBeGreaterThan(before + 20);
   await page.keyboard.press("Home");
   await expect(splitter).toHaveAttribute("aria-valuenow", "280");
+});
+
+test("the add-node dialog closes on Escape and gives focus back", async ({ page }) => {
+  await open(page);
+  const opener = page.getByRole("button", { name: /Add node/ });
+  await opener.click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toHaveAccessibleName("Add a node");
+  await expect(dialog.getByLabel("Search node types")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(opener).toBeFocused();
+
+  await opener.click();
+  await dialog.getByRole("button", { name: "Close" }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("list", { name: "Queued changes" })).toHaveCount(0);
 });
