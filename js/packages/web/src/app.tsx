@@ -113,12 +113,14 @@ function connectionHints(
   return hints;
 }
 
-function problemPorts(outcome: EditOutcome | null): ReadonlyMap<string, ReadonlySet<string>> {
-  const ports = new Map<string, Set<string>>();
-  const connection = outcome?.error?.connection;
-  if (!connection) return ports;
+/** The ports a refused connection names, by node and handle, with the refusal's words. */
+function problemPorts(outcome: EditOutcome | null): ReadonlyMap<string, ReadonlyMap<string, string>> {
+  const ports = new Map<string, Map<string, string>>();
+  const error = outcome?.error;
+  const connection = error?.connection;
+  if (!error || !connection) return ports;
   const add = (node: string, handle: string): void => {
-    ports.set(node, (ports.get(node) ?? new Set()).add(handle));
+    ports.set(node, (ports.get(node) ?? new Map<string, string>()).set(handle, error.message));
   };
   if (connection.source.port) add(connection.source.node, `out:${connection.source.port}`);
   if (connection.target.port) add(connection.target.node, `in:${connection.target.port}`);
@@ -164,7 +166,7 @@ function Editor(): ReactElement {
   }, []);
   // A rebuilt node that reaches React Flow before its size is passed back loses its handles' bounds, and React Flow
   // may not measure it again (its size has not changed), so a wire could not be dragged from it: once the sizes are
-  // passed back, the handles are measured again.
+  // passed back, the handles are measured again. (NodeBox measures them again only when its ports change.)
   const updateNodeInternals = useUpdateNodeInternals();
   useEffect(() => {
     if (measured.size > 0) updateNodeInternals([...measured.keys()]);
@@ -422,7 +424,7 @@ function Editor(): ReactElement {
         data: {
           node,
           metrics: metrics.get(node.renamedFrom ?? node.id),
-          problemPorts: problems.get(node.id) ?? new Set(),
+          problemPorts: problems.get(node.id) ?? new Map(),
           hints: hints?.get(node.id) ?? null,
         } satisfies NodeCardData,
       })),

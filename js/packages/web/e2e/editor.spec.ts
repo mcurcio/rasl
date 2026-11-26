@@ -47,6 +47,11 @@ function node(page: Page, id: string) {
   return page.locator(`.react-flow__node[data-id="${id}"]`);
 }
 
+/** A node's card: the group its id names, which says a queued change in data-change. */
+function card(page: Page, id: string) {
+  return node(page, id).getByRole("group", { name: id, exact: true });
+}
+
 /** The add-node palette's option for a node type or another name of one, by its label. */
 function typeOption(page: Page, label: string) {
   return page.getByRole("option").filter({ has: page.getByText(label, { exact: true }) });
@@ -97,7 +102,7 @@ test("a node added and wired in the page is saved to the file and runs", async (
   await expect(diff.getByText("+    node ConsoleSink console_sink_1 {")).toBeHidden();
   await diff.getByRole("button", { name: "rasl.conf" }).click();
   await expect(diff.getByText("+    node ConsoleSink console_sink_1 {")).toBeVisible();
-  await expect(node(page, "console_sink_1").locator(".node-card")).toHaveClass(/status-added/);
+  await expect(card(page, "console_sink_1")).toHaveAttribute("data-change", "added");
 
   await save(page);
   const text = readFileSync(CONFIG, "utf8");
@@ -116,10 +121,10 @@ test("while a wire is dragged, ports that cannot take it are marked", async ({ p
   await page.mouse.move(box.x + 120, box.y + 80, { steps: 5 });
   // rgb emits a color: the sink's dmx input takes it; rgb's own input is marked as not a
   // place to drop it
-  await expect(node(page, "console").locator(".react-flow__handle.hint-ok")).toHaveCount(1);
-  await expect(node(page, "rgb").locator(".react-flow__handle.hint-no")).toHaveCount(1);
+  await expect(node(page, "console").locator('.react-flow__handle[data-hint="ok"]')).toHaveCount(1);
+  await expect(node(page, "rgb").locator('.react-flow__handle[data-hint="no"]')).toHaveCount(1);
   await page.mouse.up();
-  await expect(page.locator(".hint-ok, .hint-no")).toHaveCount(0);
+  await expect(page.locator(".react-flow__handle[data-hint]")).toHaveCount(0);
 });
 
 test("a connection the graph refuses names its ports and cannot be saved", async ({ page }) => {
@@ -128,7 +133,11 @@ test("a connection the graph refuses names its ports and cannot be saved", async
     .locator(".react-flow__handle.source")
     .dragTo(node(page, "console").locator(".react-flow__handle.target"));
   await expect(page.locator('[data-outcome="error"]')).toContainText("Overlapping connections into console.dmx");
-  await expect(page.locator(".handle-problem")).toHaveCount(2);
+  // The two ports it names carry a warning mark with its words: hue's output and console's input
+  const problem = /Overlapping connections into console\.dmx/;
+  await expect(page.locator(".react-flow__node").getByText(problem)).toHaveCount(2);
+  await expect(node(page, "hue").getByText(problem)).toHaveCount(1);
+  await expect(node(page, "console").getByText(problem)).toHaveCount(1);
   await expect(page.getByRole("button", { name: "Save" })).toBeDisabled();
   expect(readFileSync(CONFIG, "utf8")).toBe(FIXTURE);
 });
@@ -181,7 +190,7 @@ test("removing a node removes its connections, and the running graph drops it", 
   await open(page);
   await node(page, "console").click();
   await page.keyboard.press("Delete");
-  await expect(node(page, "console").locator(".node-card")).toHaveClass(/status-removed/);
+  await expect(card(page, "console")).toHaveAttribute("data-change", "removed");
   await save(page);
   expect(readFileSync(CONFIG, "utf8")).not.toContain("node ConsoleSink console");
   await expect.poll(() => runningNodes(page)).not.toContain("console");

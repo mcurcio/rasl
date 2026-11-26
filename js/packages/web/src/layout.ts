@@ -1,13 +1,26 @@
 // Automatic layout (owner, 2026-11-16: positions are not stored): ELK's layered algorithm,
 // left to right, with each node's ports in a fixed order so wires do not cross needlessly.
+// Each node is sized by patchbay's NodeBox geometry, the same formula the card is drawn to.
+import { type NodeBoxShape, nodeBoxSize } from "@mcurcio/patchbay/graph";
+
 import type { StagedGraph, ViewNode } from "./model";
 
-export const NODE_WIDTH = 240;
-const HEADER_HEIGHT = 46;
-export const PORT_ROW = 22;
+/**
+ * A node card's ports: NodeBox's default, the inputs' rows and then the outputs', each row the card's full width. Side
+ * by side, each column is half of it, and NodeBox keeps a port's whole type and cuts its name, which rasl's long types
+ * ("matrix|color") cut to a letter.
+ */
+export const NODE_PORTS = "stacked";
 
-export function nodeHeight(node: ViewNode): number {
-  return HEADER_HEIGHT + PORT_ROW * Math.max(node.inputs.length, node.outputs.length, 1) + 10;
+/** What decides a node card's size: its ports, and whether it has an error line and a locked footer. */
+export function nodeShape(node: ViewNode): NodeBoxShape {
+  return {
+    inputs: node.inputs.length,
+    outputs: node.outputs.length,
+    ports: NODE_PORTS,
+    line: node.error !== null,
+    footer: node.locked !== null,
+  };
 }
 
 export type Positions = ReadonlyMap<string, { readonly x: number; readonly y: number }>;
@@ -35,8 +48,7 @@ export async function layout(graph: StagedGraph): Promise<Positions> {
     },
     children: graph.nodes.map((node) => ({
       id: node.id,
-      width: NODE_WIDTH,
-      height: nodeHeight(node),
+      ...nodeBoxSize(nodeShape(node)),
       ports: [
         ...node.inputs.map((p, i) => ({
           id: `${node.id}:in:${p.name}`,
