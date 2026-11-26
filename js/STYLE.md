@@ -102,7 +102,7 @@ This document describes how we write TypeScript in `js/`. It focuses on readabil
 
   11.5 Prefer a shared, enum-like `ErrorCode` set (as `as const`, not `enum`) for cross-cutting categories.
   11.6 User-input / parse failures should throw (they are failures of the operation’s contract).
-  11.7 All **RASL** packages (everything except `@rasl/config` and `@rasl/ui`) should throw `RaslError` (or subclasses) and use `ErrorCodes` (exported from `@rasl/engine`).
+  11.7 All **RASL** packages (everything except `@rasl/config`) should throw `RaslError` (or subclasses) and use `ErrorCodes` (exported from `@rasl/engine`).
 
 ## 12. Async and cancellation
 
