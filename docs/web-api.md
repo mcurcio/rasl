@@ -71,8 +71,8 @@ and the container image builds them. The page uses only the GraphQL API below an
 internet.
 
 It draws the graph as the config files write it ([Graph editor](#graph-editor)), laid out automatically, with
-each node's ports, a health dot from `metricsStream`, and for the selection where it is written, its settings and
-metrics. Editing:
+each node's ports, its health from `metricsStream` (idle, ok, degraded or failing, beside a dot), and for the
+selection where it is written, its settings and metrics. Editing:
 
 - **Connect**: drag from an output port to an input port. While the wire is dragged, the ports that take it
   (as it is, or retyped to a more specific type) light up and the rest dim; a drop on a port that cannot take it
@@ -81,8 +81,9 @@ metrics. Editing:
   it). Pick a type, give it an id and settings; its ports are shown before it is added (`previewNode`).
 - **Remove or rename**: select a node or a connection and press Delete, or use the inspector. Removing a node
   removes its connections.
-- Changes **queue** (owner, 2026-11-16: saved on purpose): queued nodes and connections are drawn dashed,
-  removed ones struck through. The queue is checked as it changes (`previewEdits`): the diff to each file, and
+- Changes **queue** (owner, 2026-11-16: saved on purpose): a queued node is drawn with a border and a badge in
+  its change's colour (added, removed, renamed, changed), a removed one with its id struck through; a queued
+  connection is dashed in its change's colour. The queue is checked as it changes (`previewEdits`): the diff to each file, and
   the error, with the ports of a refused connection marked. **Save** (`applyEdits`) writes the files; the
   running graph follows by its reload. ⌘Z drops the last queued change.
 - **Settings**: the inspector edits a node's lines (and the values after its id), adds one (suggesting the keys
