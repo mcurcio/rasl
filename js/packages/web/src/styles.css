@@ -144,23 +144,6 @@ body,
   gap: 8px;
   margin: 8px 0;
 }
-.diff {
-  font-size: 12px;
-  background: var(--pb-sunken);
-  padding: 8px;
-  border-radius: var(--pb-radius-control);
-  overflow-x: auto;
-  margin: 4px 0;
-}
-.diff .add {
-  color: var(--pb-added);
-}
-.diff .del {
-  color: var(--pb-removed);
-}
-.diff .hunk {
-  color: var(--pb-accent);
-}
 
 /* Nodes: saved solid, queued additions dashed green, removals faded red, renames purple */
 .node-card {

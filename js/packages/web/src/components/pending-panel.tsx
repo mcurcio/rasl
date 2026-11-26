@@ -1,8 +1,8 @@
 // The queued edits (owner, 2026-11-16: changes are saved on purpose, not as they are made):
 // each can be dropped; Check shows the diff and whether the result builds; Save writes it.
 // Drawn on patchbay's Panel, Button and IconButton; its news (files changed on disk, a refused change, a conflict,
-// the files saved) on Banner.
-import { Banner } from "@mcurcio/patchbay/composites";
+// the files saved) on Banner; the diff of what Save would write on DiffView, a section per file that folds.
+import { Banner, DiffView } from "@mcurcio/patchbay/composites";
 import { Button, IconButton, Panel } from "@mcurcio/patchbay/primitives";
 import type { ReactElement } from "react";
 
@@ -25,29 +25,6 @@ export type PendingPanelProps = {
 
 function basename(path: string): string {
   return path.split("/").pop() ?? path;
-}
-
-function Diff({ text }: { readonly text: string }): ReactElement {
-  return (
-    <pre className="diff">
-      {text.split("\n").map((line, i) => (
-        <div
-          key={i}
-          className={
-            line.startsWith("+") && !line.startsWith("+++")
-              ? "add"
-              : line.startsWith("-") && !line.startsWith("---")
-                ? "del"
-                : line.startsWith("@@")
-                  ? "hunk"
-                  : undefined
-          }
-        >
-          {line || " "}
-        </div>
-      ))}
-    </pre>
-  );
 }
 
 export function PendingPanel({
@@ -116,14 +93,9 @@ export function PendingPanel({
       {saved.length > 0 ? (
         <Banner tone="ok">Saved {saved.map(basename).join(", ")}; the running graph reloads it.</Banner>
       ) : null}
-      {outcome?.changes.map((change) => (
-        <details key={change.path} open>
-          <summary className="mono small" title={change.path}>
-            {basename(change.path)}
-          </summary>
-          <Diff text={change.diff} />
-        </details>
-      ))}
+      {outcome && outcome.changes.length > 0 ? (
+        <DiffView role="region" aria-label="What Save writes" files={outcome.changes} />
+      ) : null}
     </Panel>
   );
 }

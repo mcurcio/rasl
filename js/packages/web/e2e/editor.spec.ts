@@ -81,7 +81,14 @@ test("a node added and wired in the page is saved to the file and runs", async (
     .locator(".react-flow__handle.source")
     .dragTo(node(page, "console_sink_1").locator(".react-flow__handle.target"));
   await expect(page.getByRole("list", { name: "Queued changes" }).getByRole("listitem")).toHaveCount(2);
-  await expect(page.locator(".diff")).toContainText("+    node ConsoleSink console_sink_1 {");
+  const diff = page.getByRole("region", { name: "What Save writes" });
+  await expect(diff.getByRole("button", { name: "rasl.conf" })).toHaveAttribute("aria-expanded", "true");
+  await expect(diff).toContainText("+    node ConsoleSink console_sink_1 {");
+  // A file's section folds from its heading, and opens again
+  await diff.getByRole("button", { name: "rasl.conf" }).click();
+  await expect(diff.getByText("+    node ConsoleSink console_sink_1 {")).toBeHidden();
+  await diff.getByRole("button", { name: "rasl.conf" }).click();
+  await expect(diff.getByText("+    node ConsoleSink console_sink_1 {")).toBeVisible();
   await expect(node(page, "console_sink_1").locator(".node-card")).toHaveClass(/status-added/);
 
   await save(page);
