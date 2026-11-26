@@ -428,6 +428,8 @@ function Editor(): ReactElement {
         measured: measured.get(node.id),
         selected: selection.node === node.id,
         draggable: false,
+        // The one rule for where a wire may start or end (D23): never on a node queued for removal, nor while the graph
+        // is read-only. NodeCard passes it to each PortRow, as React Flow's handles would start a drag regardless.
         connectable: graph?.editable === true && node.status !== "removed",
         data: {
           node,

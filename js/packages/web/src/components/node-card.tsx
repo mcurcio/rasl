@@ -2,6 +2,8 @@
 // metrics a Pill, a queued change the box's change, a build error its line, and a locked node's Badge in the footer.
 // Each port is a PortRow with the editor's own handle ids (in:<name>, out:<name>), which edits and ELK's ports use;
 // while a wire is dragged each row takes its hint from the editor's useConnectHints (app.tsx), through ConnectHints.
+// A port starts or takes a wire only while its node does (React Flow's isConnectable, from app.tsx's rule: not on a
+// node queued for removal, not while the graph is read-only); React Flow starts a drag from any handle not told so.
 // The line and the footer are drawn exactly when layout.ts's nodeShape() makes room for them.
 import { NodeBox, type PortSpec } from "@mcurcio/patchbay/graph";
 import { Badge, Pill, type PillTone } from "@mcurcio/patchbay/primitives";
@@ -42,11 +44,11 @@ function typeLabel(port: Port): string {
   return `${type}${width}${count}`;
 }
 
-export function NodeCard({ data, selected }: NodeProps & { data: NodeCardData }): ReactElement {
+export function NodeCard({ data, selected, isConnectable }: NodeProps & { data: NodeCardData }): ReactElement {
   const { node, metrics, problemPorts } = data;
   const port = (side: "in" | "out", p: Port): PortSpec => {
     const id = `${side}:${p.name}`;
-    return { id, label: p.name, typeLabel: typeLabel(p), problem: problemPorts.get(id) };
+    return { id, label: p.name, typeLabel: typeLabel(p), problem: problemPorts.get(id), connectable: isConnectable };
   };
   const state = health(metrics);
   return (

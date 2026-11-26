@@ -131,6 +131,57 @@ test("while a wire is dragged, ports that cannot take it are marked", async ({ p
   await expect(page.locator(".react-flow__handle[data-hint]")).toHaveCount(0);
 });
 
+/**
+ * Press a port's handle and move off it, then say whether a wire drag began: its line is drawn, or the ports are
+ * marked for it (React Flow draws no line while the graph is not connectable, but a drag that began still marks
+ * them). The pointer goes back before it is let go, so a press that pans the view instead leaves it where it was.
+ */
+async function dragsWire(page: Page, handle: ReturnType<Page["locator"]>): Promise<boolean> {
+  const box = await handle.boundingBox();
+  if (!box) throw new Error("no handle");
+  const from = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x + 60, from.y + 40, { steps: 6 });
+  const drawn =
+    (await page.locator(".react-flow__connectionline").count()) > 0 ||
+    (await page.locator(".react-flow__handle[data-hint]").count()) > 0;
+  await page.mouse.move(from.x, from.y, { steps: 6 });
+  await page.mouse.up();
+  return drawn;
+}
+
+test("ports on a node queued for removal, and every port of a read-only graph, start no wire", async ({ page }) => {
+  await open(page);
+  const palette = page.getByRole("dialog", { name: "Add a node" });
+  // A port of a node that stays starts a wire (dropped on empty canvas from an input, it adds nothing)
+  expect(await dragsWire(page, node(page, "console").locator(".react-flow__handle.target"))).toBe(true);
+  await expect(palette).toHaveCount(0);
+
+  await node(page, "console").click();
+  await page.keyboard.press("Delete");
+  await expect(card(page, "console")).toHaveAttribute("data-change", "removed");
+  expect(await dragsWire(page, node(page, "console").locator(".react-flow__handle.target"))).toBe(false);
+  await expect(palette).toHaveCount(0);
+  await expect(page.getByRole("list", { name: "Queued changes" }).getByRole("listitem")).toHaveCount(1);
+
+  // A graph the server cannot save (editable false) starts no wire from any port
+  await page.route("**/graphql", async (route) => {
+    const body = route.request().postData() ?? "";
+    if (!body.includes("configGraph")) return route.continue();
+    const response = await route.fetch();
+    const json = (await response.json()) as { data: { configGraph: { editable: boolean } | null } };
+    if (json.data.configGraph) json.data.configGraph.editable = false;
+    return route.fulfill({ response, json });
+  });
+  await open(page);
+  await expect(page.getByRole("button", { name: /^Add node/ })).toHaveCount(0);
+  const handles = page.locator(".react-flow__handle");
+  await expect(handles).toHaveCount(11);
+  for (let i = 0; i < 11; i++) expect(await dragsWire(page, handles.nth(i)), `port ${i}`).toBe(false);
+  await expect(palette).toHaveCount(0);
+});
+
 test("a connection the graph refuses names its ports and cannot be saved", async ({ page }) => {
   await open(page);
   await node(page, "hue")
