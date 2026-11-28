@@ -57,7 +57,7 @@ body,
   flex-direction: column;
   gap: var(--pb-space-3);
 }
-.side > .pending {
+.side > .queued {
   padding-top: var(--pb-space-3);
   border-top: 1px solid var(--pb-line);
 }
@@ -80,8 +80,11 @@ body,
   color: var(--pb-err);
   font-size: 12px;
 }
-.pending .pending-banner {
+.queued .queued-banner {
   margin: 8px 0;
+}
+.queued .queued-list {
+  margin: 4px 0 8px;
 }
 .problem {
   color: var(--pb-err);
@@ -90,25 +93,6 @@ body,
   background: var(--pb-sunken);
   padding: 8px;
   border-radius: var(--pb-radius-control);
-}
-.edit-list {
-  padding-left: 20px;
-  margin: 4px 0 8px;
-  font-size: 13px;
-}
-.edit-list li {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 6px;
-}
-.edit-list li.refused {
-  color: var(--pb-err);
-}
-.actions {
-  display: flex;
-  gap: 8px;
-  margin: 8px 0;
 }
 
 .add-form {

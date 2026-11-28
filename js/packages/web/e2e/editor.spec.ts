@@ -52,6 +52,11 @@ function card(page: Page, id: string) {
   return node(page, id).getByRole("group", { name: id, exact: true });
 }
 
+/** The queued changes' rows (patchbay's ChangeList, a region named "Queued changes"). */
+function queued(page: Page) {
+  return page.getByRole("region", { name: "Queued changes" }).getByRole("listitem");
+}
+
 /** The add-node palette's option for a node type or another name of one, by its label. */
 function typeOption(page: Page, label: string) {
   return page.getByRole("option").filter({ has: page.getByText(label, { exact: true }) });
@@ -93,7 +98,7 @@ test("a node added and wired in the page is saved to the file and runs", async (
   await node(page, "rgb")
     .locator(".react-flow__handle.source")
     .dragTo(node(page, "console_sink_1").locator(".react-flow__handle.target"));
-  await expect(page.getByRole("list", { name: "Queued changes" }).getByRole("listitem")).toHaveCount(2);
+  await expect(queued(page)).toHaveCount(2);
   // The queued connection is drawn as patchbay's Wire in the added tone, dashed until saved
   const wire = page.getByRole("group", { name: "Edge from rgb to console_sink_1" }).locator("[data-tone]");
   await expect(wire).toHaveAttribute("data-tone", "added");
@@ -163,7 +168,7 @@ test("ports on a node queued for removal, and every port of a read-only graph, s
   await expect(card(page, "console")).toHaveAttribute("data-change", "removed");
   expect(await dragsWire(page, node(page, "console").locator(".react-flow__handle.target"))).toBe(false);
   await expect(palette).toHaveCount(0);
-  await expect(page.getByRole("list", { name: "Queued changes" }).getByRole("listitem")).toHaveCount(1);
+  await expect(queued(page)).toHaveCount(1);
 
   // A graph the server cannot save (editable false) starts no wire from any port
   await page.route("**/graphql", async (route) => {
@@ -241,6 +246,37 @@ test("a node made by @use takes its argument, and detaches into its own lines", 
   );
 });
 
+test("the queue keeps the net change: a rename back drops the rename, and each row can be dropped", async ({
+  page,
+}) => {
+  await open(page);
+  await node(page, "console").click();
+  const id = page.getByLabel("id", { exact: true });
+  await id.fill("console2");
+  await page.getByRole("button", { name: "Rename" }).click();
+  await expect(queued(page)).toHaveCount(1);
+  await expect(queued(page).first()).toContainText("renamed");
+  await expect(queued(page).first()).toContainText("console → console2");
+  await expect(card(page, "console2")).toHaveAttribute("data-change", "renamed");
+  // Renamed back to the name the file gives it, the node has no change left
+  await node(page, "console2").click();
+  await id.fill("console");
+  await page.getByRole("button", { name: "Rename" }).click();
+  await expect(queued(page)).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Queued changes" }).getByRole("status")).toHaveText(
+    "No changes queued",
+  );
+  await expect(card(page, "console")).not.toHaveAttribute("data-change");
+
+  await node(page, "console").click();
+  await page.keyboard.press("Delete");
+  await expect(queued(page)).toHaveCount(1);
+  await expect(queued(page).first()).toContainText("removed");
+  await queued(page).first().getByRole("button", { name: "Drop" }).click();
+  await expect(queued(page)).toHaveCount(0);
+  await expect(card(page, "console")).not.toHaveAttribute("data-change");
+});
+
 test("removing a node removes its connections, and the running graph drops it", async ({ page }) => {
   await open(page);
   await node(page, "console").click();
@@ -311,7 +347,7 @@ test("a double-click on empty canvas, or a wire dropped there, opens the palette
   await expect(dialog).toHaveAccessibleName(/^New ConsoleSink fed by rgb\./);
   await dialog.getByLabel("fps", { exact: true }).fill("1");
   await dialog.getByRole("button", { name: "Queue" }).click();
-  await expect(page.getByRole("list", { name: "Queued changes" }).getByRole("listitem")).toHaveCount(2);
+  await expect(queued(page)).toHaveCount(2);
   await settle(page);
   await expect(card(page, "console_sink_1")).toHaveAttribute("data-change", "added");
   // The canvas's tools are patchbay's: once the view is panned away, their fit tool brings the whole graph back
@@ -388,7 +424,7 @@ test("adding a node: the palette and the dialog close on Escape and give focus b
   await dialog.getByRole("button", { name: "Close" }).click();
   await expect(dialog).toHaveCount(0);
   await expect(opener).toBeFocused();
-  await expect(page.getByRole("list", { name: "Queued changes" })).toHaveCount(0);
+  await expect(queued(page)).toHaveCount(0);
 });
 
 test("the editor's keys: Mod+K adds a node, Mod+Z drops the last change, a text field keeps Delete", async ({
@@ -406,14 +442,13 @@ test("the editor's keys: Mod+K adds a node, Mod+Z drops the last change, a text 
   const rename = page.getByLabel("id", { exact: true });
   await rename.focus();
   await page.keyboard.press("Delete");
-  await expect(page.getByRole("list", { name: "Queued changes" })).toHaveCount(0);
+  await expect(queued(page)).toHaveCount(0);
 
   await node(page, "console").click();
   await page.keyboard.press("Delete");
-  const queued = page.getByRole("list", { name: "Queued changes" }).getByRole("listitem");
-  await expect(queued).toHaveCount(1);
+  await expect(queued(page)).toHaveCount(1);
   await page.keyboard.press("ControlOrMeta+z");
-  await expect(page.getByRole("list", { name: "Queued changes" })).toHaveCount(0);
+  await expect(queued(page)).toHaveCount(0);
 });
 
 test("the theme switch cycles system, light and dark, and the choice is kept across a reload", async ({ page }) => {

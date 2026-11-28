@@ -1,7 +1,7 @@
 import { describe as group, expect, it } from "vitest";
 
 import type { ConfigGraph, Edit, Port } from "./api";
-import { accepts, connectEdit, nextId, parseRef, queue, stage, Statuses } from "./model";
+import { accepts, changeOf, connectEdit, nextId, parseRef, queue, stage, Statuses } from "./model";
 
 const port = (name: string, isDefault = true): Port => ({
   name,
@@ -106,6 +106,54 @@ group("queue", () => {
     ];
     expect(queue(edits, { removeNode: { id: "debug" } })).toEqual([]);
   });
+
+  it("folds a change to a node added in the batch into the add", () => {
+    const add: Edit = {
+      addNode: { type: "ConsoleSink", id: "debug", values: "", settings: [{ key: "fps", values: "1" }] },
+    };
+    let edits = queue([add], { setSetting: { node: "debug", key: "fps", values: "4", index: 0, scope: "line" } }, BASE);
+    edits = queue(edits, { setSetting: { node: "debug", key: "max_channels", values: "3", index: 0, scope: "line" } });
+    edits = queue(edits, { setNodeValues: { node: "debug", values: "x" } });
+    expect(edits).toEqual([
+      {
+        addNode: {
+          type: "ConsoleSink",
+          id: "debug",
+          values: "x",
+          settings: [
+            { key: "fps", values: "4" },
+            { key: "max_channels", values: "3" },
+          ],
+        },
+      },
+    ]);
+    expect(queue(edits, { removeSetting: { node: "debug", key: "fps", index: 0 } })).toEqual([
+      { addNode: { type: "ConsoleSink", id: "debug", values: "x", settings: [{ key: "max_channels", values: "3" }] } },
+    ]);
+  });
+
+  it("drops a queued disconnect when the saved connection is made again", () => {
+    const disconnect: Edit = { disconnect: { source: "wave", target: "sink", port: null } };
+    const connect: Edit = { connect: { source: "wave", target: "sink", port: null, repeat: null, repeatUntil: null } };
+    expect(queue([disconnect], connect, BASE)).toEqual([]);
+    // With another repeat it is a change of its own
+    expect(queue([disconnect], { connect: { ...connect.connect, repeat: 2 } }, BASE)).toHaveLength(2);
+  });
+
+  it("drops the renames when a node is renamed back, naming it by its saved name again", () => {
+    const edits: Edit[] = [
+      { renameNode: { id: "wave", newId: "hue" } },
+      { setSetting: { node: "hue", key: "fps", values: "4", index: 0, scope: "line" } },
+      { renameNode: { id: "hue", newId: "tone" } },
+      { connect: { source: "tone.out", target: "sink", port: null, repeat: null, repeatUntil: null } },
+    ];
+    expect(queue(edits, { renameNode: { id: "tone", newId: "wave" } }, BASE)).toEqual([
+      { setSetting: { node: "wave", key: "fps", values: "4", index: 0, scope: "line" } },
+      { connect: { source: "wave.out", target: "sink", port: null, repeat: null, repeatUntil: null } },
+    ]);
+    // Renamed onward, the renames stay
+    expect(queue(edits, { renameNode: { id: "tone", newId: "other" } }, BASE)).toHaveLength(5);
+  });
 });
 
 group("connectEdit", () => {
@@ -151,6 +199,48 @@ group("settings", () => {
     const first: Edit = { setSetting: { node: "wave", key: "fps", values: "1", index: 0, scope: "line" } };
     const second: Edit = { setSetting: { node: "wave", key: "fps", values: "2", index: 0, scope: "line" } };
     expect(queue([first], second)).toEqual([second]);
+  });
+
+  it("drops a queued value set back to the saved one, for a line and for a node's values", () => {
+    const base: ConfigGraph = {
+      ...BASE,
+      nodes: [
+        {
+          ...BASE.nodes[0]!,
+          values: "a",
+          settings: [
+            { key: "fps", index: 0, values: "30", written: "30", locked: null, definition: null, hasBlock: false },
+          ],
+        },
+        BASE.nodes[1]!,
+      ],
+    };
+    const set: Edit = { setSetting: { node: "wave", key: "fps", values: "60", index: 0, scope: "line" } };
+    expect(queue([set], { setSetting: { ...set.setSetting, values: "30" } }, base)).toEqual([]);
+    const values: Edit = { setNodeValues: { node: "wave", values: "b" } };
+    expect(queue([values], { setNodeValues: { node: "wave", values: "c" } }, base)).toEqual([
+      { setNodeValues: { node: "wave", values: "c" } },
+    ]);
+    expect(queue([values], { setNodeValues: { node: "wave", values: "a" } }, base)).toEqual([]);
+  });
+});
+
+group("changeOf", () => {
+  it("words each edit by its change kind", () => {
+    expect(
+      changeOf({ addNode: { type: "ConsoleSink", id: "debug", values: "", settings: [{ key: "fps", values: "1" }] } }),
+    ).toEqual({ change: "added", label: "debug", detail: "node ConsoleSink · fps 1" });
+    expect(changeOf({ disconnect: { source: "wave", target: "sink", port: "dmx" } })).toEqual({
+      change: "removed",
+      label: "wave → sink.dmx",
+      detail: "connection",
+    });
+    expect(changeOf({ renameNode: { id: "a", newId: "b" } }).change).toBe("renamed");
+    expect(changeOf({ setSetting: { node: "wave", key: "fps", values: "4", index: 1, scope: "definition" } })).toEqual({
+      change: "changed",
+      label: "wave.fps[1]",
+      detail: "4 (at its definition)",
+    });
   });
 });
 

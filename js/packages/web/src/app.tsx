@@ -58,7 +58,7 @@ import {
 import { AddNodeDialog, type AddNodeRequest } from "./components/add-node-dialog";
 import { Inspector, inspectorTitle } from "./components/inspector";
 import { NodeCard, type NodeCardData } from "./components/node-card";
-import { PendingPanel } from "./components/pending-panel";
+import { QueuedChanges } from "./components/queued-changes";
 import { layout, type Positions } from "./layout";
 import { typeCommands } from "./palette";
 import { THEME_KEY } from "./theme";
@@ -278,10 +278,14 @@ function Editor(): ReactElement {
     return () => window.clearTimeout(timer);
   }, [graph, edits]);
 
-  const push = useCallback((edit: Edit) => {
-    setSaved([]);
-    setEdits((current) => queue(current, edit));
-  }, []);
+  // Each edit joins the queue as its net change (model.ts queue()), judged against the saved graph
+  const push = useCallback(
+    (edit: Edit) => {
+      setSaved([]);
+      setEdits((current) => queue(current, edit, graph ?? undefined));
+    },
+    [graph],
+  );
 
   const check = useCallback(async (): Promise<void> => {
     if (!graph) return;
@@ -503,7 +507,7 @@ function Editor(): ReactElement {
         }}
       />
       {editable ? (
-        <PendingPanel
+        <QueuedChanges
           edits={edits}
           outcome={outcome}
           saved={saved}
