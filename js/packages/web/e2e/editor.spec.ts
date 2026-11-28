@@ -401,6 +401,52 @@ test("a double-click on empty canvas, or a wire dropped there, opens the palette
   expect(await viewport.getAttribute("style")).toBe(fitted);
 });
 
+test("a zoom from the canvas tools stops the view following, until the fit tool", async ({ page }) => {
+  await open(page);
+  const viewport = page.locator(".react-flow__viewport");
+  const tools = page.getByRole("toolbar", { name: "Canvas" });
+  await tools.getByRole("button", { name: "Zoom out" }).click();
+  await settle(page);
+  const zoomed = await viewport.getAttribute("style");
+  await page.getByRole("button", { name: /Add node/ }).click();
+  await page.getByRole("dialog", { name: "Add a node" }).getByRole("combobox", { name: "Add a node" }).fill("console");
+  await typeOption(page, "ConsoleSink").click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("fps", { exact: true }).fill("1");
+  await dialog.getByRole("button", { name: "Queue" }).click();
+  await expect(card(page, "console_sink_1")).toHaveAttribute("data-change", "added");
+  await settle(page);
+  // The new layout was not fitted: the view stays where the zoom left it
+  expect(await viewport.getAttribute("style")).toBe(zoomed);
+  await tools.getByRole("button", { name: "Fit the view" }).click();
+  await settle(page);
+  expect(await viewport.getAttribute("style")).not.toBe(zoomed);
+});
+
+test("an empty graph says so on the canvas, with the add gestures only while it can be edited", async ({ page }) => {
+  let editable = true;
+  await page.route("**/graphql", async (route) => {
+    const body = route.request().postData() ?? "";
+    if (!body.includes("configGraph")) return route.continue();
+    const response = await route.fetch();
+    const json = (await response.json()) as {
+      data: { configGraph: { editable: boolean; nodes: unknown[]; edges: unknown[] } | null };
+    };
+    if (json.data.configGraph) Object.assign(json.data.configGraph, { nodes: [], edges: [], editable });
+    return route.fulfill({ response, json });
+  });
+  await page.goto("/");
+  const hint = page.getByText("The config has no nodes yet.");
+  await expect(hint).toBeVisible();
+  await expect(page.getByText(/^Double-click to add a node, or press /)).toBeVisible();
+  await expect(page.locator(".react-flow__node")).toHaveCount(0);
+
+  editable = false;
+  await page.reload();
+  await expect(hint).toBeVisible();
+  await expect(page.getByText(/^Double-click to add a node/)).toHaveCount(0);
+});
+
 test("a click on empty canvas keeps the view following: the next layout is fitted", async ({ page }) => {
   await open(page);
   const viewport = page.locator(".react-flow__viewport");

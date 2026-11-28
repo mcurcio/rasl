@@ -18,6 +18,7 @@ import {
   ConnectHints,
   ConnectStatus,
   connectTargets,
+  EmptyCanvasHint,
   mergeFlowProps,
   type OnAddAt,
   type PortRef,
@@ -645,8 +646,12 @@ function Editor(): ReactElement {
                 proOptions={{ hideAttribution: true }}
               >
                 <Background />
-                <CanvasTools onFit={follow.fit} fitOptions={FIT} />
+                <CanvasTools onFit={follow.fit} onViewMove={follow.stop} fitOptions={FIT} />
                 <ConnectStatus value={hints.value} refused={hints.refused} />
+                {/* Said only once the graph has loaded, so a loading page does not claim it is empty */}
+                <EmptyCanvasHint empty={staged !== null && staged.nodes.length === 0} add={editable} keys={ADD_KEYS}>
+                  <p>The config has no nodes yet.</p>
+                </EmptyCanvasHint>
               </ReactFlow>
             </ConnectHints>
           </section>
