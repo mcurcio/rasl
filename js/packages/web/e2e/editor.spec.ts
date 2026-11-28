@@ -132,8 +132,41 @@ test("while a wire is dragged, ports that cannot take it are marked", async ({ p
   // place to drop it
   await expect(node(page, "console").locator('.react-flow__handle[data-hint="ok"]')).toHaveCount(1);
   await expect(node(page, "rgb").locator('.react-flow__handle[data-hint="no"]')).toHaveCount(1);
+  // Over the refusing port, the canvas's status line says why; dropped there, that it was not connected
+  const own = await node(page, "rgb").locator(".react-flow__handle.target").boundingBox();
+  if (!own) throw new Error("no handle");
+  await page.mouse.move(own.x + own.width / 2, own.y + own.height / 2, { steps: 5 });
+  const status = page.getByRole("status").filter({ hasText: "wired to itself" });
+  await expect(status).toHaveText("A node is not wired to itself");
   await page.mouse.up();
   await expect(page.locator(".react-flow__handle[data-hint]")).toHaveCount(0);
+  await expect(status).toHaveText("Not connected: A node is not wired to itself");
+  await expect(queued(page)).toHaveCount(0);
+});
+
+test("a port is wired from the keyboard by its Connect to choice in the inspector", async ({ page }) => {
+  await open(page);
+  await page.getByRole("button", { name: /Add node/ }).click();
+  await page.getByRole("dialog", { name: "Add a node" }).getByRole("combobox", { name: "Add a node" }).fill("console");
+  await typeOption(page, "ConsoleSink").click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("fps", { exact: true }).fill("1");
+  await dialog.getByRole("button", { name: "Queue" }).click();
+  await settle(page);
+
+  // The new node is selected: its input lists the outputs that take it, by the canvas's own rule, and no input
+  const choice = page.getByRole("combobox", { name: "Connect input dmx to" });
+  const handle = await node(page, "rgb").locator(".react-flow__handle.source").getAttribute("data-handleid");
+  const output = `rgb.${(handle ?? "").replace(/^out:/, "")}`;
+  await expect(choice.getByRole("option", { name: output, exact: true })).toHaveCount(1);
+  await expect(choice.getByRole("option", { name: "console.dmx", exact: true })).toHaveCount(0);
+  await choice.selectOption({ label: output });
+  await expect(queued(page)).toHaveCount(2);
+  await expect(queued(page).nth(1)).toContainText(`rgb → console_sink_1`);
+  await expect(choice).toHaveValue("");
+  const wire = page.getByRole("group", { name: "Edge from rgb to console_sink_1" }).locator("[data-tone]");
+  await expect(wire).toHaveAttribute("data-tone", "added");
+  await expect(wire).toHaveAttribute("data-dashed", "");
 });
 
 /**

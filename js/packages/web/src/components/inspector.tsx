@@ -1,8 +1,10 @@
 // The selected node or connection: where it is written, its settings and ports, its metrics,
-// and the edits that apply to it (rename, remove, disconnect). Drawn on patchbay's SectionTitle,
-// KeyValue, TextInput and Button. It is the body of the side column, whose one header row AppShell
+// and the edits that apply to it (rename, remove, disconnect, and connecting each port from the
+// keyboard: a "Connect to" Select per port, listing the ports the canvas's one rule accepts, from
+// patchbay's connectTargets in app.tsx). Drawn on patchbay's SectionTitle, KeyValue, TextInput,
+// Select and Button. It is the body of the side column, whose one header row AppShell
 // draws from inspectorTitle(): a Panel's on a wide window, the sheet's own on a narrow one.
-import { Button, KeyValue, type KeyValueRow, SectionTitle, TextInput } from "@mcurcio/patchbay/primitives";
+import { Button, KeyValue, type KeyValueRow, SectionTitle, Select, TextInput } from "@mcurcio/patchbay/primitives";
 import { type ReactElement, useEffect, useState } from "react";
 
 import type { JsonSchema, NodeMetrics, SettingScope } from "../api";
@@ -17,12 +19,62 @@ export type InspectorProps = {
   readonly onRename: (id: string, newId: string) => void;
   readonly onRemove: (id: string) => void;
   readonly onDisconnect: (edge: ViewEdge) => void;
+  /** The ports one of the node's ports may be wired to, by the canvas's rule: each choice's value and words. */
+  readonly connectTargets: (side: PortSide, port: string) => readonly ConnectChoice[];
+  /** Wire one of the node's ports to the choice `value`, as a drop on the canvas would. */
+  readonly onConnectTo: (side: PortSide, port: string, value: string) => void;
   readonly schema: JsonSchema | null;
   readonly onSetSetting: (key: string, index: number, values: string, scope: SettingScope) => void;
   readonly onRemoveSetting: (key: string, index: number) => void;
   readonly onSetValues: (values: string) => void;
   readonly onDetach: () => void;
 };
+
+export type PortSide = "input" | "output";
+
+export type ConnectChoice = { readonly value: string; readonly label: string };
+
+/**
+ * A port's "Connect to" choice, the keyboard's way to wire it (patchbay's U2): the ports on the other side that take
+ * it, or that it takes. Choosing one queues the connection, and the choice goes back to its prompt.
+ */
+function PortConnect({
+  side,
+  name,
+  choices,
+  disabled,
+  onChoose,
+}: {
+  readonly side: PortSide;
+  readonly name: string;
+  readonly choices: readonly ConnectChoice[];
+  readonly disabled: boolean;
+  readonly onChoose: (value: string) => void;
+}): ReactElement {
+  return (
+    <div className="port-connect" role="group" aria-label={`${side} ${name}`}>
+      <span className="port-connect-name mono">{name}</span>
+      <span className="muted small">{side === "input" ? "in" : "out"}</span>
+      <Select
+        className="port-connect-select"
+        font="code"
+        aria-label={`Connect ${side} ${name} to`}
+        value=""
+        disabled={disabled || choices.length === 0}
+        onChange={(e) => {
+          if (e.target.value !== "") onChoose(e.target.value);
+        }}
+      >
+        <option value="">{choices.length === 0 ? "No port takes it" : "Connect to…"}</option>
+        {choices.map((choice) => (
+          <option key={choice.value} value={choice.value}>
+            {choice.label}
+          </option>
+        ))}
+      </Select>
+    </div>
+  );
+}
 
 /** The side column's title: the selected connection's or node's (its type), or the column's name with no selection. */
 export function inspectorTitle(node: ViewNode | null, edge: ViewEdge | null): string {
@@ -46,6 +98,8 @@ export function Inspector({
   onRename,
   onRemove,
   onDisconnect,
+  connectTargets,
+  onConnectTo,
   schema,
   onSetSetting,
   onRemoveSetting,
@@ -147,6 +201,26 @@ export function Inspector({
         onRemove={onRemoveSetting}
         onSetValues={onSetValues}
       />
+      {node.inputs.length + node.outputs.length > 0 ? (
+        <>
+          <SectionTitle>Ports</SectionTitle>
+          <div className="ports">
+            {[
+              ...node.inputs.map((p) => ["input", p.name] as const),
+              ...node.outputs.map((p) => ["output", p.name] as const),
+            ].map(([side, name]) => (
+              <PortConnect
+                key={`${side}:${name}`}
+                side={side}
+                name={name}
+                choices={canEdit ? connectTargets(side, name) : []}
+                disabled={!canEdit}
+                onChoose={(value) => onConnectTo(side, name, value)}
+              />
+            ))}
+          </div>
+        </>
+      ) : null}
       {metrics ? (
         <>
           <SectionTitle>Metrics</SectionTitle>

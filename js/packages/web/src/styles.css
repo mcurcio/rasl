@@ -150,3 +150,26 @@ body,
   justify-content: space-between;
   margin: 6px 0;
 }
+
+/* The inspector's ports: each a "Connect to" choice (patchbay's Select) after its name and side */
+.ports {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.port-connect {
+  display: grid;
+  grid-template-columns: 110px 28px 1fr;
+  gap: 6px;
+  align-items: center;
+  font-size: 13px;
+}
+.port-connect .port-connect-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.port-connect .port-connect-select {
+  min-width: 0;
+}

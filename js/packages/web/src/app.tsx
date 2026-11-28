@@ -14,7 +14,10 @@ import {
 import {
   type CanConnect,
   CanvasTools,
+  type ConnectCandidate,
   ConnectHints,
+  ConnectStatus,
+  connectTargets,
   mergeFlowProps,
   type OnAddAt,
   type PortRef,
@@ -407,10 +410,11 @@ function Editor(): ReactElement {
   );
 
   const problems = useMemo(() => problemPorts(outcome), [outcome]);
-  // One rule for the hints a dragged wire shows and for React Flow's check on the drop: the output's payload must be
-  // one the input takes (model.ts accepts()), and a node is never wired to itself
-  const canConnect: CanConnect = (from: PortRef, to: PortRef): boolean => {
-    if (from.nodeId === to.nodeId) return false;
+  // One rule for the hints a dragged wire shows, React Flow's check on the drop, the canvas's status line
+  // (ConnectStatus) and the inspector's "Connect to" choices (connectTargets): the output's payload must be one the
+  // input takes (model.ts accepts()), and a node is never wired to itself. A refusal is its reason, in words.
+  const canConnect: CanConnect = (from: PortRef, to: PortRef): boolean | string => {
+    if (from.nodeId === to.nodeId) return "A node is not wired to itself";
     const output = portOf(
       staged?.nodes.find((n) => n.id === from.nodeId),
       from.handleId,
@@ -419,9 +423,34 @@ function Editor(): ReactElement {
       staged?.nodes.find((n) => n.id === to.nodeId),
       to.handleId,
     );
-    return output === undefined || input === undefined || accepts(output, input, payloadTypes);
+    if (output === undefined || input === undefined || accepts(output, input, payloadTypes)) return true;
+    const emitted = `${output.types[0] ?? "?"}${output.components !== null ? `[${output.components}]` : ""}`;
+    return `${to.nodeId}.${input.name} takes ${input.types.join(" or ")}, not ${emitted}`;
   };
   const hints = useConnectHints(canConnect);
+
+  // The ports a wire may start or end at, for the inspector's "Connect to" choices: those of every node not queued for
+  // removal, as on the canvas (the inspector offers none while the graph is read-only)
+  const candidates: (ConnectCandidate & { readonly label: string })[] = useMemo(
+    () =>
+      (staged?.nodes ?? [])
+        .filter((n) => n.status !== "removed")
+        .flatMap((n) => [
+          ...n.inputs.map((p) => ({
+            nodeId: n.id,
+            handleId: `in:${p.name}`,
+            side: "input" as const,
+            label: `${n.id}.${p.name}`,
+          })),
+          ...n.outputs.map((p) => ({
+            nodeId: n.id,
+            handleId: `out:${p.name}`,
+            side: "output" as const,
+            label: `${n.id}.${p.name}`,
+          })),
+        ]),
+    [staged],
+  );
 
   const flowNodes: Node[] = useMemo(
     () =>
@@ -489,6 +518,25 @@ function Editor(): ReactElement {
         onRename={(id, newId) => push({ renameNode: { id, newId } })}
         onRemove={(id) => push({ removeNode: { id } })}
         onDisconnect={(edge) => push({ disconnect: { source: edge.source, target: edge.target, port: edge.port } })}
+        connectTargets={(side, port) =>
+          selectedNode
+            ? connectTargets(
+                { nodeId: selectedNode.id, handleId: `${side === "input" ? "in" : "out"}:${port}` },
+                side,
+                candidates,
+                canConnect,
+              ).accepted.map((c) => ({ value: `${c.nodeId}|${c.handleId ?? ""}`, label: c.label }))
+            : []
+        }
+        onConnectTo={(side, port, value) => {
+          const [other, handle] = value.split("|") as [string, string];
+          const here = `${side === "input" ? "in" : "out"}:${port}`;
+          onConnect(
+            side === "output"
+              ? { source: selectedNode?.id ?? "", sourceHandle: here, target: other, targetHandle: handle }
+              : { source: other, sourceHandle: handle, target: selectedNode?.id ?? "", targetHandle: here },
+          );
+        }}
         schema={
           types.find((t) => t.name === selectedNode?.type || t.aliases.includes(selectedNode?.type ?? ""))?.schema ??
           null
@@ -598,6 +646,7 @@ function Editor(): ReactElement {
               >
                 <Background />
                 <CanvasTools onFit={follow.fit} fitOptions={FIT} />
+                <ConnectStatus value={hints.value} refused={hints.refused} />
               </ReactFlow>
             </ConnectHints>
           </section>
