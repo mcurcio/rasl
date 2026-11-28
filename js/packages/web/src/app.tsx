@@ -1,7 +1,7 @@
 // The rasl web UI: the graph as the config files write it, live health, and the editor.
 // Edits queue (drawn dashed until saved), are checked against the server as they are made,
 // and are written to the files only on Save; the watcher then reloads the running graph.
-import { Banner, CommandPalette, type PalettePoint } from "@mcurcio/patchbay/composites";
+import { Banner, CommandPalette, type PalettePoint, ShortcutSheet } from "@mcurcio/patchbay/composites";
 import {
   ariaKeyShortcuts,
   keyLabel,
@@ -64,7 +64,7 @@ import { Inspector, inspectorTitle } from "./components/inspector";
 import { NodeCard, type NodeCardData } from "./components/node-card";
 import { QueuedChanges } from "./components/queued-changes";
 import { layout, type Positions } from "./layout";
-import { typeCommands } from "./palette";
+import { editorCommands, KEYS, shortcutLines, typeCommands } from "./palette";
 import { THEME_KEY } from "./theme";
 import { accepts, connectEdit, queue, stage, type StagedGraph, type ViewEdge, type ViewNode } from "./model";
 
@@ -82,9 +82,6 @@ const EDGE_TONES: Readonly<Record<ViewEdge["status"], WireTone | undefined>> = {
 
 /** How every fit frames the graph: patchbay's useFollowFit after each layout, and CanvasTools' fit tool. */
 const FIT: FitViewOptions = { padding: 0.12 };
-
-/** The key that opens the add-node palette. */
-const ADD_KEYS = "Mod+K";
 
 /** The side column's width in px where nothing is kept; AppShell holds it to 280-560 px. */
 const SIDE_WIDTH = 360;
@@ -106,6 +103,8 @@ type Selection = { readonly node?: string; readonly edge?: string };
  * a wire dropped, else centred), then the add-node dialog takes its id and settings.
  */
 type Adding = {
+  /** Opened by Mod+K: the whole palette, adding a node its first group. Otherwise the palette is adding alone. */
+  readonly all?: boolean;
   /** Set when a dropped wire opened it: the new node is connected to it. */
   readonly from: { readonly node: string; readonly port: string } | null;
   readonly at?: PalettePoint;
@@ -154,6 +153,7 @@ function Editor(): ReactElement {
   const [reloadError, setReloadError] = useState<string | null>(null);
   const [selection, setSelection] = useState<Selection>({});
   const [dialog, setDialog] = useState<Adding | null>(null);
+  const [keysShown, setKeysShown] = useState(false);
   const [positions, setPositions] = useState<Positions>(new Map());
   // The graph shape the view was last laid out (and, while the view follows the layout, fitted) for: the canvas says
   // data-layout="ready" when it matches the shape now shown (tests wait for it)
@@ -390,25 +390,66 @@ function Editor(): ReactElement {
     setSelection({});
   }, [staged, selection, push]);
 
-  // The editor's keys, on patchbay's useShortcuts: idle while the add-node dialog is open. Single keys never act
-  // while a text field has the focus; Mod is Cmd on Apple platforms and Ctrl elsewhere.
+  const undo = useCallback((): void => setEdits((current) => current.slice(0, -1)), []);
+  const discard = useCallback((): void => {
+    setEdits([]);
+    setPreviews(new Map());
+    setStale(false);
+  }, []);
+  const editable = graph?.editable === true;
+
+  // The editor's keys (palette.ts KEYS, patchbay U18), on patchbay's useShortcuts: idle while the palette, the
+  // add-node dialog or the shortcut sheet is open. Single keys never act while a text field has the focus; Mod is
+  // Cmd on Apple platforms and Ctrl elsewhere. A read-only graph adds nothing, so A does nothing there.
   const shortcuts: readonly Shortcut[] = [
-    { keys: ["Delete", "Backspace"], run: removeSelection },
-    { keys: "Mod+Z", run: () => setEdits((current) => current.slice(0, -1)) },
-    // A palette's chord: it acts in a text field too
-    { keys: ADD_KEYS, run: () => setDialog({ from: null, type: null }), inTextFields: true },
+    { keys: KEYS.remove, run: removeSelection },
+    { keys: KEYS.undo, run: undo },
+    // The palette's chord: it acts in a text field too
+    { keys: KEYS.palette, run: () => setDialog({ all: true, from: null, type: null }), inTextFields: true },
+    { keys: KEYS.add, run: () => setDialog({ from: null, type: null }), enabled: editable },
+    { keys: KEYS.fit, run: follow.fit },
+    { keys: KEYS.shortcuts, run: () => setKeysShown(true) },
   ];
-  useShortcuts(shortcuts, { enabled: dialog === null });
+  useShortcuts(shortcuts, { enabled: dialog === null && !keysShown });
 
   useEffect(() => {
     if (dialog?.back) setDialog({ ...dialog, back: false });
   }, [dialog]);
 
-  // The palette asks to close before a command runs, so each command sets the step from the palette's own state
-  const commands = useMemo(
-    () => typeCommands(types, (type) => setDialog(dialog && { ...dialog, type })),
-    [types, dialog],
-  );
+  const selectedNode = staged?.nodes.find((n) => n.id === selection.node) ?? null;
+  const selectedEdge = staged?.edges.find((e) => e.key === selection.edge) ?? null;
+  const removable =
+    (selectedEdge !== null && selectedEdge.status !== "removed" && !selectedEdge.locked) ||
+    (selectedEdge === null && selectedNode !== null && selectedNode.status !== "removed" && !selectedNode.locked);
+
+  // The palette asks to close before a command runs, so adding sets the step from the palette's own state
+  const chooseType = (type: NodeType): void => setDialog(dialog && { ...dialog, type });
+  const commands = dialog?.all
+    ? editorCommands(
+        {
+          types,
+          editable,
+          removable,
+          queued: edits.length,
+          busy,
+          refused: outcome?.ok === false,
+          sideOpen,
+          theme,
+        },
+        {
+          add: chooseType,
+          remove: removeSelection,
+          undo,
+          check: () => void check(),
+          save: () => void save(),
+          discard,
+          fit: follow.fit,
+          toggleSide: () => setSideOpen(!sideOpen),
+          setTheme,
+          shortcuts: () => setKeysShown(true),
+        },
+      )
+    : typeCommands(types, chooseType);
 
   const problems = useMemo(() => problemPorts(outcome), [outcome]);
   // One rule for the hints a dragged wire shows, React Flow's check on the drop, the canvas's status line
@@ -503,10 +544,6 @@ function Editor(): ReactElement {
       });
   }, [staged, selection, outcome]);
 
-  const selectedNode = staged?.nodes.find((n) => n.id === selection.node) ?? null;
-  const selectedEdge = staged?.edges.find((e) => e.key === selection.edge) ?? null;
-  const editable = graph?.editable === true;
-
   // The side column's body under its one header row, which AppShell draws from the title (D19): a Panel's beside the
   // canvas, the sheet's own beside its close button on a narrow window
   const side = (
@@ -565,11 +602,7 @@ function Editor(): ReactElement {
           onDrop={(index) => setEdits((current) => current.filter((_, i) => i !== index))}
           onCheck={() => void check()}
           onSave={() => void save()}
-          onDiscard={() => {
-            setEdits([]);
-            setPreviews(new Map());
-            setStale(false);
-          }}
+          onDiscard={discard}
         />
       ) : null}
     </div>
@@ -591,10 +624,10 @@ function Editor(): ReactElement {
             <>
               {editable ? (
                 <Button
-                  aria-keyshortcuts={ariaKeyShortcuts(ADD_KEYS)}
+                  aria-keyshortcuts={ariaKeyShortcuts(KEYS.add)}
                   onClick={() => setDialog({ from: null, type: null })}
                 >
-                  Add node ({keyLabel(ADD_KEYS)})
+                  Add node ({keyLabel(KEYS.add)})
                 </Button>
               ) : null}
               <Button aria-expanded={sideOpen} onClick={() => setSideOpen(!sideOpen)}>
@@ -646,10 +679,15 @@ function Editor(): ReactElement {
                 proOptions={{ hideAttribution: true }}
               >
                 <Background />
-                <CanvasTools onFit={follow.fit} onViewMove={follow.stop} fitOptions={FIT} />
+                <CanvasTools
+                  onFit={follow.fit}
+                  onViewMove={follow.stop}
+                  fitOptions={FIT}
+                  keyShortcuts={{ fit: ariaKeyShortcuts(KEYS.fit) }}
+                />
                 <ConnectStatus value={hints.value} refused={hints.refused} />
                 {/* Said only once the graph has loaded, so a loading page does not claim it is empty */}
-                <EmptyCanvasHint empty={staged !== null && staged.nodes.length === 0} add={editable} keys={ADD_KEYS}>
+                <EmptyCanvasHint empty={staged !== null && staged.nodes.length === 0} add={editable} keys={KEYS.add}>
                   <p>The config has no nodes yet.</p>
                 </EmptyCanvasHint>
               </ReactFlow>
@@ -662,13 +700,24 @@ function Editor(): ReactElement {
         onClose={() => setDialog(null)}
         commands={commands}
         at={dialog?.at}
-        labels={{
-          palette: "Add a node",
-          placeholder: "Search node types",
-          empty: "No node types",
-          noMatch: (query) => `No node type matches “${query}”`,
-        }}
+        labels={
+          dialog?.all
+            ? {
+                palette: "Commands",
+                placeholder: "Type a command or a node type",
+                noMatch: (query) => `No command or node type matches “${query}”`,
+              }
+            : {
+                palette: "Add a node",
+                placeholder: "Search node types",
+                empty: "No node types",
+                noMatch: (query) => `No node type matches “${query}”`,
+              }
+        }
       />
+      <ShortcutSheet open={keysShown} onClose={() => setKeysShown(false)} shortcuts={shortcutLines(editable)}>
+        <p className="muted small">Single keys do nothing while a text field has the focus.</p>
+      </ShortcutSheet>
       {dialog?.type && staged ? (
         <AddNodeDialog
           key={dialog.type.name}

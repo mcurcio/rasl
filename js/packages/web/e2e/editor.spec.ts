@@ -506,28 +506,146 @@ test("adding a node: the palette and the dialog close on Escape and give focus b
   await expect(queued(page)).toHaveCount(0);
 });
 
-test("the editor's keys: Mod+K adds a node, Mod+Z drops the last change, a text field keeps Delete", async ({
+test("the editor's keys: Mod+Z drops the last change, a text field keeps Delete and the single keys", async ({
   page,
 }) => {
   await open(page);
-  await page.keyboard.press("ControlOrMeta+k");
-  const palette = page.getByRole("dialog", { name: "Add a node" });
-  await expect(palette).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(palette).toHaveCount(0);
-
   // Delete in the rename field edits the text; the node stays
   await node(page, "console").click();
   const rename = page.getByLabel("id", { exact: true });
   await rename.focus();
   await page.keyboard.press("Delete");
   await expect(queued(page)).toHaveCount(0);
+  // A, F and ? type into the field: no palette, no sheet; Mod+K still opens the palette there
+  await rename.fill("");
+  await page.keyboard.type("af?");
+  await expect(rename).toHaveValue("af?");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page.getByRole("dialog", { name: "Commands" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
 
   await node(page, "console").click();
   await page.keyboard.press("Delete");
   await expect(queued(page)).toHaveCount(1);
   await page.keyboard.press("ControlOrMeta+z");
   await expect(queued(page)).toHaveCount(0);
+});
+
+test("Mod+K opens the whole palette, adding a node its first group, and its commands run", async ({ page }) => {
+  await open(page);
+  await page.keyboard.press("ControlOrMeta+k");
+  const palette = page.getByRole("dialog", { name: "Commands" });
+  const search = palette.getByRole("combobox", { name: "Commands" });
+  await expect(search).toBeFocused();
+  const groups = palette.getByRole("group");
+  await expect(groups.first()).toHaveAccessibleName("Add a node");
+  await expect(groups).toHaveText([/^Add a node/, /^Changes/, /^View/, /^Help/]);
+  // With nothing queued, the changes cannot act: listed, but disabled
+  const option = (name: string) => palette.getByRole("option", { name: new RegExp(`^${name}`) });
+  await expect(option("Save the changes")).toHaveAttribute("aria-disabled", "true");
+  await expect(option("Fit the view")).toHaveAttribute("aria-keyshortcuts", /F/);
+
+  // A type picked there goes on to the add-node dialog, and Back returns to the whole palette
+  await search.fill("console");
+  await expect(groups.first()).toHaveAccessibleName("Add a node");
+  await typeOption(page, "ConsoleSink").click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toHaveAccessibleName("New ConsoleSink");
+  await dialog.getByRole("button", { name: "Back" }).click();
+  await expect(search).toBeFocused();
+  await typeOption(page, "ConsoleSink").click();
+  await dialog.getByLabel("fps", { exact: true }).fill("1");
+  await dialog.getByRole("button", { name: "Queue" }).click();
+  await expect(queued(page)).toHaveCount(1);
+
+  // Now the queue can be discarded from the palette
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(option("Discard the changes")).not.toHaveAttribute("aria-disabled", "true");
+  await search.fill("discard");
+  await page.keyboard.press("Enter");
+  await expect(palette).toHaveCount(0);
+  await expect(queued(page)).toHaveCount(0);
+
+  // The side panel and the theme are there too
+  const side = page.getByRole("button", { name: "Side panel", exact: true });
+  await expect(side).toHaveAttribute("aria-expanded", "true");
+  await page.keyboard.press("ControlOrMeta+k");
+  await option("Hide the side panel").click();
+  await expect(side).toHaveAttribute("aria-expanded", "false");
+  await page.keyboard.press("ControlOrMeta+k");
+  await option("Dark theme").click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await page.keyboard.press("ControlOrMeta+k");
+  await option("Keyboard shortcuts").click();
+  await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeVisible();
+});
+
+test("A opens adding, F fits the view, and ? lists the keys", async ({ page }) => {
+  await open(page);
+  await page.keyboard.press("a");
+  const adding = page.getByRole("dialog", { name: "Add a node" });
+  await expect(adding.getByRole("combobox", { name: "Add a node" })).toBeFocused();
+  await expect(adding.getByRole("group").first()).toHaveAccessibleName("Node types");
+  await page.keyboard.press("Escape");
+  await expect(adding).toHaveCount(0);
+
+  // F fits the view as the fit tool does, and the view follows again
+  const viewport = page.locator(".react-flow__viewport");
+  const fitted = await viewport.getAttribute("style");
+  const tools = page.getByRole("toolbar", { name: "Canvas" });
+  await expect(tools.getByRole("button", { name: "Fit the view" })).toHaveAttribute("aria-keyshortcuts", "F");
+  await tools.getByRole("button", { name: "Zoom out" }).click();
+  await settle(page);
+  expect(await viewport.getAttribute("style")).not.toBe(fitted);
+  await page.locator(".react-flow__pane").click({ position: { x: 10, y: 10 } });
+  await page.keyboard.press("f");
+  await settle(page);
+  expect(await viewport.getAttribute("style")).toBe(fitted);
+
+  await page.keyboard.press("?");
+  const sheet = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+  await expect(sheet).toBeVisible();
+  for (const label of [
+    "Open the command palette",
+    "Show the keyboard shortcuts",
+    "Add a node",
+    "Remove the selection",
+    "Drop the last change",
+    "Fit the view",
+  ])
+    await expect(sheet.getByRole("term").filter({ hasText: label })).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await expect(sheet).toHaveCount(0);
+});
+
+test("a read-only graph: A adds nothing, and the palette and the sheet offer no adding or changes", async ({
+  page,
+}) => {
+  await page.route("**/graphql", async (route) => {
+    const body = route.request().postData() ?? "";
+    if (!body.includes("configGraph")) return route.continue();
+    const response = await route.fetch();
+    const json = (await response.json()) as { data: { configGraph: { editable: boolean } | null } };
+    if (json.data.configGraph) json.data.configGraph.editable = false;
+    return route.fulfill({ response, json });
+  });
+  await open(page);
+  await page.keyboard.press("a");
+  await page.keyboard.press("ControlOrMeta+k");
+  const palette = page.getByRole("dialog", { name: "Commands" });
+  await expect(palette).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Add a node" })).toHaveCount(0);
+  await expect(palette.getByRole("group")).toHaveText([/^View/, /^Help/]);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("?");
+  const sheet = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+  await expect(sheet.getByRole("term")).toHaveText([
+    "Open the command palette",
+    "Show the keyboard shortcuts",
+    "Fit the view",
+  ]);
 });
 
 test("the theme switch cycles system, light and dark, and the choice is kept across a reload", async ({ page }) => {
