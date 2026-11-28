@@ -1,6 +1,6 @@
 // The graph the editor shows: the config as written with the queued edits laid over it.
 // Pure functions only; the components render what these return.
-import type { ConfigEdge, ConfigGraph, ConfigNode, Edit, PayloadType, Port, SettingLine } from "./api";
+import type { ConfigEdge, ConfigGraph, ConfigNode, Edit, PayloadType, Port, Setting, SettingLine } from "./api";
 
 /** How a node or connection differs from the saved files. */
 export const Statuses = {
@@ -270,31 +270,168 @@ export function accepts(output: Port, input: Port, types: ReadonlyMap<string, Pa
   });
 }
 
+/** Where a node named ``name`` now came from: its name in the saved files, or that it was added in ``edits``. */
+function originOf(edits: readonly Edit[], name: string): { readonly name: string; readonly added: boolean } {
+  let current = name;
+  for (let i = edits.length - 1; i >= 0; i -= 1) {
+    const e = edits[i]!;
+    if ("renameNode" in e && e.renameNode.newId === current) current = e.renameNode.id;
+    else if ("addNode" in e && e.addNode.id === current) return { name: current, added: true };
+  }
+  return { name: current, added: false };
+}
+
+/** ``edit`` with every reference to the node ``from`` made to ``to``. */
+function retarget(edit: Edit, from: string, to: string): Edit {
+  const node = (id: string): string => (id === from ? to : id);
+  if ("removeNode" in edit) return { removeNode: { id: node(edit.removeNode.id) } };
+  if ("renameNode" in edit) return { renameNode: { ...edit.renameNode, id: node(edit.renameNode.id) } };
+  if ("connect" in edit)
+    return {
+      connect: { ...edit.connect, source: renameRef(edit.connect.source, from, to), target: node(edit.connect.target) },
+    };
+  if ("disconnect" in edit)
+    return {
+      disconnect: {
+        ...edit.disconnect,
+        source: renameRef(edit.disconnect.source, from, to),
+        target: node(edit.disconnect.target),
+      },
+    };
+  if ("setSetting" in edit) return { setSetting: { ...edit.setSetting, node: node(edit.setSetting.node) } };
+  if ("removeSetting" in edit) return { removeSetting: { ...edit.removeSetting, node: node(edit.removeSetting.node) } };
+  if ("setNodeValues" in edit) return { setNodeValues: { ...edit.setNodeValues, node: node(edit.setNodeValues.node) } };
+  if ("detach" in edit) return { detach: { id: node(edit.detach.id) } };
+  return edit;
+}
+
 /**
- * ``edits`` with ``edit`` queued. Undoing a queued edit cancels it instead of queueing its
- * opposite: removing a node added in this batch drops it and its connections, and
- * disconnecting a connection added in this batch drops the connect.
+ * Renaming a node back to the name the saved files give it: the queued renames that led from that name are dropped,
+ * and the edits queued between them name the node by it again. Undefined when ``edit`` is not such a rename.
  */
-export function queue(edits: readonly Edit[], edit: Edit): readonly Edit[] {
+function renameBack(
+  edits: readonly Edit[],
+  edit: { readonly id: string; readonly newId: string },
+): readonly Edit[] | undefined {
+  const chain = new Set<number>();
+  let name = edit.id;
+  for (let i = edits.length - 1; i >= 0; i -= 1) {
+    const e = edits[i]!;
+    if ("renameNode" in e && e.renameNode.newId === name) {
+      chain.add(i);
+      name = e.renameNode.id;
+    } else if ("addNode" in e && e.addNode.id === name) return undefined;
+  }
+  if (chain.size === 0 || name !== edit.newId) return undefined;
+  const origin = name;
+  let current = origin;
+  const kept: Edit[] = [];
+  edits.forEach((e, i) => {
+    if (chain.has(i) && "renameNode" in e) current = e.renameNode.newId;
+    else kept.push(current === origin ? e : retarget(e, current, origin));
+  });
+  return kept;
+}
+
+/** ``settings`` with the ``index``-th line of ``key`` given ``values`` (appended when there is none), or removed. */
+function foldSetting(
+  settings: readonly Setting[],
+  key: string,
+  index: number,
+  values: string | null,
+): readonly Setting[] {
+  let seen = -1;
+  let found = false;
+  const next: Setting[] = [];
+  for (const s of settings) {
+    if (s.key === key) seen += 1;
+    if (s.key === key && seen === index) {
+      found = true;
+      if (values !== null) next.push({ key, values });
+    } else next.push(s);
+  }
+  if (!found && values !== null) next.push({ key, values });
+  return next;
+}
+
+/**
+ * ``edits`` with ``edit`` queued, keeping only the net change (patchbay's ChangeList rule): queuing the reverse of a
+ * queued change drops it rather than adding a second.
+ *
+ * - Removing a node added in this batch drops the add and every queued change that names it.
+ * - A change to a node added in this batch folds into the add, which stays one added change with the new settings or
+ *   values.
+ * - Disconnecting a connection queued in this batch drops the connect; connecting again a saved connection whose
+ *   disconnect is queued (with the same repeat) drops the disconnect.
+ * - Renaming a node back to the name the saved files give it drops the renames that led from it.
+ * - A later value for a setting line, or for a node's values, replaces the queued one; a value the saved files
+ *   already hold (``base``) drops it.
+ */
+export function queue(edits: readonly Edit[], edit: Edit, base?: ConfigGraph): readonly Edit[] {
+  const addOf = (id: string): number => edits.findIndex((e) => "addNode" in e && e.addNode.id === id);
+  const savedNode = (name: string): ConfigNode | undefined => {
+    const origin = originOf(edits, name);
+    return origin.added ? undefined : base?.nodes.find((n) => n.id === origin.name);
+  };
+
   if ("removeNode" in edit) {
     const { id } = edit.removeNode;
-    const added = edits.some((e) => "addNode" in e && e.addNode.id === id);
-    if (added) {
-      return edits.filter(
-        (e) =>
-          !("addNode" in e && e.addNode.id === id) &&
-          !("connect" in e && (e.connect.target === id || parseRef(e.connect.source)?.node === id)),
-      );
+    if (addOf(id) >= 0) {
+      return edits.filter((e) => {
+        if ("addNode" in e) return e.addNode.id !== id;
+        if ("connect" in e) return e.connect.target !== id && parseRef(e.connect.source)?.node !== id;
+        if ("disconnect" in e) return e.disconnect.target !== id && parseRef(e.disconnect.source)?.node !== id;
+        if ("setSetting" in e) return e.setSetting.node !== id;
+        if ("removeSetting" in e) return e.removeSetting.node !== id;
+        if ("setNodeValues" in e) return e.setNodeValues.node !== id;
+        if ("renameNode" in e) return e.renameNode.id !== id && e.renameNode.newId !== id;
+        if ("detach" in e) return e.detach.id !== id;
+        return e.removeNode.id !== id;
+      });
+    }
+  }
+  if ("renameNode" in edit) {
+    const back = renameBack(edits, edit.renameNode);
+    if (back) return back;
+  }
+  if ("setSetting" in edit || "removeSetting" in edit || "setNodeValues" in edit) {
+    const id =
+      "setSetting" in edit
+        ? edit.setSetting.node
+        : "removeSetting" in edit
+          ? edit.removeSetting.node
+          : edit.setNodeValues.node;
+    const at = addOf(id);
+    const added = edits[at];
+    if (added && "addNode" in added) {
+      const add = added.addNode;
+      const folded: Edit = {
+        addNode:
+          "setSetting" in edit
+            ? {
+                ...add,
+                settings: foldSetting(add.settings, edit.setSetting.key, edit.setSetting.index, edit.setSetting.values),
+              }
+            : "removeSetting" in edit
+              ? { ...add, settings: foldSetting(add.settings, edit.removeSetting.key, edit.removeSetting.index, null) }
+              : { ...add, values: edit.setNodeValues.values },
+      };
+      return edits.map((e, i) => (i === at ? folded : e));
     }
   }
   if ("setSetting" in edit) {
-    // A later value for the same line replaces the queued one
-    const { node, key, index } = edit.setSetting;
+    const { node, key, index, values } = edit.setSetting;
     const kept = edits.filter(
       (e) =>
         !("setSetting" in e && e.setSetting.node === node && e.setSetting.key === key && e.setSetting.index === index),
     );
-    return [...kept, edit];
+    const saved = savedNode(node)?.settings.find((s) => s.key === key && s.index === index);
+    return saved !== undefined && saved.values === values ? kept : [...kept, edit];
+  }
+  if ("setNodeValues" in edit) {
+    const { node, values } = edit.setNodeValues;
+    const kept = edits.filter((e) => !("setNodeValues" in e && e.setNodeValues.node === node));
+    return savedNode(node)?.values === values ? kept : [...kept, edit];
   }
   if ("disconnect" in edit) {
     const { source, target, port } = edit.disconnect;
@@ -302,6 +439,19 @@ export function queue(edits: readonly Edit[], edit: Edit): readonly Edit[] {
       (e) => "connect" in e && e.connect.source === source && e.connect.target === target && e.connect.port === port,
     );
     if (index >= 0) return edits.filter((_, i) => i !== index);
+  }
+  if ("connect" in edit) {
+    const { source, target, port, repeat, repeatUntil } = edit.connect;
+    const index = edits.findIndex(
+      (e) =>
+        "disconnect" in e &&
+        e.disconnect.source === source &&
+        e.disconnect.target === target &&
+        e.disconnect.port === port,
+    );
+    const saved = base?.edges.find((e) => e.source === source && e.target === target && e.port === port);
+    if (index >= 0 && saved !== undefined && saved.repeat === repeat && saved.repeatUntil === repeatUntil)
+      return edits.filter((_, i) => i !== index);
   }
   return [...edits, edit];
 }
@@ -325,25 +475,58 @@ export function nextId(type: string, taken: ReadonlySet<string>): string {
   }
 }
 
-/** A one-line description of an edit, for the queue. */
-export function describe(edit: Edit): string {
-  if ("addNode" in edit) return `add ${edit.addNode.type} ${edit.addNode.id}`;
-  if ("removeNode" in edit) return `remove ${edit.removeNode.id}`;
-  if ("renameNode" in edit) return `rename ${edit.renameNode.id} → ${edit.renameNode.newId}`;
+/** A queued edit as the queue lists it: what it does (patchbay's change kinds), what it names, and what changes. */
+export type ChangeWords = {
+  readonly change: "added" | "removed" | "renamed" | "changed";
+  readonly label: string;
+  readonly detail: string;
+};
+
+function connectionLabel(c: {
+  readonly source: string;
+  readonly target: string;
+  readonly port: string | null;
+}): string {
+  return `${c.source} → ${c.target}${c.port ? `.${c.port}` : ""}`;
+}
+
+/** An edit's words for the queue's list. */
+export function changeOf(edit: Edit): ChangeWords {
+  if ("addNode" in edit) {
+    const settings = edit.addNode.settings.map((s) => `${s.key} ${s.values}`);
+    const values = edit.addNode.values ? [edit.addNode.values] : [];
+    return {
+      change: "added",
+      label: edit.addNode.id,
+      detail: [`node ${edit.addNode.type}`, ...values, ...settings].join(" · "),
+    };
+  }
+  if ("removeNode" in edit) return { change: "removed", label: edit.removeNode.id, detail: "node" };
+  if ("renameNode" in edit)
+    return { change: "renamed", label: `${edit.renameNode.id} → ${edit.renameNode.newId}`, detail: "node" };
   if ("connect" in edit) {
     const c = edit.connect;
-    return `connect ${c.source} → ${c.target}${c.port ? `.${c.port}` : ""}${c.repeat ? ` ×${c.repeat}` : ""}`;
+    const repeat = c.repeat ? ` ×${c.repeat}` : c.repeatUntil ? ` →${c.repeatUntil}` : "";
+    return { change: "added", label: connectionLabel(c), detail: `connection${repeat}` };
   }
-  if ("disconnect" in edit) {
-    const d = edit.disconnect;
-    return `disconnect ${d.source} → ${d.target}${d.port ? `.${d.port}` : ""}`;
-  }
+  if ("disconnect" in edit) return { change: "removed", label: connectionLabel(edit.disconnect), detail: "connection" };
   if ("setSetting" in edit) {
     const s = edit.setSetting;
-    const where = s.scope === "definition" ? " (definition)" : "";
-    return `set ${s.node}.${s.key}${s.index > 0 ? `[${s.index}]` : ""} ${s.values}${where}`;
+    return {
+      change: "changed",
+      label: `${s.node}.${s.key}${s.index > 0 ? `[${s.index}]` : ""}`,
+      detail: `${s.values}${s.scope === "definition" ? " (at its definition)" : ""}`,
+    };
   }
-  if ("removeSetting" in edit) return `unset ${edit.removeSetting.node}.${edit.removeSetting.key}`;
-  if ("setNodeValues" in edit) return `set ${edit.setNodeValues.node} values ${edit.setNodeValues.values || "(none)"}`;
-  return `detach ${edit.detach.id} from its @use`;
+  if ("removeSetting" in edit) {
+    const s = edit.removeSetting;
+    return { change: "removed", label: `${s.node}.${s.key}${s.index > 0 ? `[${s.index}]` : ""}`, detail: "setting" };
+  }
+  if ("setNodeValues" in edit)
+    return {
+      change: "changed",
+      label: `${edit.setNodeValues.node} values`,
+      detail: edit.setNodeValues.values || "(none)",
+    };
+  return { change: "changed", label: edit.detach.id, detail: "detached from its @use" };
 }

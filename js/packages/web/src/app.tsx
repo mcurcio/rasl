@@ -1,20 +1,48 @@
 // The rasl web UI: the graph as the config files write it, live health, and the editor.
 // Edits queue (drawn dashed until saved), are checked against the server as they are made,
 // and are written to the files only on Save; the watcher then reloads the running graph.
+import { Banner, CommandPalette, type PalettePoint, ShortcutSheet } from "@mcurcio/patchbay/composites";
+import {
+  ariaKeyShortcuts,
+  keyLabel,
+  type Shortcut,
+  useMediaBreakpoint,
+  usePersistentState,
+  useShortcuts,
+  useTheme,
+} from "@mcurcio/patchbay/hooks";
+import {
+  type CanConnect,
+  CanvasTools,
+  type ConnectCandidate,
+  ConnectHints,
+  ConnectStatus,
+  connectTargets,
+  EmptyCanvasHint,
+  mergeFlowProps,
+  type OnAddAt,
+  type PortRef,
+  useAddAt,
+  useConnectHints,
+  useFollowFit,
+  Wire,
+  type WireEdge,
+  type WireTone,
+} from "@mcurcio/patchbay/graph";
+import { Button, Pill, ThemeSwitch } from "@mcurcio/patchbay/primitives";
+import { AppShell, clampInspectorWidth } from "@mcurcio/patchbay/shell";
 import {
   Background,
   type Connection,
-  Controls,
-  type Edge,
-  type FinalConnectionState,
-  MarkerType,
+  type FitViewOptions,
   type Node,
   type NodeChange,
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
+  useUpdateNodeInternals,
 } from "@xyflow/react";
-import { type MouseEvent, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   applyEdits,
@@ -32,66 +60,81 @@ import {
   subscribe,
 } from "./api";
 import { AddNodeDialog, type AddNodeRequest } from "./components/add-node-dialog";
-import { Inspector } from "./components/inspector";
+import { Inspector, inspectorTitle } from "./components/inspector";
 import { NodeCard, type NodeCardData } from "./components/node-card";
-import { PendingPanel } from "./components/pending-panel";
+import { QueuedChanges } from "./components/queued-changes";
 import { layout, type Positions } from "./layout";
+import { editorCommands, KEYS, shortcutLines, typeCommands } from "./palette";
+import { THEME_KEY } from "./theme";
 import { accepts, connectEdit, queue, stage, type StagedGraph, type ViewEdge, type ViewNode } from "./model";
 
 const NODE_TYPES = { card: NodeCard };
+const EDGE_TYPES = { wire: Wire };
+
+/** A connection's tone on its Wire: a queued change in the change's tone, one the graph refuses in the refused one. */
+const EDGE_TONES: Readonly<Record<ViewEdge["status"], WireTone | undefined>> = {
+  saved: undefined,
+  added: "added",
+  removed: "removed",
+  renamed: "changed",
+  changed: "changed",
+};
+
+/** How every fit frames the graph: patchbay's useFollowFit after each layout, and CanvasTools' fit tool. */
+const FIT: FitViewOptions = { padding: 0.12 };
+
+/** The side column's width in px where nothing is kept; AppShell holds it to 280-560 px. */
+const SIDE_WIDTH = 360;
+
+/** Where the side column's width and, on a wide window, whether it is shown are kept (patchbay's usePersistentState). */
+const SIDE_KEYS = { width: "rasl-web/1/side-width", open: "rasl-web/1/side-open" } as const;
+
+/** The side column's name, as AppShell's inspector region and narrow window's sheet, and its splitter's. */
+const SIDE_LABELS = { inspector: "Side panel", resizeInspector: "Resize the side panel" } as const;
+
+const keptWidth = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) ? clampInspectorWidth(value) : undefined;
+const keptOpen = (value: unknown): boolean | undefined => (typeof value === "boolean" ? value : undefined);
 
 type Selection = { readonly node?: string; readonly edge?: string };
 
-/** The end a wire is being dragged from. */
-type Dragging = { readonly node: string; readonly handle: string; readonly side: "source" | "target" };
+/**
+ * Adding a node: first its type is picked in patchbay's CommandPalette (anchored where the pane was double-clicked or
+ * a wire dropped, else centred), then the add-node dialog takes its id and settings.
+ */
+type Adding = {
+  /** Opened by Mod+K: the whole palette, adding a node its first group. Otherwise the palette is adding alone. */
+  readonly all?: boolean;
+  /** Set when a dropped wire opened it: the new node is connected to it. */
+  readonly from: { readonly node: string; readonly port: string } | null;
+  readonly at?: PalettePoint;
+  /** The type picked; null while the palette is open. */
+  readonly type: NodeType | null;
+  /**
+   * Back from the dialog: the palette opens once the dialog has given the focus back to what opened it (in its
+   * effect's cleanup), so the palette returns it there too and keeps the focus it takes.
+   */
+  readonly back?: boolean;
+};
 
-function portOf(node: ViewNode | undefined, handle: string): ViewNode["inputs"][number] | undefined {
-  if (!node) return undefined;
+function portOf(node: ViewNode | undefined, handle: string | null): ViewNode["inputs"][number] | undefined {
+  if (!node || handle === null) return undefined;
   const [side, name] = [handle.slice(0, handle.indexOf(":")), handle.slice(handle.indexOf(":") + 1)];
   return (side === "in" ? node.inputs : node.outputs).find((p) => p.name === name);
 }
 
-/** For a dragged wire, whether each handle on the other side takes it, by node. */
-function connectionHints(
-  graph: StagedGraph,
-  dragging: Dragging,
-  types: ReadonlyMap<string, PayloadType>,
-): ReadonlyMap<string, ReadonlyMap<string, boolean>> {
-  const from = portOf(
-    graph.nodes.find((n) => n.id === dragging.node),
-    dragging.handle,
-  );
-  const hints = new Map<string, Map<string, boolean>>();
-  if (!from) return hints;
-  for (const node of graph.nodes) {
-    const marks = new Map<string, boolean>();
-    if (dragging.side === "source") {
-      for (const input of node.inputs)
-        marks.set(`in:${input.name}`, node.id !== dragging.node && accepts(from, input, types));
-    } else {
-      for (const output of node.outputs)
-        marks.set(`out:${output.name}`, node.id !== dragging.node && accepts(output, from, types));
-    }
-    hints.set(node.id, marks);
-  }
-  return hints;
-}
-
-function problemPorts(outcome: EditOutcome | null): ReadonlyMap<string, ReadonlySet<string>> {
-  const ports = new Map<string, Set<string>>();
-  const connection = outcome?.error?.connection;
-  if (!connection) return ports;
+/** The ports a refused connection names, by node and handle, with the refusal's words. */
+function problemPorts(outcome: EditOutcome | null): ReadonlyMap<string, ReadonlyMap<string, string>> {
+  const ports = new Map<string, Map<string, string>>();
+  const error = outcome?.error;
+  const connection = error?.connection;
+  if (!error || !connection) return ports;
   const add = (node: string, handle: string): void => {
-    ports.set(node, (ports.get(node) ?? new Set()).add(handle));
+    ports.set(node, (ports.get(node) ?? new Map<string, string>()).set(handle, error.message));
   };
   if (connection.source.port) add(connection.source.node, `out:${connection.source.port}`);
   if (connection.target.port) add(connection.target.node, `in:${connection.target.port}`);
   return ports;
-}
-
-function isTyping(): boolean {
-  const active = document.activeElement;
-  return active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement;
 }
 
 function Editor(): ReactElement {
@@ -99,19 +142,20 @@ function Editor(): ReactElement {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [types, setTypes] = useState<readonly NodeType[]>([]);
   const [payloadTypes, setPayloadTypes] = useState<ReadonlyMap<string, PayloadType>>(new Map());
-  const [dragging, setDragging] = useState<Dragging | null>(null);
   const [edits, setEdits] = useState<readonly Edit[]>([]);
   const [previews, setPreviews] = useState<ReadonlyMap<string, ConfigNode>>(new Map());
   const [outcome, setOutcome] = useState<EditOutcome | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"check" | "save" | null>(null);
+  const [sideWidth, setSideWidth] = usePersistentState<number>(SIDE_KEYS.width, SIDE_WIDTH, keptWidth);
   const [stale, setStale] = useState(false);
   const [metrics, setMetrics] = useState<ReadonlyMap<string, NodeMetrics>>(new Map());
   const [connected, setConnected] = useState(false);
   const [reloadError, setReloadError] = useState<string | null>(null);
   const [selection, setSelection] = useState<Selection>({});
-  const [dialog, setDialog] = useState<{ from: { node: string; port: string } | null } | null>(null);
+  const [dialog, setDialog] = useState<Adding | null>(null);
+  const [keysShown, setKeysShown] = useState(false);
   const [positions, setPositions] = useState<Positions>(new Map());
-  // The graph shape the view was last laid out and fitted for: the canvas says
+  // The graph shape the view was last laid out (and, while the view follows the layout, fitted) for: the canvas says
   // data-layout="ready" when it matches the shape now shown (tests wait for it)
   const [fittedShape, setFittedShape] = useState<string | null>(null);
   const positionsShape = useRef<string | null>(null);
@@ -130,7 +174,27 @@ function Editor(): ReactElement {
       return next;
     });
   }, []);
+  // A rebuilt node that reaches React Flow before its size is passed back loses its handles' bounds, and React Flow
+  // may not measure it again (its size has not changed), so a wire could not be dragged from it: once the sizes are
+  // passed back, the handles are measured again. (NodeBox measures them again only when its ports change.)
+  const updateNodeInternals = useUpdateNodeInternals();
+  useEffect(() => {
+    if (measured.size > 0) updateNodeInternals([...measured.keys()]);
+  }, [measured, updateNodeInternals]);
   const [saved, setSaved] = useState<readonly string[]>([]);
+  const [theme, setTheme] = useTheme({ key: THEME_KEY });
+  // The side column is AppShell's inspector. On a wide window it is shown beside the canvas until the top bar's button
+  // hides it, which is kept. Below 760 px AppShell draws it as a Sheet over the canvas (from its bottom below 600 px),
+  // which starts closed: a press on the canvas, its close button or Escape inside it close it. At every width a
+  // selection shows it and the top bar's button toggles it.
+  const narrow = useMediaBreakpoint().width !== "wide";
+  const [wideOpen, setWideOpen] = usePersistentState<boolean>(SIDE_KEYS.open, true, keptOpen);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const sideOpen = narrow ? sheetOpen : wideOpen;
+  const setSideOpen = narrow ? setSheetOpen : setWideOpen;
+  useEffect(() => {
+    if (selection.node !== undefined || selection.edge !== undefined) setSideOpen(true);
+  }, [selection]);
   const flow = useReactFlow();
   const versionRef = useRef<string | null>(null);
   const editsRef = useRef(edits);
@@ -196,15 +260,17 @@ function Editor(): ReactElement {
     };
   }, [shape]);
 
-  // Fit the view to each new layout, once it is drawn and measured
+  // Fit the view to each new layout once it is drawn and measured, until the person moves the view (patchbay's
+  // useFollowFit; CanvasTools' fit tool follows again). Each fit that lands says the layout is ready; while the view
+  // does not follow, a layout is ready once it is placed, as nothing will move the view.
+  const follow = useFollowFit({
+    key: positions,
+    fitOptions: FIT,
+    onFitted: () => setFittedShape(positionsShape.current),
+  });
   useEffect(() => {
-    if (positions.size === 0) return undefined;
-    const laidOut = positionsShape.current;
-    const timer = window.setTimeout(() => {
-      void flow.fitView({ padding: 0.12, duration: 200 }).then(() => setFittedShape(laidOut));
-    }, 60);
-    return () => window.clearTimeout(timer);
-  }, [positions, flow]);
+    if (!follow.following && positions.size > 0) setFittedShape(positionsShape.current);
+  }, [positions, follow.following]);
 
   // Check the queue against the server as it changes: the diff, and whether it builds
   useEffect(() => {
@@ -216,25 +282,29 @@ function Editor(): ReactElement {
     return () => window.clearTimeout(timer);
   }, [graph, edits]);
 
-  const push = useCallback((edit: Edit) => {
-    setSaved([]);
-    setEdits((current) => queue(current, edit));
-  }, []);
+  // Each edit joins the queue as its net change (model.ts queue()), judged against the saved graph
+  const push = useCallback(
+    (edit: Edit) => {
+      setSaved([]);
+      setEdits((current) => queue(current, edit, graph ?? undefined));
+    },
+    [graph],
+  );
 
   const check = useCallback(async (): Promise<void> => {
     if (!graph) return;
-    setBusy(true);
+    setBusy("check");
     try {
       setOutcome(await previewEdits(graph.version, edits));
       setStale(false);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }, [graph, edits]);
 
   const save = useCallback(async (): Promise<void> => {
     if (!graph) return;
-    setBusy(true);
+    setBusy("save");
     try {
       const result = await applyEdits(graph.version, edits);
       setOutcome(result);
@@ -249,7 +319,7 @@ function Editor(): ReactElement {
         await load();
       }
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }, [graph, edits, load]);
 
@@ -295,11 +365,17 @@ function Editor(): ReactElement {
     [staged, push],
   );
 
-  const onConnectEnd = useCallback((_: unknown, state: FinalConnectionState): void => {
-    setDragging(null);
-    if (state.isValid || !state.fromNode || !state.fromHandle?.id || state.fromHandle.type !== "source") return;
-    setDialog({ from: { node: state.fromNode.id, port: state.fromHandle.id.replace(/^out:/, "") } });
-  }, []);
+  // A double-click on empty canvas, or a wire from an output dropped there, opens the palette at that point; the wire's
+  // output is then joined to the new node. A wire from an input dropped there adds nothing.
+  const onAddAt: OnAddAt = (point, from) => {
+    if (from !== undefined && (from.side !== "output" || from.handleId === null)) return;
+    setDialog({
+      from: from ? { node: from.nodeId, port: (from.handleId ?? "").replace(/^out:/, "") } : null,
+      at: flow.flowToScreenPosition(point),
+      type: null,
+    });
+  };
+  const addAt = useAddAt(onAddAt, { enabled: graph?.editable === true });
 
   const removeSelection = useCallback((): void => {
     if (!staged) return;
@@ -314,40 +390,108 @@ function Editor(): ReactElement {
     setSelection({});
   }, [staged, selection, push]);
 
+  const undo = useCallback((): void => setEdits((current) => current.slice(0, -1)), []);
+  const discard = useCallback((): void => {
+    setEdits([]);
+    setPreviews(new Map());
+    setStale(false);
+  }, []);
+  const editable = graph?.editable === true;
+
+  // The editor's keys (palette.ts KEYS, patchbay U18), on patchbay's useShortcuts: idle while the palette, the
+  // add-node dialog or the shortcut sheet is open. Single keys never act while a text field has the focus; Mod is
+  // Cmd on Apple platforms and Ctrl elsewhere. A read-only graph queues nothing, so A, Delete and Mod+Z do nothing there.
+  const shortcuts: readonly Shortcut[] = [
+    { keys: KEYS.remove, run: removeSelection, enabled: editable },
+    { keys: KEYS.undo, run: undo, enabled: editable },
+    // The palette's chord: it acts in a text field too
+    { keys: KEYS.palette, run: () => setDialog({ all: true, from: null, type: null }), inTextFields: true },
+    { keys: KEYS.add, run: () => setDialog({ from: null, type: null }), enabled: editable },
+    { keys: KEYS.fit, run: follow.fit },
+    { keys: KEYS.shortcuts, run: () => setKeysShown(true) },
+  ];
+  useShortcuts(shortcuts, { enabled: dialog === null && !keysShown });
+
   useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (isTyping() || dialog) return;
-      if (event.key === "Delete" || event.key === "Backspace") removeSelection();
-      else if ((event.metaKey || event.ctrlKey) && event.key === "z") setEdits((current) => current.slice(0, -1));
-      else if ((event.metaKey || event.ctrlKey) && event.key === "k") {
-        event.preventDefault();
-        setDialog({ from: null });
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [removeSelection, dialog]);
+    if (dialog?.back) setDialog({ ...dialog, back: false });
+  }, [dialog]);
+
+  const selectedNode = staged?.nodes.find((n) => n.id === selection.node) ?? null;
+  const selectedEdge = staged?.edges.find((e) => e.key === selection.edge) ?? null;
+  const removable =
+    (selectedEdge !== null && selectedEdge.status !== "removed" && !selectedEdge.locked) ||
+    (selectedEdge === null && selectedNode !== null && selectedNode.status !== "removed" && !selectedNode.locked);
+
+  // The palette asks to close before a command runs, so adding sets the step from the palette's own state
+  const chooseType = (type: NodeType): void => setDialog(dialog && { ...dialog, type });
+  const commands = dialog?.all
+    ? editorCommands(
+        {
+          types,
+          editable,
+          removable,
+          queued: edits.length,
+          busy,
+          refused: outcome?.ok === false,
+          sideOpen,
+          theme,
+        },
+        {
+          add: chooseType,
+          remove: removeSelection,
+          undo,
+          check: () => void check(),
+          save: () => void save(),
+          discard,
+          fit: follow.fit,
+          toggleSide: () => setSideOpen(!sideOpen),
+          setTheme,
+          shortcuts: () => setKeysShown(true),
+        },
+      )
+    : typeCommands(types, chooseType);
 
   const problems = useMemo(() => problemPorts(outcome), [outcome]);
-  const hints = useMemo(
-    () => (staged && dragging ? connectionHints(staged, dragging, payloadTypes) : null),
-    [staged, dragging, payloadTypes],
-  );
+  // One rule for the hints a dragged wire shows, React Flow's check on the drop, the canvas's status line
+  // (ConnectStatus) and the inspector's "Connect to" choices (connectTargets): the output's payload must be one the
+  // input takes (model.ts accepts()), and a node is never wired to itself. A refusal is its reason, in words.
+  const canConnect: CanConnect = (from: PortRef, to: PortRef): boolean | string => {
+    if (from.nodeId === to.nodeId) return "A node is not wired to itself";
+    const output = portOf(
+      staged?.nodes.find((n) => n.id === from.nodeId),
+      from.handleId,
+    );
+    const input = portOf(
+      staged?.nodes.find((n) => n.id === to.nodeId),
+      to.handleId,
+    );
+    if (output === undefined || input === undefined || accepts(output, input, payloadTypes)) return true;
+    const emitted = `${output.types[0] ?? "?"}${output.components !== null ? `[${output.components}]` : ""}`;
+    return `${to.nodeId}.${input.name} takes ${input.types.join(" or ")}, not ${emitted}`;
+  };
+  const hints = useConnectHints(canConnect);
 
-  const isValidConnection = useCallback(
-    (connection: Edge | Connection): boolean => {
-      if (!staged || !connection.sourceHandle || !connection.targetHandle) return true;
-      const output = portOf(
-        staged.nodes.find((n) => n.id === connection.source),
-        connection.sourceHandle,
-      );
-      const input = portOf(
-        staged.nodes.find((n) => n.id === connection.target),
-        connection.targetHandle,
-      );
-      return output === undefined || input === undefined || accepts(output, input, payloadTypes);
-    },
-    [staged, payloadTypes],
+  // The ports a wire may start or end at, for the inspector's "Connect to" choices: those of every node not queued for
+  // removal, as on the canvas (the inspector offers none while the graph is read-only)
+  const candidates: (ConnectCandidate & { readonly label: string })[] = useMemo(
+    () =>
+      (staged?.nodes ?? [])
+        .filter((n) => n.status !== "removed")
+        .flatMap((n) => [
+          ...n.inputs.map((p) => ({
+            nodeId: n.id,
+            handleId: `in:${p.name}`,
+            side: "input" as const,
+            label: `${n.id}.${p.name}`,
+          })),
+          ...n.outputs.map((p) => ({
+            nodeId: n.id,
+            handleId: `out:${p.name}`,
+            side: "output" as const,
+            label: `${n.id}.${p.name}`,
+          })),
+        ]),
+    [staged],
   );
 
   const flowNodes: Node[] = useMemo(
@@ -359,18 +503,19 @@ function Editor(): ReactElement {
         measured: measured.get(node.id),
         selected: selection.node === node.id,
         draggable: false,
+        // The one rule for where a wire may start or end (D23): never on a node queued for removal, nor while the graph
+        // is read-only. NodeCard passes it to each PortRow, as React Flow's handles would start a drag regardless.
         connectable: graph?.editable === true && node.status !== "removed",
         data: {
           node,
           metrics: metrics.get(node.renamedFrom ?? node.id),
-          problemPorts: problems.get(node.id) ?? new Set(),
-          hints: hints?.get(node.id) ?? null,
+          problemPorts: problems.get(node.id) ?? new Map(),
         } satisfies NodeCardData,
       })),
-    [staged, positions, measured, selection, metrics, problems, graph, hints],
+    [staged, positions, measured, selection, metrics, problems, graph],
   );
 
-  const flowEdges: Edge[] = useMemo(() => {
+  const flowEdges: WireEdge[] = useMemo(() => {
     const connection = outcome?.error?.connection;
     return (staged?.edges ?? [])
       .filter((e) => e.sourceNode !== null)
@@ -387,126 +532,204 @@ function Editor(): ReactElement {
           sourceHandle: e.sourcePort ? `out:${e.sourcePort}` : null,
           targetHandle: e.targetPort ? `in:${e.targetPort}` : null,
           selected: selection.edge === e.key,
-          className: `edge-${e.status}${failing ? " edge-problem" : ""}`,
-          label: e.repeat ? `×${e.repeat}` : e.repeatUntil ? `→${e.repeatUntil}` : undefined,
-          markerEnd: { type: MarkerType.ArrowClosed },
-        };
+          type: "wire",
+          data: {
+            tone: failing ? "refused" : EDGE_TONES[e.status],
+            dashed: e.status !== "saved",
+            arrow: true,
+            label: e.repeat ? `×${e.repeat}` : e.repeatUntil ? `→${e.repeatUntil}` : undefined,
+            title: failing ? outcome?.error?.message : undefined,
+          },
+        } satisfies WireEdge;
       });
   }, [staged, selection, outcome]);
 
-  const selectedNode = staged?.nodes.find((n) => n.id === selection.node) ?? null;
-  const selectedEdge = staged?.edges.find((e) => e.key === selection.edge) ?? null;
-  const editable = graph?.editable === true;
-
-  const onDoubleClick = (event: MouseEvent): void => {
-    if (editable && (event.target as HTMLElement).classList.contains("react-flow__pane")) setDialog({ from: null });
-  };
-
-  return (
-    <div className="app">
-      <header className="topbar">
-        <span className="brand">rasl</span>
-        <span className="muted mono small">{graph?.path}</span>
-        <span className="spacer" />
-        {editable ? (
-          <button className="button" onClick={() => setDialog({ from: null })}>
-            Add node (⌘K)
-          </button>
-        ) : null}
-        <span className={`conn ${connected ? "on" : "off"}`}>{connected ? "live" : "offline"}</span>
-      </header>
-      {loadError ? <div className="banner error">{loadError}</div> : null}
-      {reloadError ? <div className="banner error">The running graph did not reload: {reloadError}</div> : null}
-      {graph?.error && edits.length === 0 ? (
-        <div className="banner warning">The config does not build: {graph.error.message}</div>
-      ) : null}
-      <main className="layout">
-        <section
-          className="canvas"
-          data-layout={staged && fittedShape === shape ? "ready" : "pending"}
-          onDoubleClick={onDoubleClick}
-        >
-          <ReactFlow
-            nodes={flowNodes}
-            edges={flowEdges}
-            nodeTypes={NODE_TYPES}
-            onConnect={onConnect}
-            onNodesChange={onNodesChange}
-            onConnectEnd={onConnectEnd}
-            onConnectStart={(_, start) => {
-              if (start.nodeId && start.handleId && start.handleType) {
-                setDragging({ node: start.nodeId, handle: start.handleId, side: start.handleType });
-              }
-            }}
-            isValidConnection={isValidConnection}
-            onNodeClick={(_, node) => setSelection({ node: node.id })}
-            onEdgeClick={(_, edge) => setSelection({ edge: edge.id })}
-            onPaneClick={() => setSelection({})}
-            nodesConnectable={editable}
-            deleteKeyCode={null}
-            zoomOnDoubleClick={false}
-            fitView
-            proOptions={{ hideAttribution: true }}
-          >
-            <Background />
-            <Controls showInteractive={false} />
-          </ReactFlow>
-        </section>
-        <aside className="side">
-          <Inspector
-            node={selectedNode}
-            edge={selectedEdge}
-            metrics={selectedNode ? metrics.get(selectedNode.renamedFrom ?? selectedNode.id) : undefined}
-            editable={editable}
-            onRename={(id, newId) => push({ renameNode: { id, newId } })}
-            onRemove={(id) => push({ removeNode: { id } })}
-            onDisconnect={(edge) => push({ disconnect: { source: edge.source, target: edge.target, port: edge.port } })}
-            schema={
-              types.find((t) => t.name === selectedNode?.type || t.aliases.includes(selectedNode?.type ?? ""))
-                ?.schema ?? null
-            }
-            onSetSetting={(key, index, values, scope) => {
-              if (selectedNode) push({ setSetting: { node: selectedNode.id, key, index, values, scope } });
-            }}
-            onRemoveSetting={(key, index) => {
-              if (selectedNode) push({ removeSetting: { node: selectedNode.id, key, index } });
-            }}
-            onSetValues={(values) => {
-              if (selectedNode) push({ setNodeValues: { node: selectedNode.id, values } });
-            }}
-            onDetach={() => {
-              if (selectedNode) push({ detach: { id: selectedNode.id } });
-            }}
-          />
-          {editable ? (
-            <PendingPanel
-              edits={edits}
-              outcome={outcome}
-              saved={saved}
-              busy={busy}
-              stale={stale}
-              onDrop={(index) => setEdits((current) => current.filter((_, i) => i !== index))}
-              onCheck={() => void check()}
-              onSave={() => void save()}
-              onDiscard={() => {
-                setEdits([]);
-                setPreviews(new Map());
-                setStale(false);
-              }}
-            />
-          ) : null}
-        </aside>
-      </main>
-      {dialog && staged ? (
-        <AddNodeDialog
-          types={types}
-          takenIds={new Set(staged.nodes.map((n) => n.id))}
-          from={dialog.from}
-          onAdd={addNode}
-          onClose={() => setDialog(null)}
+  // The side column's body under its one header row, which AppShell draws from the title (D19): a Panel's beside the
+  // canvas, the sheet's own beside its close button on a narrow window
+  const side = (
+    <div className="side">
+      <Inspector
+        node={selectedNode}
+        edge={selectedEdge}
+        metrics={selectedNode ? metrics.get(selectedNode.renamedFrom ?? selectedNode.id) : undefined}
+        editable={editable}
+        onRename={(id, newId) => push({ renameNode: { id, newId } })}
+        onRemove={(id) => push({ removeNode: { id } })}
+        onDisconnect={(edge) => push({ disconnect: { source: edge.source, target: edge.target, port: edge.port } })}
+        connectTargets={(side, port) =>
+          selectedNode
+            ? connectTargets(
+                { nodeId: selectedNode.id, handleId: `${side === "input" ? "in" : "out"}:${port}` },
+                side,
+                candidates,
+                canConnect,
+              ).accepted.map((c) => ({ value: `${c.nodeId}|${c.handleId ?? ""}`, label: c.label }))
+            : []
+        }
+        onConnectTo={(side, port, value) => {
+          const [other, handle] = value.split("|") as [string, string];
+          const here = `${side === "input" ? "in" : "out"}:${port}`;
+          onConnect(
+            side === "output"
+              ? { source: selectedNode?.id ?? "", sourceHandle: here, target: other, targetHandle: handle }
+              : { source: other, sourceHandle: handle, target: selectedNode?.id ?? "", targetHandle: here },
+          );
+        }}
+        schema={
+          types.find((t) => t.name === selectedNode?.type || t.aliases.includes(selectedNode?.type ?? ""))?.schema ??
+          null
+        }
+        onSetSetting={(key, index, values, scope) => {
+          if (selectedNode) push({ setSetting: { node: selectedNode.id, key, index, values, scope } });
+        }}
+        onRemoveSetting={(key, index) => {
+          if (selectedNode) push({ removeSetting: { node: selectedNode.id, key, index } });
+        }}
+        onSetValues={(values) => {
+          if (selectedNode) push({ setNodeValues: { node: selectedNode.id, values } });
+        }}
+        onDetach={() => {
+          if (selectedNode) push({ detach: { id: selectedNode.id } });
+        }}
+      />
+      {editable ? (
+        <QueuedChanges
+          edits={edits}
+          outcome={outcome}
+          saved={saved}
+          busy={busy}
+          stale={stale}
+          onDrop={(index) => setEdits((current) => current.filter((_, i) => i !== index))}
+          onCheck={() => void check()}
+          onSave={() => void save()}
+          onDiscard={discard}
         />
       ) : null}
     </div>
+  );
+
+  return (
+    <>
+      <AppShell
+        topBar={{
+          brand: "rasl",
+          status: (
+            <Pill
+              tone={connected ? "ok" : "err"}
+              label={connected ? "live" : "offline"}
+              title={connected ? "Receiving live updates from rasl" : "Not connected to rasl's live updates"}
+            />
+          ),
+          start: (
+            <>
+              {editable ? (
+                <Button
+                  aria-keyshortcuts={ariaKeyShortcuts(KEYS.add)}
+                  onClick={() => setDialog({ from: null, type: null })}
+                >
+                  Add node ({keyLabel(KEYS.add)})
+                </Button>
+              ) : null}
+              <Button aria-expanded={sideOpen} onClick={() => setSideOpen(!sideOpen)}>
+                Side panel
+              </Button>
+              <span className="path muted mono small">{graph?.path}</span>
+            </>
+          ),
+          end: <ThemeSwitch choice={theme} onChoose={setTheme} />,
+        }}
+        inspector={{
+          title: inspectorTitle(selectedNode, selectedEdge),
+          content: side,
+          open: sideOpen,
+          onOpen: setSideOpen,
+          width: sideWidth,
+          onWidth: setSideWidth,
+        }}
+        labels={SIDE_LABELS}
+      >
+        <div className="workspace">
+          {loadError || reloadError || (graph?.error && edits.length === 0) ? (
+            <div className="banners">
+              {loadError ? <Banner tone="err">{loadError}</Banner> : null}
+              {reloadError ? <Banner tone="err">The running graph did not reload: {reloadError}</Banner> : null}
+              {graph?.error && edits.length === 0 ? (
+                <Banner tone="warn">The config does not build: {graph.error.message}</Banner>
+              ) : null}
+            </div>
+          ) : null}
+          <section className="canvas" data-layout={staged && fittedShape === shape ? "ready" : "pending"}>
+            <ConnectHints value={hints.value}>
+              <ReactFlow
+                {...mergeFlowProps(hints.flowProps, addAt.flowProps, follow.flowProps)}
+                nodes={flowNodes}
+                edges={flowEdges}
+                nodeTypes={NODE_TYPES}
+                edgeTypes={EDGE_TYPES}
+                onConnect={onConnect}
+                onNodesChange={onNodesChange}
+                onNodeClick={(_, node) => setSelection({ node: node.id })}
+                onEdgeClick={(_, edge) => setSelection({ edge: edge.id })}
+                onPaneClick={() => {
+                  setSelection({});
+                  setSheetOpen(false);
+                }}
+                nodesConnectable={editable}
+                deleteKeyCode={null}
+                proOptions={{ hideAttribution: true }}
+              >
+                <Background />
+                <CanvasTools
+                  onFit={follow.fit}
+                  onViewMove={follow.stop}
+                  fitOptions={FIT}
+                  keyShortcuts={{ fit: ariaKeyShortcuts(KEYS.fit) }}
+                />
+                <ConnectStatus value={hints.value} refused={hints.refused} />
+                {/* Said only once the graph has loaded, so a loading page does not claim it is empty */}
+                <EmptyCanvasHint empty={staged !== null && staged.nodes.length === 0} add={editable} keys={KEYS.add}>
+                  <p>The config has no nodes yet.</p>
+                </EmptyCanvasHint>
+              </ReactFlow>
+            </ConnectHints>
+          </section>
+        </div>
+      </AppShell>
+      <CommandPalette
+        open={dialog !== null && dialog.type === null && dialog.back !== true}
+        onClose={() => setDialog(null)}
+        commands={commands}
+        at={dialog?.at}
+        labels={
+          dialog?.all
+            ? {
+                palette: "Commands",
+                placeholder: "Type a command or a node type",
+                noMatch: (query) => `No command or node type matches “${query}”`,
+              }
+            : {
+                palette: "Add a node",
+                placeholder: "Search node types",
+                empty: "No node types",
+                noMatch: (query) => `No node type matches “${query}”`,
+              }
+        }
+      />
+      <ShortcutSheet open={keysShown} onClose={() => setKeysShown(false)} shortcuts={shortcutLines(editable)}>
+        <p className="muted small">Single keys do nothing while a text field has the focus.</p>
+      </ShortcutSheet>
+      {dialog?.type && staged ? (
+        <AddNodeDialog
+          key={dialog.type.name}
+          type={dialog.type}
+          takenIds={new Set(staged.nodes.map((n) => n.id))}
+          from={dialog.from}
+          onAdd={addNode}
+          onBack={() => setDialog({ ...dialog, type: null, back: true })}
+          onClose={() => setDialog(null)}
+        />
+      ) : null}
+    </>
   );
 }
 

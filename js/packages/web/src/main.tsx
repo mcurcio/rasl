@@ -1,4 +1,5 @@
 import "@xyflow/react/dist/style.css";
+import "@mcurcio/patchbay/tokens.css";
 import "./styles.css";
 
 import { StrictMode } from "react";

@@ -1,91 +1,75 @@
-// A node on the canvas: its id and type, health from live metrics, and a handle per port.
-import { Handle, type NodeProps, Position } from "@xyflow/react";
+// A node on the canvas, drawn by patchbay's NodeBox: its id the title, its type the subtitle, its health from live
+// metrics a Pill, a queued change the box's change, a build error its line, and a locked node's Badge in the footer.
+// Each port is a PortRow with the editor's own handle ids (in:<name>, out:<name>), which edits and ELK's ports use;
+// while a wire is dragged each row takes its hint from the editor's useConnectHints (app.tsx), through ConnectHints.
+// A port starts or takes a wire only while its node does (React Flow's isConnectable, from app.tsx's rule: not on a
+// node queued for removal, not while the graph is read-only); React Flow starts a drag from any handle not told so.
+// The line and the footer are drawn exactly when layout.ts's nodeShape() makes room for them.
+import { NodeBox, type PortSpec } from "@mcurcio/patchbay/graph";
+import { Badge, Pill, type PillTone } from "@mcurcio/patchbay/primitives";
+import type { NodeProps } from "@xyflow/react";
 import type { ReactElement } from "react";
 
 import type { NodeMetrics, Port } from "../api";
-import { NODE_WIDTH, PORT_ROW } from "../layout";
+import { NODE_PORTS } from "../layout";
 import type { ViewNode } from "../model";
 
 export type NodeCardData = {
   readonly node: ViewNode;
   readonly metrics: NodeMetrics | undefined;
-  readonly problemPorts: ReadonlySet<string>;
-  /** While a wire is dragged: for each handle on the other side, whether it takes the wire. */
-  readonly hints: ReadonlyMap<string, boolean> | null;
+  /** The ports a refused connection names, by handle id, with the refusal's words. */
+  readonly problemPorts: ReadonlyMap<string, string>;
 };
 
-function handleClass(
-  handle: string,
-  problems: ReadonlySet<string>,
-  hints: ReadonlyMap<string, boolean> | null,
-): string {
-  const classes = [];
-  if (problems.has(handle)) classes.push("handle-problem");
-  const hint = hints?.get(handle);
-  if (hint === true) classes.push("hint-ok");
-  if (hint === false) classes.push("hint-no");
-  return classes.join(" ");
-}
+type Health = "idle" | "ok" | "degraded" | "failing";
 
-function health(metrics: NodeMetrics | undefined): string {
+const HEALTH_TONES: Readonly<Record<Health, PillTone>> = {
+  idle: "off",
+  ok: "ok",
+  degraded: "warn",
+  failing: "err",
+};
+
+function health(metrics: NodeMetrics | undefined): Health {
   if (!metrics) return "idle";
   if (metrics.lastError) return "failing";
   return metrics.successRate >= 0.99 ? "ok" : "degraded";
 }
 
-function portLabel(port: Port): string {
+/** A port's type as the card shows it: its payload types, its component count, and a fixed connection count. */
+function typeLabel(port: Port): string {
   const type = port.types.join("|");
   const count = port.minCount !== null && port.minCount === port.maxCount ? `×${port.minCount}` : "";
   const width = port.components !== null ? `[${port.components}]` : "";
   return `${type}${width}${count}`;
 }
 
-export function NodeCard({ data, selected }: NodeProps & { data: NodeCardData }): ReactElement {
-  const { node, metrics, problemPorts, hints } = data;
-  const rows = Math.max(node.inputs.length, node.outputs.length, 1);
+export function NodeCard({ data, selected, isConnectable }: NodeProps & { data: NodeCardData }): ReactElement {
+  const { node, metrics, problemPorts } = data;
+  const port = (side: "in" | "out", p: Port): PortSpec => {
+    const id = `${side}:${p.name}`;
+    return { id, label: p.name, typeLabel: typeLabel(p), problem: problemPorts.get(id), connectable: isConnectable };
+  };
+  const state = health(metrics);
   return (
-    <div
-      className={`node-card status-${node.status}${selected ? " selected" : ""}${node.error ? " has-error" : ""}`}
-      style={{ width: NODE_WIDTH }}
-      title={node.error ?? node.locked ?? undefined}
-    >
-      <div className="node-header">
-        <span className={`health health-${health(metrics)}`} title={metrics?.lastError ?? health(metrics)} />
-        <span className="node-id">{node.id}</span>
-        <span className="node-type">{node.type}</span>
-        {node.locked ? (
-          <span className="badge" title={node.locked}>
+    <NodeBox
+      title={node.id}
+      subtitle={node.type}
+      selected={selected}
+      change={node.status === "saved" ? undefined : node.status}
+      failed={node.error !== null}
+      line={node.error ?? undefined}
+      status={<Pill tone={HEALTH_TONES[state]} label={state} title={metrics?.lastError ?? undefined} />}
+      inputs={node.inputs.map((p) => port("in", p))}
+      outputs={node.outputs.map((p) => port("out", p))}
+      ports={NODE_PORTS}
+      footer={
+        node.locked !== null ? (
+          <Badge tone="muted" title={node.locked}>
             locked
-          </span>
-        ) : null}
-        {node.status !== "saved" ? <span className={`badge badge-${node.status}`}>{node.status}</span> : null}
-      </div>
-      <div className="node-ports" style={{ height: rows * PORT_ROW }}>
-        {node.inputs.map((port, i) => (
-          <div key={`in:${port.name}`} className="port port-in" style={{ top: i * PORT_ROW }}>
-            <Handle
-              id={`in:${port.name}`}
-              type="target"
-              position={Position.Left}
-              className={handleClass(`in:${port.name}`, problemPorts, hints)}
-            />
-            <span className="port-name">{port.name}</span>
-            <span className="port-type">{portLabel(port)}</span>
-          </div>
-        ))}
-        {node.outputs.map((port, i) => (
-          <div key={`out:${port.name}`} className="port port-out" style={{ top: i * PORT_ROW }}>
-            <span className="port-type">{portLabel(port)}</span>
-            <span className="port-name">{port.name}</span>
-            <Handle
-              id={`out:${port.name}`}
-              type="source"
-              position={Position.Right}
-              className={handleClass(`out:${port.name}`, problemPorts, hints)}
-            />
-          </div>
-        ))}
-      </div>
-    </div>
+          </Badge>
+        ) : undefined
+      }
+    />
   );
 }
