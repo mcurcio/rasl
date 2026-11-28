@@ -620,7 +620,7 @@ test("A opens adding, F fits the view, and ? lists the keys", async ({ page }) =
   await expect(sheet).toHaveCount(0);
 });
 
-test("a read-only graph: A adds nothing, and the palette and the sheet offer no adding or changes", async ({
+test("a read-only graph: A, Delete and Mod+Z change nothing, and the palette and the sheet offer no adding or changes", async ({
   page,
 }) => {
   await page.route("**/graphql", async (route) => {
@@ -646,6 +646,21 @@ test("a read-only graph: A adds nothing, and the palette and the sheet offer no 
     "Show the keyboard shortcuts",
     "Fit the view",
   ]);
+  await page.keyboard.press("Escape");
+  await expect(sheet).toHaveCount(0);
+  // Delete and Mod+Z queue nothing on a graph that cannot be saved
+  await node(page, "console").click();
+  // Each key is checked after a later key the editor surely handles: once its palette is up, the key before it
+  // has been handled
+  await page.keyboard.press("Delete");
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(palette).toBeVisible();
+  await expect(card(page, "console")).not.toHaveAttribute("data-change");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("ControlOrMeta+z");
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(palette).toBeVisible();
+  await expect(card(page, "console")).not.toHaveAttribute("data-change");
 });
 
 test("the theme switch cycles system, light and dark, and the choice is kept across a reload", async ({ page }) => {

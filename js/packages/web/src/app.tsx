@@ -400,10 +400,10 @@ function Editor(): ReactElement {
 
   // The editor's keys (palette.ts KEYS, patchbay U18), on patchbay's useShortcuts: idle while the palette, the
   // add-node dialog or the shortcut sheet is open. Single keys never act while a text field has the focus; Mod is
-  // Cmd on Apple platforms and Ctrl elsewhere. A read-only graph adds nothing, so A does nothing there.
+  // Cmd on Apple platforms and Ctrl elsewhere. A read-only graph queues nothing, so A, Delete and Mod+Z do nothing there.
   const shortcuts: readonly Shortcut[] = [
-    { keys: KEYS.remove, run: removeSelection },
-    { keys: KEYS.undo, run: undo },
+    { keys: KEYS.remove, run: removeSelection, enabled: editable },
+    { keys: KEYS.undo, run: undo, enabled: editable },
     // The palette's chord: it acts in a text field too
     { keys: KEYS.palette, run: () => setDialog({ all: true, from: null, type: null }), inTextFields: true },
     { keys: KEYS.add, run: () => setDialog({ from: null, type: null }), enabled: editable },
